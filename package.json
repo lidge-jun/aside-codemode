@@ -1,0 +1,13 @@
+{
+  "name": "aside-codemode",
+  "version": "0.1.0",
+  "description": "Code mode MCP server for the Aside agent: one execute_code tool with rg-backed search, root-scoped fs and in-sandbox action discovery",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

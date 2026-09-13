@@ -65,3 +65,10 @@ test('cancelled reads and grep do not start another host traversal', async t=>{
   await assert.rejects(fs.read_file({path:'doc.txt',offset:1,limit:1}),/abort|cancel/i);
   await assert.rejects(fs.grepFile('doc.txt','needle'),/abort|cancel/i);
 });
+
+test('the internal line reader also rejects invalid windows before opening a file', async()=>{
+  const {readLines}=await import('../src/host/file-read.js');
+  for(const opts of [{limit:0},{limit:-1},{offset:0},{offset:1.5}]) {
+    await assert.rejects(readLines('/nonexistent-unused-fixture',opts),/positive integer|offset|limit/i);
+  }
+});

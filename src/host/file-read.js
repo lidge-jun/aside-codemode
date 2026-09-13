@@ -81,6 +81,9 @@ export async function readLines(p, {
   offset = 1, limit, maxBytes = Infinity, maxLineBytes = READ_CAP,
   maxOutputBytes = READ_CAP, signal,
 } = {}) {
+  if (!Number.isSafeInteger(offset) || offset < 1 || (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1))) {
+    throw new Error('readLines: offset/limit must be a positive integer');
+  }
   const out = [];
   let retained = 0;
   const end = limit === undefined ? Infinity : offset + limit - 1;

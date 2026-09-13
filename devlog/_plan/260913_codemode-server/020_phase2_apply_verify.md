@@ -14,7 +14,7 @@
 
 ## D1 — 등록 머지 (register-aside.mjs)
 - 대상: Windows C:/Users/super/.aside/u/0/settings.json, mac ~/.aside/u/0/settings.json (ASIDE_HOME env 우선).
-- 순서: (1) 원본을 settings.json.bak-YYYYMMDD-HHmmss 로 복사 — 실패하면 UNSAFE 중단. (2) JSON 파싱 실패 시 중단(손상 방지). (3) mcp.servers['aside-codemode'] = { command: <node 절대경로>, args: [<repo>/src/server.js, '--config', <repo>/codemode.config.json] } — 다른 키는 일절 보존(객체 머지, 재직렬화는 JSON.stringify 2-space). (4) codemode.config.json의 roots를 [accountRoot, developersRoot]로 기록(Windows: C:/Users/super/.aside/u/0 와 C:/Users/super/Developers, mac: ~/.aside/u/0 와 ~/Developer). (5) 결과를 stdout에 요약.
+- 순서: (1) 원본을 settings.json.bak-YYYYMMDD-HHmmss 로 복사 — 실패하면 UNSAFE 중단. (2) JSON 파싱 실패 시 중단(손상 방지). (3) mcp.servers['aside-codemode'] = { command: <node 절대경로>, args: [<repo>/src/server.js, '--config', <repo>/codemode.config.json] } — 다른 키는 일절 보존(객체 머지, 재직렬화는 JSON.stringify 2-space). (4) codemode.config.json의 roots를 [accountRoot, developersRoot]로 기록(Windows: C:/Users/super/.aside/u/0 와 C:/Users/super/Developers, mac: ~/.aside/u/0 와 ~/Developer — mac은 존재 확인 후 없으면 accountRoot만 기록). (5) 결과를 stdout에 요약.
 - node 해석(래퍼): Windows는 C:/nvm4w/nodejs/node.exe 우선, 없으면 PATH. mac은 PATH의 node. 래퍼 2개는 10줄 이내.
 - 멱등: 재실행 시 같은 키 덮어쓰기, 백업만 누적.
 
@@ -36,7 +36,7 @@
 
 ## 수용 기준
 
-1. register-aside.mjs 실행 후 settings.json의 다른 최상위 키가 백업과 동일(diff로 확인, mcp.servers 납부만 변경).
+1. register-aside.mjs 실행 후 settings.json이 백업과 의미 동일(파싱된 JSON을 재귀 비교, mcp.servers.aside-codemode 추가 외 차이 0 — 재직렬화 공백/키순 변화는 허용).
 2. exec 프로브 로그덤프에 execute_code 호출 이벤트 존재 (c-recognition).
 3. evidence/summary.md에 baseline/after 측정치와 판정 (c-speedup).
 4. 두 리모트 ls-remote 출력 (c-push).

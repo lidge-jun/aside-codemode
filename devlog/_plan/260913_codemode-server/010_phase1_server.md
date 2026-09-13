@@ -26,6 +26,7 @@ Windows/macOS 공통 코드, 플랫폼 차이는 경로 해석 한 곳(src/paths
 | test/fs.test.js | 루트 이탈 거부(.., 심볼릭링크), 캡 |
 | test/search.test.js | 픽스처 정확도, 캡, 셸 메타문자 안전, rg 부재 에러 |
 | test/actions.test.js | list/find/describe/check 계약, did-you-mean |
+| test/config.test.js | 우선순위(내장<리포<env<argv), roots 정규화, CODEMODE_* 개별 키 |
 
 ## 계약 (A-D1..A-D6, 아키텍트 ID와 1:1)
 
@@ -47,6 +48,7 @@ Windows/macOS 공통 코드, 플랫폼 차이는 경로 해석 한 곳(src/paths
 - tools/list 응답은 execute_code 1개. listChanged 미지원.
 - stdin close: 진행 중 tools/call을 abort하고 종료. notifications/cancelled: 해당 call 중단·응답 생략.
 - 알 수 없는 메서드 -32601, 잘못된 인자 -32602, 툴 낶부 실패는 isError:true 콘텐츠.
+- ping은 params 무시하고 빈 result를 즉시 반환한다.
 
 ### A-D4 — rg 해석과 spawn
 - 폐기 사다리(앞에서 성공 시 정지): config.rgPath 또는 env CODEMODE_RG(절대경로) > PATH의 rg/rg.exe > /opt/homebrew/bin/rg > /usr/local/bin/rg > (Windows) where.exe rg. 전부 실패 시 search.* 는 구조화 에러 { ok:false, error:'ripgrep not found', hint:'install rg or set CODEMODE_RG' }, 서버는 기동 유지(lazy: 첫 호출 시 해석).
@@ -68,11 +70,14 @@ Windows/macOS 공통 코드, 플랫폼 차이는 경로 해석 한 곳(src/paths
 1. initialize 전 stdout 0바이트, initialize → tools/list가 execute_code 1개 (mcp.test.js).
 2. execute_code return 1+1 → ok:true result:2 (mcp.test.js).
 3. 동기 무한루프 → vm timeout으로 ok:false (sandbox.test.js). afterEvaluate: Promise.resolve 체인 배수가 결과에 반영 (sandbox.test.js).
-4. stdin close/cancelled가 서버를 죽이지 않음 — cancelled call 응답 없이 다음 tools/list 응답 (mcp.test.js).
+4a. notifications/cancelled는 서버를 죽이지 않음 — 해당 call 응답 없이 이후 tools/list가 정상 응답 (mcp.test.js).
+4b. stdin close는 진행 중 call을 abort하고 서버가 스스로 종료(exit 0) (mcp.test.js).
 5. roots 밖 경로/심볼릭링크 이탈 → 거부 (fs.test.js).
 6. search.content 픽스처 needle 적중 + 캡 동작 + 셸 메타문자 안전 (search.test.js).
 7. rg 해석 사다리: CODEMODE_RG 최우선, 전부 부재 시 구조화 에러 (search.test.js).
 8. actions.check('search.content', {}) → missing:['query','path'], unknown path did-you-mean (actions.test.js).
+9. config 우선순위: argv --config가 env CODEMODE_CONFIG를, env가 리포 파일을 이김. roots 미설정 시 fs 거부 (config.test.js).
+10. ping에 빈 result 즉시 응답 (mcp.test.js).
 
 ## SoT sync
 - README.md가 SoT. C 단계에서 설치/등록 절차를 실측값으로 동기화.

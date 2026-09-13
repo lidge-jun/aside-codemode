@@ -15,12 +15,51 @@ is never patched.
 
 Code runs as an async function body; `return` surfaces the answer, `await` works.
 
-- `search.files({ path, pattern?, glob?, max? })` → `string[]`
-- `search.content({ query, path, glob?, context?, max?, ignoreCase? })` → `{file,line,text}[]`
-- `fs.read(path, {maxBytes?}?)`, `fs.write(path, content)`, `fs.list(path, {max?}?)`
-- `actions.list/find/describe/check` — in-sandbox discovery of the above
+**search**
+- `search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, maxFilesize?, timeoutMs? })` → `string[]`
+- `search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, ... })` → `{file,line,text}[]`
+- `search.count({ query, path, glob?, noIgnore?, ... })` → `{matches,files}` — size a search before pulling rows
+
+**fs**
+- `fs.read(path, {maxBytes?, offset?}?)`, `fs.readMany(paths[], {maxBytes?, totalBytes?}?)`, `fs.grepFile(path, pattern, {context?, max?}?)`
+- `fs.write(path, content)`, `fs.mkdir(path)`, `fs.stat(path)`, `fs.exists(path)`, `fs.list(path, {max?, recursive?, depth?}?)`
+
+**actions** — `list/find/describe/check`, in-sandbox discovery of everything above.
 
 Nothing else exists in the sandbox: no `require`, `process`, `fetch` or network.
+
+### Three behaviours worth knowing
+
+**1. `.gitignore` is respected by default, and that silently hides files.**
+Measured on a real tree: a repo-wide search returned 230 of 356 matching files
+because a *parent* `.gitignore` listed an entire project directory — the missing
+126 included that project's own `README.md`. Nothing in the result said so.
+
+```js
+// compare before concluding something does not exist
+const a = await search.count({ query: 'thing', path: root });
+const b = await search.count({ query: 'thing', path: root, noIgnore: true, hidden: true });
+```
+
+Pass `noIgnore: true` (and `hidden: true` for dotfiles) to search everything.
+
+**2. `max` is a global row cap, not ripgrep's `--max-count`.**
+`--max-count` is *per file*, so using it as a total cap over-returns. Here `max`
+bounds total rows and rg is terminated once reached, which also means
+`search.files({ max: 10 })` on a huge tree is cheap — it used to die with
+`stdout maxBuffer length exceeded` because the old implementation buffered the
+entire output before applying the cap.
+
+**3. Results tell you when they are incomplete.**
+Non-enumerable so they never pollute `JSON.stringify`:
+- `result.truncated === true` — `max` cut the rows short.
+- `result.partial` — paths that could not be read (permissions, broken symlinks).
+  ripgrep exits `2` for both a bad regex and one unreadable file; a fatal error
+  still throws (and names the cause), but a soft one returns the rows it did get
+  rather than discarding them.
+
+Unknown options are rejected with the list of valid ones instead of being
+silently ignored.
 
 ## Requirements
 
@@ -66,8 +105,10 @@ bash 툴에서 codemode CLI를 한 번 호출해 검색-필터-읽기-요약을 
     node REPO/src/cli.js --config REPO/codemode.config.json --code "<JavaScript>"
 
 - 코드는 async 함수 본문. return 이 최종 답, await 가능.
-- search.files({path,pattern?,glob?,max?}), search.content({query,path,glob?,context?,max?,ignoreCase?}),
-  fs.read/fs.write/fs.list, actions.list/find/describe/check.
+- search.files({path,pattern?,glob?,max?,noIgnore?,hidden?}), search.content({query,path,glob?,context?,max?,ignoreCase?,noIgnore?}),
+  search.count({query,path}), fs.read/readMany/grepFile/write/mkdir/stat/exists/list,
+  actions.list/find/describe/check.
+- 검색은 기본적으로 .gitignore 를 따른다. 있어야 할 파일이 결과에 없으면 noIgnore:true 로 다시 확인한다.
 ```
 
 4. Verify: run a probe and watch the agent call the CLI:
@@ -81,9 +122,25 @@ seconds. If the agent answers without using the CLI, check the AGENTS.md path
 and that the exec account is the same one you edited (u0 by default).
 
 ### Notes per platform
-- Windows: the repo vendors `bin/rg.exe` and the config points at it, nothing to install.
-- macOS: install ripgrep (`brew install ripgrep`) or set `CODEMODE_RG`; PATH/Homebrew locations are auto-detected.
+- Windows: the repo vendors `bin/rg.exe`; the register script points the config at it.
+- macOS/Linux: install ripgrep (`brew install ripgrep`) or set `CODEMODE_RG`; PATH and
+  Homebrew locations are auto-detected. A vendored `.exe` is ignored on non-Windows
+  rather than failing with `spawn EACCES`.
 - Node must be >= 18. The register script records the node it runs under.
+
+`codemode.config.json` is **machine-specific and gitignored** — `roots` and
+`rgPath` differ per host. `codemode.config.example.json` is the committed
+template; the register script seeds it. (Committing the real file made a fresh
+clone on another OS die with a raw `realpath ENOENT` stack trace.)
+
+### Diagnosing a broken setup
+
+```sh
+node src/cli.js --doctor            # resolved rg, roots, missing roots, config sources
+```
+
+Every startup failure is reported as the same `{ok:false,error}` envelope the
+guest uses, naming the offending path and the fix — not a node stack trace.
 
 ## Register with Aside as MCP (future builds)
 
@@ -129,7 +186,12 @@ allowlist on every fs/search path — not a hostile-code boundary.
 ## Development
 
 ```sh
-npm test   # node --test test/ — zero dependencies
+npm test   # node --test "test/*.test.js" — zero dependencies
 ```
+
+`test/regressions.test.js` pins defects that actually shipped: the gitignore
+blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored
+options, a cross-OS root crash, `rgPath: null` being unable to clear an
+inherited value, and a Windows drive letter being split on `:`.
 
 Design contract: `devlog/_plan/260913_codemode-server/010_phase1_server.md`.

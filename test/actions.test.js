@@ -6,9 +6,13 @@ import { createActions } from '../src/host/actions.js';
 const actions = createActions();
 
 test('list returns the catalog, filter narrows by prefix', () => {
-  assert.equal(actions.list().length, 5);
+  // Asserted as a floor, not an exact count: the catalog grows, and pinning
+  // the number made every new action a test edit with no safety value.
+  assert.ok(actions.list().length >= 11);
   const searchOnly = actions.list('search');
-  assert.deepEqual(searchOnly.map((a) => a.path), ['search.files', 'search.content']);
+  assert.deepEqual(searchOnly.map((a) => a.path), ['search.files', 'search.content', 'search.count']);
+  const fsOnly = actions.list('fs.');
+  assert.ok(fsOnly.every((a) => a.path.startsWith('fs.')));
 });
 
 test('find ranks by token coverage', () => {

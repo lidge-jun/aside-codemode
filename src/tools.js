@@ -7,10 +7,14 @@ const GUEST_API_DOC = [
   'Run JavaScript that orchestrates local search and file tools in ONE call, instead of many separate tool calls.',
   'Your code runs as an async function body: use return for the final answer and await freely. Only the returned value and console output reach the model.',
   'Injected globals (nothing else exists: no require/process/fetch/network):',
-  '- search.files({ path, pattern?, glob?, max? }) => string[] — ripgrep-backed file listing (very fast).',
-  '- search.content({ query, path, glob?, context?, max?, ignoreCase? }) => {file,line,text}[] — ripgrep-backed content search.',
-  '- fs.read(path, {maxBytes?}?) => string, fs.write(path, content), fs.list(path, {max?}?) => {name,type,size}[] — root-scoped fs.',
+  '- search.files({ path, pattern?, glob?, max?, noIgnore?, hidden? }) => string[] — ripgrep-backed path listing. Streams and stops at max.',
+  '- search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, noIgnore?, hidden? }) => {file,line,text}[] — content search. max is a GLOBAL row cap.',
+  '- search.count({ query, path, glob?, noIgnore? }) => {matches,files} — size a search before pulling rows.',
+  '- fs.read(path,{maxBytes?,offset?}), fs.readMany(paths[],{maxBytes?,totalBytes?}), fs.grepFile(path,pattern,{context?,max?}) — read one file, many files, or only matching lines.',
+  '- fs.write(path,content), fs.mkdir(path), fs.stat(path), fs.exists(path), fs.list(path,{max?,recursive?,depth?}) — root-scoped fs.',
   '- actions.list(filter?), actions.find(query), actions.describe(path), actions.check(path, args) — discover the above without schema dumps. Recommended flow: find -> describe -> check -> call.',
+  'IMPORTANT — searches respect .gitignore by default. A parent .gitignore can hide an ENTIRE project directory, so a file you know exists can be missing from results. If something expected is absent, retry with noIgnore:true (add hidden:true for dotfiles) or compare search.count with and without it before concluding it does not exist.',
+  'Unknown options are rejected with the list of valid ones rather than being silently ignored. Results carry a non-enumerable .truncated flag when max cut them short.',
   'Paths outside the configured roots are refused. Prefer one code block that searches, filters, reads only the hits, and returns a distilled answer.',
 ].join('\n');
 

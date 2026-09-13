@@ -21,8 +21,22 @@ function safeStringify(value, maxBytes) {
     text = undefined;
   }
   if (text === undefined) text = util.inspect(value, { depth: 4 });
-  if (Buffer.byteLength(text) > maxBytes) {
-    return { text: text.slice(0, maxBytes), truncated: true };
+  const total = Buffer.byteLength(text);
+  if (total > maxBytes) {
+    // Head-only truncation destroys the end of a result, which is where a
+    // summary or a final count usually lives. Keep both ends and say what was
+    // dropped, so the model can narrow the query instead of guessing.
+    // (Pattern follows the Codex tool-runtime note: head + marker + tail.)
+    const marker = `\n...[truncated: ${total} bytes total — narrow the query, lower max, or return fewer fields]...\n`;
+    // The cap must hold INCLUDING the marker, otherwise "capped at N" is a
+    // lie and a downstream buffer sized to N still overflows.
+    const budget = Math.max(0, maxBytes - Buffer.byteLength(marker));
+    const head = Math.floor(budget * 0.7);
+    const tail = budget - head;
+    const kept = tail > 0
+      ? text.slice(0, head) + marker + text.slice(text.length - tail)
+      : text.slice(0, budget) + marker;
+    return { text: kept, truncated: true, totalBytes: total };
   }
   return { text, truncated: false };
 }
@@ -69,12 +83,18 @@ export async function runCode(code, { timeoutMs, globals, maxResultBytes }) {
   if (result === undefined) {
     return { ok: true, result: undefined, logs, elapsedMs: Date.now() - started };
   }
-  const { text, truncated } = safeStringify(result, maxResultBytes);
+  const { text, truncated, totalBytes } = safeStringify(result, maxResultBytes);
   let parsed;
   try {
     parsed = truncated ? text : JSON.parse(text);
   } catch {
     parsed = text;
   }
-  return { ok: true, result: parsed, logs, elapsedMs: Date.now() - started, ...(truncated ? { truncated } : {}) };
+  return {
+    ok: true,
+    result: parsed,
+    logs,
+    elapsedMs: Date.now() - started,
+    ...(truncated ? { truncated, totalBytes } : {}),
+  };
 }

@@ -50,7 +50,10 @@ test('read cap appends a truncation marker', async () => {
   writeFileSync(path.join(root, 'big.txt'), 'z'.repeat(4096));
   const fs = createFs({ assertInside: makeRootGuard([root]) });
   const text = await fs.read(path.join(root, 'big.txt'), { maxBytes: 100 });
-  assert.match(text, /truncated: 4096 bytes total/);
+  // The marker must name BOTH how much was kept and the true total, so a
+  // reader can tell a short file from a truncated one and ask for the rest.
+  assert.match(text, /\[truncated: kept 100 of 4096 bytes/);
+  assert.match(text, /fs\.grepFile/);
 });
 
 test('empty roots deny everything', async () => {

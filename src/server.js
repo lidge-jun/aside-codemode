@@ -17,14 +17,28 @@ function log(...args) {
 }
 
 async function main() {
-  const config = loadConfig();
+  let config;
+  try {
+    config = loadConfig();
+  } catch (e) {
+    log(`FATAL config: ${e.message}`);
+    process.exit(2);
+  }
   if (process.env.CODEMODE_DEBUG_LOG) {
     try {
       const { appendFileSync } = await import('node:fs');
       appendFileSync(process.env.CODEMODE_DEBUG_LOG, JSON.stringify({ t: Date.now(), pid: process.pid, argv: process.argv, cwd: process.cwd() }) + '\n');
     } catch {}
   }
-  const assertInside = makeRootGuard(config.roots);
+  // A bad config must not kill the server with a raw stack trace on stdout —
+  // stdout is the MCP channel. Report on stderr and exit deliberately.
+  let assertInside;
+  try {
+    assertInside = makeRootGuard(config.roots);
+  } catch (e) {
+    log(`FATAL ${e.code ?? 'ECONFIG'}: ${e.message}`);
+    process.exit(2);
+  }
   const resolveRg = createRgResolver(config);
   const rgRunner = createRgRunner(resolveRg);
   const globals = {

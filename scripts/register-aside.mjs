@@ -46,12 +46,20 @@ const devCandidates = [path.join(os.homedir(), 'Developers'), path.join(os.homed
 const devRoot = devCandidates.find((d) => existsSync(d));
 const roots = devRoot ? [accountRoot, devRoot] : [accountRoot];
 const configPath = path.join(repoRoot, 'codemode.config.json');
-const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) : {};
+// codemode.config.json is machine-specific and gitignored. Seed it from the
+// committed example on a fresh clone so registration works without a manual
+// copy step (a clone used to inherit another OS's roots and crash on start).
+const examplePath = path.join(repoRoot, 'codemode.config.example.json');
+let config = {};
+if (existsSync(configPath)) config = JSON.parse(readFileSync(configPath, 'utf8'));
+else if (existsSync(examplePath)) config = JSON.parse(readFileSync(examplePath, 'utf8'));
 config.roots = roots;
 // The vendored bin/rg.exe only runs on Windows. On macOS clear rgPath so the
 // resolver walks its normal ladder (PATH, Homebrew locations).
-if (process.platform !== 'win32' && typeof config.rgPath === 'string' && config.rgPath.endsWith('.exe')) {
+if (process.platform !== 'win32' && typeof config.rgPath === 'string' && config.rgPath.toLowerCase().endsWith('.exe')) {
   config.rgPath = null;
+} else if (process.platform === 'win32' && !config.rgPath && existsSync(path.join(repoRoot, 'bin', 'rg.exe'))) {
+  config.rgPath = 'bin/rg.exe';
 }
 writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 

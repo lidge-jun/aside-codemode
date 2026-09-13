@@ -41,7 +41,7 @@ HOTL 리소스 범위: 쓰기 범위는 이 리포 + C:/Users/super/.aside/u/0/s
 
 | wp | 내용 | 문서 | 검증 |
 | --- | --- | --- | --- |
-| wp1 | aside-codemode 서버 구현 + 리포 게이트 | 010_phase1_server.md | npm test exit 0 |
+| wp1 | aside-codemode 서버 구현 + 리포 게이트 | 010_phase1_server.md(+011 이력) | npm test exit 0 |
 | wp2 | aside 등록 + exec 속도 검증 + 푸시 | 020_phase2_apply_verify.md | log-dump + evidence + ls-remote |
 
 ## 리스크

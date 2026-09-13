@@ -16,6 +16,7 @@
 //     (the killed case) the same as exit 0, so an externally killed rg returned
 //     its partial rows as a clean, complete answer.
 import { spawn } from 'node:child_process';
+import { rgChildOpts } from './child-opts.js';
 
 export const RG_TIMEOUT_MS = 30000;
 const STDERR_CAP = 4096;
@@ -66,7 +67,7 @@ export function runStream(bin, args, {
       return;
     }
     try {
-      child = spawn(bin, args, { windowsHide: true });
+      child = spawn(bin, args, rgChildOpts());
     } catch (e) {
       reject(e.code === 'ECANCELLED' ? e : new RgFailedError(`cannot spawn rg: ${e.message}`));
       return;

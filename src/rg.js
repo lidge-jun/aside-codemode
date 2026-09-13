@@ -229,8 +229,12 @@ function decodePath(p) {
 
 // Flags shared by files/content. Kept in one place so the two entry points
 // cannot drift in what they do or do not respect.
-function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize }) {
+function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }) {
   const args = [];
+  // Cheap, high-value pruning. `includeExcluded: true` opts back in.
+  if (!includeExcluded && Array.isArray(excludeGlobs)) {
+    for (const g of excludeGlobs) args.push('-g', `!${g}`);
+  }
   // -uu equivalent, split so callers can pick one axis at a time.
   if (noIgnore) args.push('--no-ignore');
   if (hidden) args.push('--hidden');
@@ -239,7 +243,7 @@ function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize }) {
   return args;
 }
 
-export function createRgRunner(resolveRg) {
+export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
   return {
     async files({
       pattern,
@@ -251,10 +255,11 @@ export function createRgRunner(resolveRg) {
       followSymlinks = false,
       maxFilesize,
       timeoutMs,
+      includeExcluded = false,
     }) {
       const rg = await resolveRg();
       const args = [...BASE_ARGS, '--files'];
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize }));
+      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
       if (glob) args.push('-g', glob);
       args.push(dir);
       const out = [];
@@ -289,6 +294,7 @@ export function createRgRunner(resolveRg) {
       wordRegexp = false,
       maxFilesize,
       timeoutMs,
+      includeExcluded = false,
     }) {
       const rg = await resolveRg();
       const args = [...BASE_ARGS, '--json'];
@@ -296,7 +302,7 @@ export function createRgRunner(resolveRg) {
       if (fixedStrings) args.push('-F');
       if (wordRegexp) args.push('-w');
       if (multiline) args.push('-U', '--multiline-dotall');
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize }));
+      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
       if (Number.isFinite(context)) args.push('-C', String(context));
       if (glob) args.push('-g', glob);
       // NOTE: --max-count is deliberately NOT used. It is a PER-FILE cap, so
@@ -340,12 +346,13 @@ export function createRgRunner(resolveRg) {
       fixedStrings = false,
       maxFilesize,
       timeoutMs,
+      includeExcluded = false,
     }) {
       const rg = await resolveRg();
       const args = [...BASE_ARGS, '--json'];
       if (ignoreCase) args.push('-i');
       if (fixedStrings) args.push('-F');
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize }));
+      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
       if (glob) args.push('-g', glob);
       args.push('--', query, dir);
       let matches = 0;

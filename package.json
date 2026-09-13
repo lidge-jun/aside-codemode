@@ -9,5 +9,15 @@
   },
   "scripts": {
     "test": "node --test \"test/*.test.js\""
-  }
+  },
+  "bin": {
+    "codemode": "bin/codemode.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "codemode.config.example.json",
+    "README.md"
+  ]
 }

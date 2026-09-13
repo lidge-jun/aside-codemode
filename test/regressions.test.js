@@ -260,3 +260,41 @@ test('user ripgrep config cannot change results (--no-config)', async () => {
   assert.equal(hits.length, 1);
   assert.equal(hits[0].line, 1, 'line numbers prove --json survived the user config');
 });
+
+test('excludeGlobs prunes heavy dirs by default and includeExcluded opts back in', async () => {
+  // With roots=$HOME the walk is 1,565,196 files / 7.8s; pruning Library and
+  // friends makes it 336,206 / 0.53s for the same answers. The pruning must be
+  // reversible per call, or it becomes an invisible second blind spot on top
+  // of .gitignore.
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-excl-'));
+  mkdirSync(path.join(dir, 'Library'));
+  writeFileSync(path.join(dir, 'Library', 'cache.md'), 'needle-token\n');
+  writeFileSync(path.join(dir, 'real.md'), 'needle-token\n');
+
+  const pruned = createRgRunner(createRgResolver({}, process.env), { excludeGlobs: ['Library'] });
+  const search = createSearch({ rgRunner: pruned, assertInside: makeRootGuard([dir]), caps });
+
+  const def = await search.content({ query: 'needle-token', path: dir });
+  assert.equal(def.length, 1, 'excluded dir must be pruned by default');
+  assert.ok(def[0].file.endsWith('real.md'));
+
+  const all = await search.content({ query: 'needle-token', path: dir, includeExcluded: true });
+  assert.equal(all.length, 2, 'includeExcluded must restore the pruned dir');
+
+  const files = await search.files({ path: dir, includeExcluded: true });
+  assert.ok(files.some((f) => f.includes('Library')));
+});
+
+test('excludeGlobs is configurable and can be emptied', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-ex-'));
+  const cfgPath = path.join(dir, 'c.json');
+  writeFileSync(cfgPath, JSON.stringify({ roots: [dir], excludeGlobs: [] }));
+  const cfg = loadConfig(['--config', cfgPath], {});
+  assert.deepEqual(cfg.excludeGlobs, [], 'an explicit empty list must disable pruning');
+
+  const viaEnv = loadConfig([], { CODEMODE_EXCLUDES: 'Library, node_modules' });
+  assert.deepEqual(viaEnv.excludeGlobs, ['Library', 'node_modules']);
+
+  const defaults = loadConfig([], {});
+  assert.ok(defaults.excludeGlobs.includes('Library'), 'Library is pruned by default');
+});

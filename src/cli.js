@@ -43,7 +43,7 @@ try {
 }
 
 const rgResolver = createRgResolver(config);
-const rgRunner = createRgRunner(rgResolver);
+const rgRunner = createRgRunner(rgResolver, { excludeGlobs: config.excludeGlobs });
 const globals = {
   search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
   fs: createFs({ assertInside }),
@@ -61,6 +61,7 @@ if (has('--doctor')) {
     missingRoots: assertInside.missingRoots,
     configSources: config._sources,
     rgPath: config.rgPath,
+    excludeGlobs: config.excludeGlobs,
   };
   try {
     report.rgResolved = await rgResolver();

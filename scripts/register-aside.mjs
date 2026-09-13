@@ -41,10 +41,14 @@ settings.mcp.servers['aside-codemode'] = {
 };
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
-// roots: account root + a developer root when one exists
-const devCandidates = [path.join(os.homedir(), 'Developers'), path.join(os.homedir(), 'Developer'), path.join(os.homedir(), 'developer')];
-const devRoot = devCandidates.find((d) => existsSync(d));
-const roots = devRoot ? [accountRoot, devRoot] : [accountRoot];
+// roots: the home directory, so anything the user owns is reachable without
+// editing config every time a new project dir appears. The cost of a wide root
+// is paid by excludeGlobs (Library/caches are pruned), not by a narrow root:
+// measured 336,206 files / 0.53s pruned vs 1,565,196 / 7.8s unpruned.
+// The account root is added separately because it can live outside $HOME.
+const home = os.homedir();
+const roots = [home];
+if (!accountRoot.startsWith(home + path.sep)) roots.push(accountRoot);
 const configPath = path.join(repoRoot, 'codemode.config.json');
 // codemode.config.json is machine-specific and gitignored. Seed it from the
 // committed example on a fresh clone so registration works without a manual
@@ -54,6 +58,9 @@ let config = {};
 if (existsSync(configPath)) config = JSON.parse(readFileSync(configPath, 'utf8'));
 else if (existsSync(examplePath)) config = JSON.parse(readFileSync(examplePath, 'utf8'));
 config.roots = roots;
+if (!Array.isArray(config.excludeGlobs)) {
+  config.excludeGlobs = ['Library', 'node_modules', '.Trash', '.cache', '.npm', '.gradle', 'Caches', 'chrome-debug-profile*', 'Pictures', 'Movies', 'Music'];
+}
 // The vendored bin/rg.exe only runs on Windows. On macOS clear rgPath so the
 // resolver walks its normal ladder (PATH, Homebrew locations).
 if (process.platform !== 'win32' && typeof config.rgPath === 'string' && config.rgPath.toLowerCase().endsWith('.exe')) {

@@ -6,5 +6,18 @@
   "searchCaps": {
     "files": 5000,
     "content": 500
-  }
+  },
+  "excludeGlobs": [
+    "Library",
+    "node_modules",
+    ".Trash",
+    ".cache",
+    ".npm",
+    ".gradle",
+    "Caches",
+    "chrome-debug-profile*",
+    "Pictures",
+    "Movies",
+    "Music"
+  ]
 }

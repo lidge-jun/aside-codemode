@@ -67,6 +67,72 @@ silently ignored.
 - ripgrep (`rg`) on PATH, or pointed at by `CODEMODE_RG` / `rgPath`
 - Windows and macOS
 
+## Global install
+
+```sh
+git clone https://github.com/lidge-jun/aside-codemode.git
+cd aside-codemode
+npm install -g .        # or: npm link
+codemode --doctor
+```
+
+That puts a `codemode` binary on PATH, callable from any directory:
+
+```sh
+codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
+codemode --doctor
+```
+
+If `npm prefix -g` points somewhere that is not on your PATH (Aside sets
+`NPM_CONFIG_PREFIX`, which wins over the default), install with an explicit
+prefix instead:
+
+```sh
+npm install -g --prefix=/opt/homebrew .
+```
+
+### Where config lives
+
+Later entries win:
+
+1. built-in defaults
+2. `codemode.config.json` next to the package (mostly for a dev clone)
+3. **`~/.config/codemode/config.json`** — the durable place for a global
+   install; survives reinstalls. Honours `XDG_CONFIG_HOME`.
+4. `$CODEMODE_CONFIG`
+5. `--config <file>`
+
+Individual env keys still win over all of them: `CODEMODE_ROOTS`,
+`CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`,
+`CODEMODE_OUTPUT_BYTES`.
+
+With no config anywhere, `roots` defaults to `$HOME` (reported by `--doctor` as
+`default:$HOME`) so a fresh global install is usable rather than deny-all.
+
+### Home-wide roots and `excludeGlobs`
+
+A wide root is the convenient setting, and the cost is paid by pruning rather
+than by narrowing the root. Measured on a real machine with `roots: ["$HOME"]`:
+
+| | files walked | time |
+|---|---:|---:|
+| default `excludeGlobs` | 331,709 | 0.77s |
+| `includeExcluded: true` | 1,565,078 | 7.37s |
+
+`~/Library` alone accounts for 1,138,593 of those files — caches and app
+support, essentially never the answer. Defaults prune `Library`,
+`node_modules`, `.Trash`, `.cache`, `.npm`, `.gradle`, `Caches`,
+`chrome-debug-profile*`, `Pictures`, `Movies`, `Music`.
+
+This is a second blind spot layered on `.gitignore`, so it is reversible per
+call and visible in `--doctor`:
+
+```js
+await search.content({ query: 'x', path: root, includeExcluded: true });
+```
+
+Set `"excludeGlobs": []` to disable pruning entirely.
+
 ## Install (the path that works on current Aside builds)
 
 Measured on Aside 1.26.913.337: CLI `aside exec` sessions do NOT attach MCP

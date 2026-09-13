@@ -12,16 +12,16 @@
 
 const FILES_OPTS = new Set([
   'pattern', 'path', 'glob', 'max',
-  'noIgnore', 'hidden', 'followSymlinks', 'maxFilesize', 'timeoutMs',
+  'noIgnore', 'hidden', 'followSymlinks', 'maxFilesize', 'timeoutMs', 'includeExcluded',
 ]);
 const CONTENT_OPTS = new Set([
   'query', 'path', 'glob', 'context', 'max', 'ignoreCase',
   'noIgnore', 'hidden', 'followSymlinks', 'fixedStrings', 'multiline',
-  'wordRegexp', 'maxFilesize', 'timeoutMs',
+  'wordRegexp', 'maxFilesize', 'timeoutMs', 'includeExcluded',
 ]);
 const COUNT_OPTS = new Set([
   'query', 'path', 'glob', 'ignoreCase',
-  'noIgnore', 'hidden', 'followSymlinks', 'fixedStrings', 'maxFilesize', 'timeoutMs',
+  'noIgnore', 'hidden', 'followSymlinks', 'fixedStrings', 'maxFilesize', 'timeoutMs', 'includeExcluded',
 ]);
 
 function rejectUnknown(fn, opts, allowed) {

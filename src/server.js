@@ -40,7 +40,7 @@ async function main() {
     process.exit(2);
   }
   const resolveRg = createRgResolver(config);
-  const rgRunner = createRgRunner(resolveRg);
+  const rgRunner = createRgRunner(resolveRg, { excludeGlobs: config.excludeGlobs });
   const globals = {
     search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
     fs: createFs({ assertInside }),

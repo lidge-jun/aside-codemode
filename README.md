@@ -1,71 +1,12 @@
 # aside-codemode
 
-Code mode MCP server for the [Aside](https://asidehq.com) agent.
-
-Aside's agent does local file work through one tool call per file and, on
-Windows, a PowerShell-backed shell tool — searching a tree means many slow
-sequential round trips. aside-codemode gives the agent a single `execute_code`
-tool instead: the model writes one JavaScript block that searches, filters,
-reads only the hits and returns a distilled answer. Searching is backed by
-ripgrep, so the primitive itself is fast too. Same idea as Cloudflare's Code
-Mode and pi-runline, as an out-of-process MCP stdio server — the Aside daemon
-is never patched.
-
-## Guest API (what the model gets inside `execute_code`)
-
-Code runs as an async function body; `return` surfaces the answer, `await` works.
-
-**search**
-- `search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, maxFilesize?, timeoutMs? })` → `string[]`
-- `search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, ... })` → `{file,line,text}[]`
-- `search.count({ query, path, glob?, noIgnore?, ... })` → `{matches,files}` — size a search before pulling rows
-
-**fs**
-- `fs.read(path, {maxBytes?, offset?}?)`, `fs.readMany(paths[], {maxBytes?, totalBytes?}?)`, `fs.grepFile(path, pattern, {context?, max?}?)`
-- `fs.write(path, content)`, `fs.mkdir(path)`, `fs.stat(path)`, `fs.exists(path)`, `fs.list(path, {max?, recursive?, depth?}?)`
-
-**actions** — `list/find/describe/check`, in-sandbox discovery of everything above.
-
-Nothing else exists in the sandbox: no `require`, `process`, `fetch` or network.
-
-### Three behaviours worth knowing
-
-**1. `.gitignore` is respected by default, and that silently hides files.**
-Measured on a real tree: a repo-wide search returned 230 of 356 matching files
-because a *parent* `.gitignore` listed an entire project directory — the missing
-126 included that project's own `README.md`. Nothing in the result said so.
-
-```js
-// compare before concluding something does not exist
-const a = await search.count({ query: 'thing', path: root });
-const b = await search.count({ query: 'thing', path: root, noIgnore: true, hidden: true });
-```
-
-Pass `noIgnore: true` (and `hidden: true` for dotfiles) to search everything.
-
-**2. `max` is a global row cap, not ripgrep's `--max-count`.**
-`--max-count` is *per file*, so using it as a total cap over-returns. Here `max`
-bounds total rows and rg is terminated once reached, which also means
-`search.files({ max: 10 })` on a huge tree is cheap — it used to die with
-`stdout maxBuffer length exceeded` because the old implementation buffered the
-entire output before applying the cap.
-
-**3. Results tell you when they are incomplete.**
-Non-enumerable so they never pollute `JSON.stringify`:
-- `result.truncated === true` — `max` cut the rows short.
-- `result.partial` — paths that could not be read (permissions, broken symlinks).
-  ripgrep exits `2` for both a bad regex and one unreadable file; a fatal error
-  still throws (and names the cause), but a soft one returns the rows it did get
-  rather than discarding them.
-
-Unknown options are rejected with the list of valid ones instead of being
-silently ignored.
+Aside exec does not attach MCP servers on current builds. The working path is one `bash` call to the `codemode` CLI plus a rule in `~/.aside/u/0/AGENTS.md`. File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`. Guest JavaScript uses those same shapes.
 
 ## Requirements
 
 - Node.js >= 18
-- ripgrep (`rg`) on PATH, or pointed at by `CODEMODE_RG` / `rgPath`
-- Windows and macOS
+- ripgrep (`rg`) on PATH, or `CODEMODE_RG` / `rgPath`. Windows may use vendored `bin/rg.exe`
+- macOS and Windows
 
 ## Global install
 
@@ -76,142 +17,109 @@ npm install -g .        # or: npm link
 codemode --doctor
 ```
 
-That puts a `codemode` binary on PATH, callable from any directory:
+`codemode` on PATH is for **you** (the operator). Aside agents must not look up `node` or `codemode` on PATH. They call the absolute pair written by register (`process.execPath` + this clone's `bin/codemode.mjs`).
 
 ```sh
 codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
 codemode --doctor
 ```
 
-If `npm prefix -g` points somewhere that is not on your PATH (Aside sets
-`NPM_CONFIG_PREFIX`, which wins over the default), install with an explicit
-prefix instead:
+If `npm prefix -g` is not on PATH (Aside sets `NPM_CONFIG_PREFIX`, which wins over the default), install with an explicit prefix:
 
 ```sh
 npm install -g --prefix=/opt/homebrew .
 ```
 
-### Where config lives
+## Project cwd
+
+Resolution order: `--cwd <abs>` > `CODEMODE_CWD` > `process.cwd()`. Relative guest paths resolve against that directory. Child agents should pass `--cwd` to the project they are editing. A missing `--cwd` flag is not an error; a `--cwd` with no directory is `{ok:false,error:"--cwd requires a directory path"}`.
+
+## Guest API
+
+Code is an async function body. `return` is the answer. Nothing else exists in the sandbox: no `require`, `process`, `fetch`, or network.
+
+| Name | Role |
+| --- | --- |
+| `search.files` / `search.content` / `search.count` | ripgrep-backed list, content, pre-flight counts |
+| `read_file({ path, offset?, limit? })` | Aside-shaped read. `offset` / `limit` are 1-indexed **lines**. Unpaged reads over 262144 bytes throw |
+| `write_file({ file_path, content })` | Aside-shaped create-only (`wx`). Overwrite throws |
+| `edit_file({ path, appendText?, edits })` | Unique `oldText` → `newText` on the original file |
+| `apply_patch(text)` | Guest helper. Codex `*** Begin Patch` text → `write_file` / `edit_file`. Success `{}`. Not an AGENTS verb |
+| `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
+| `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
+
+**`.gitignore` is on by default** and can hide a whole project. A parent ignore once dropped 126 of 356 hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
+
+**`max` is a global row cap**, not ripgrep `--max-count` (per file). The search stops when the cap is hit.
+
+Incomplete results set non-enumerable flags: `truncated` when `max` cut rows; `partial` when some paths could not be read. Unknown options are rejected instead of ignored.
+
+## Dual path
+
+- Visible single-file cards in Aside: native `read_file` / `write_file` / `edit_file` (same schemas as the guest).
+- Search, multi-file read, summarize: one bash call to the CLI. That shows as a bash card.
+- Do not call `rg`, `find`, `grep`, or `Get-ChildItem -Recurse` directly.
+
+Agent recipe (absolute paths; replace with the values register printed):
+
+```
+/abs/node /abs/aside-codemode/bin/codemode.mjs --cwd /abs/project --code "return await search.count({ query: 'TODO', path: '.' })"
+```
+
+## Register
+
+```sh
+# Safe form: the node that is already running
+node /abs/aside-codemode/scripts/register-aside.mjs
+```
+
+This writes `<!-- aside-codemode:start -->` markers into `~/.aside/u/0/AGENTS.md` using `process.execPath` and this repo's `bin/codemode.mjs`. It does **not** require `settings.json` or MCP. Missing settings still exits 0 if AGENTS wrote (`settingsOk: false`).
+
+Windows: `pwsh -File scripts/register-aside.ps1`. macOS wrapper: `sh scripts/register-aside.sh` (uses `$NODE` if set, otherwise `command -v node` as a last resort).
+
+Verify with a probe that should produce one bash CLI call, not a recursive `rg`:
+
+```sh
+aside exec --permission full-access -- "/abs/project 에서 README 가 들어있는 파일을 모두 찾아 절대경로로 보고하라"
+```
+
+## macOS
+
+Install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` is ignored on non-Windows. Noninteractive Aside PATH often has no `node` — that is why AGENTS stores the absolute `process.execPath` from the register run (issue #3).
+
+## Windows
+
+The repo vendors `bin/rg.exe`. Use `scripts/register-aside.ps1`. `.gitattributes` keeps `*.sh` as LF so a Windows checkout does not CRLF the macOS wrapper (issue #2).
+
+## Config
 
 Later entries win:
 
 1. built-in defaults
-2. `codemode.config.json` next to the package (mostly for a dev clone)
-3. **`~/.config/codemode/config.json`** — the durable place for a global
-   install; survives reinstalls. Honours `XDG_CONFIG_HOME`.
+2. `codemode.config.json` next to the package (dev clone)
+3. `~/.config/codemode/config.json` — durable for a global install; honours `XDG_CONFIG_HOME`
 4. `$CODEMODE_CONFIG`
 5. `--config <file>`
 
-Individual env keys still win over all of them: `CODEMODE_ROOTS`,
-`CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`,
-`CODEMODE_OUTPUT_BYTES`.
+Env keys still win: `CODEMODE_ROOTS`, `CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`, `CODEMODE_OUTPUT_BYTES`.
 
-With no config anywhere, `roots` defaults to `$HOME` (reported by `--doctor` as
-`default:$HOME`) so a fresh global install is usable rather than deny-all.
+With no config, `roots` defaults to `$HOME` (`--doctor` reports `default:$HOME`). Wide roots are pruned by `excludeGlobs` (`Library`, `node_modules`, caches, media, …). Measured on one machine: default excludes walked 331,709 files in 0.77s; `includeExcluded: true` walked 1,565,078 in 7.37s. Set `"excludeGlobs": []` to disable pruning. `codemode.config.json` is machine-specific and gitignored.
 
-### Home-wide roots and `excludeGlobs`
+## Trust model
 
-A wide root is the convenient setting, and the cost is paid by pruning rather
-than by narrowing the root. Measured on a real machine with `roots: ["$HOME"]`:
+`node:vm` is not a security mechanism (Node's own docs say so). Guest JS on `--code` comes from the Aside agent, which already has a shell. Treat it as the same trust level. The sandbox is accident containment — no code generation, execution timeouts, output caps, a hard root allowlist — not a hostile-code boundary.
 
-| | files walked | time |
-|---|---:|---:|
-| default `excludeGlobs` | 331,709 | 0.77s |
-| `includeExcluded: true` | 1,565,078 | 7.37s |
-
-`~/Library` alone accounts for 1,138,593 of those files — caches and app
-support, essentially never the answer. Defaults prune `Library`,
-`node_modules`, `.Trash`, `.cache`, `.npm`, `.gradle`, `Caches`,
-`chrome-debug-profile*`, `Pictures`, `Movies`, `Music`.
-
-This is a second blind spot layered on `.gitignore`, so it is reversible per
-call and visible in `--doctor`:
-
-```js
-await search.content({ query: 'x', path: root, includeExcluded: true });
-```
-
-Set `"excludeGlobs": []` to disable pruning entirely.
-
-## Install (the path that works on current Aside builds)
-
-Measured on Aside 1.26.913.337: CLI `aside exec` sessions do NOT attach MCP
-servers (the daemon never spawns them for exec), so the working integration
-is the one-shot CLI plus one rule in the account's `AGENTS.md`.
-
-1. Clone:
+## Development
 
 ```sh
-git clone https://github.com/lidge-jun/aside-codemode.git
+npm test   # node --test "test/*.test.js" — zero dependencies
 ```
 
-2. Register (backs up settings.json, merges `mcp.servers`, writes
-   `codemode.config.json` roots for this machine):
+`test/regressions.test.js` pins defects that actually shipped: the gitignore blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored options, a cross-OS root crash, `rgPath: null` being unable to clear an inherited value, and a Windows drive letter being split on `:`.
 
-```powershell
-# Windows
-pwsh -File aside-codemode/scripts/register-aside.ps1
-```
+## Future: MCP
 
-```sh
-# macOS
-sh aside-codemode/scripts/register-aside.sh
-```
-
-3. Append the rule to the Aside account's agent rules
-   (`~/.aside/u/0/AGENTS.md`, Windows: `C:\\Users\\<you>\\.aside\\u\\0\\AGENTS.md`),
-   replacing REPO with the clone location:
-
-```md
-## 로컬 파일 검색/읽기는 codemode CLI로
-
-로컬 파일을 검색하거나 여러 파일을 읽어야 할 때, PowerShell 재귀 스캔은 쓰지 않는다.
-bash 툴에서 codemode CLI를 한 번 호출해 검색-필터-읽기-요약을 끝낸다:
-
-    node REPO/src/cli.js --config REPO/codemode.config.json --code "<JavaScript>"
-
-- 코드는 async 함수 본문. return 이 최종 답, await 가능.
-- search.files({path,pattern?,glob?,max?,noIgnore?,hidden?}), search.content({query,path,glob?,context?,max?,ignoreCase?,noIgnore?}),
-  search.count({query,path}), fs.read/readMany/grepFile/write/mkdir/stat/exists/list,
-  actions.list/find/describe/check.
-- 검색은 기본적으로 .gitignore 를 따른다. 있어야 할 파일이 결과에 없으면 noIgnore:true 로 다시 확인한다.
-```
-
-4. Verify: run a probe and watch the agent call the CLI:
-
-```sh
-aside exec --permission full-access -- "C:/path/to/some-dir 에서 README 가 들어있는 파일을 모두 찾아 절대경로로 보고하라"
-```
-
-Expected: one `bash` call running `node .../src/cli.js --code ...`, answer in
-seconds. If the agent answers without using the CLI, check the AGENTS.md path
-and that the exec account is the same one you edited (u0 by default).
-
-### Notes per platform
-- Windows: the repo vendors `bin/rg.exe`; the register script points the config at it.
-- macOS/Linux: install ripgrep (`brew install ripgrep`) or set `CODEMODE_RG`; PATH and
-  Homebrew locations are auto-detected. A vendored `.exe` is ignored on non-Windows
-  rather than failing with `spawn EACCES`.
-- Node must be >= 18. The register script records the node it runs under.
-
-`codemode.config.json` is **machine-specific and gitignored** — `roots` and
-`rgPath` differ per host. `codemode.config.example.json` is the committed
-template; the register script seeds it. (Committing the real file made a fresh
-clone on another OS die with a raw `realpath ENOENT` stack trace.)
-
-### Diagnosing a broken setup
-
-```sh
-node src/cli.js --doctor            # resolved rg, roots, missing roots, config sources
-```
-
-Every startup failure is reported as the same `{ok:false,error}` envelope the
-guest uses, naming the offending path and the fix — not a node stack trace.
-
-## Register with Aside as MCP (future builds)
-
-The register script also merges this into `mcp.servers` — it starts working
-as soon as Aside attaches MCP servers to agent sessions:
+Current Aside CLI exec does not spawn `mcp.servers`. Register may still merge this block as leftover hygiene for a future build that attaches MCP. It is not the install path.
 
 ```json
 {
@@ -226,38 +134,4 @@ as soon as Aside attaches MCP servers to agent sessions:
 }
 ```
 
-macOS example: `"command": "/usr/local/bin/node"` (or the output of
-`command -v node`), args pointing at the clone. `scripts/register-aside.mjs`
-does this merge with a timestamped backup; thin `.ps1`/`.sh` wrappers find node.
-
-Then set `roots` in `codemode.config.json` — the allowlist every `fs.*` and
-`search.*` path is checked against. Empty means deny-all.
-
-## Configuration
-
-Priority: built-in defaults < repo `codemode.config.json` < `$CODEMODE_CONFIG`
-file < `--config <file>`. Individual env keys always win:
-`CODEMODE_ROOTS` (pathsep-separated), `CODEMODE_RG`, `CODEMODE_TIMEOUT_MS`,
-`CODEMODE_OUTPUT_BYTES`. Aside's own `permission.files` is intentionally not
-reused — this server's policy is independent.
-
-## Trust model
-
-`node:vm` is not a security mechanism (Node's own docs say so). Code passed to
-`execute_code` comes from the Aside agent, which already holds far more powerful
-tools (a shell). Treat it as the same trust level: the sandbox is accident
-containment — no code generation, execution timeouts, output caps, a hard root
-allowlist on every fs/search path — not a hostile-code boundary.
-
-## Development
-
-```sh
-npm test   # node --test "test/*.test.js" — zero dependencies
-```
-
-`test/regressions.test.js` pins defects that actually shipped: the gitignore
-blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored
-options, a cross-OS root crash, `rgPath: null` being unable to clear an
-inherited value, and a Windows drive letter being split on `:`.
-
-Design contract: `devlog/_plan/260913_codemode-server/010_phase1_server.md`.
+macOS: `"command"` is an absolute node path; args point at this clone. Success today is still AGENTS + `codemode --code`.

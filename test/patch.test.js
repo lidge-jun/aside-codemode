@@ -24,10 +24,20 @@ function addPatch(name, body = 'hi') {
   return `*** Begin Patch\n*** Add File: ${name}\n+${body}\n*** End Patch`;
 }
 
+// CONTRACT MIGRATION (slice 030, devlog/_plan/260913_review-hardening/030_mutation.md):
+// `*** Add File:` now writes the conventional POSIX trailing newline, so a file
+// created by a patch is not a permanent "\ No newline at end of file" diff for
+// every later tool. The four assertions below changed EXACTLY one way — the
+// expected content gained a trailing "\n" ('hello' -> 'hello\n', 'kept' ->
+// 'kept\n', 'hi' -> 'hi\n', 'in' -> 'in\n'). No assertion was deleted, weakened
+// or skipped: each still pins the full exact file content after apply_patch.
+// Coverage that the newline is not DOUBLED when the patch already supplies one
+// lives in test/write-hardening.test.js ('Add File does not double the trailing
+// newline').
 test('Add File then read back', async () => {
   const { fs, apply_patch } = host();
   assert.deepEqual(await apply_patch(addPatch('n.txt', 'hello')), {});
-  assert.equal(await fs.read_file({ path: 'n.txt' }), 'hello');
+  assert.equal(await fs.read_file({ path: 'n.txt' }), 'hello\n');
 });
 
 test('Update File unique line', async () => {
@@ -79,7 +89,7 @@ test('partial apply: first Add stays when second path is outside roots', async (
     '*** End Patch',
   ].join('\n');
   await assert.rejects(apply_patch(patch), /outside|root|refused|EROOT/i);
-  assert.equal(await fs.read_file({ path: 'first.txt' }), 'kept');
+  assert.equal(await fs.read_file({ path: 'first.txt' }), 'kept\n');
   assert.equal(existsSync(outside), false);
   assert.equal(existsSync(path.join(root, path.basename(outside))), false);
 });
@@ -100,7 +110,7 @@ test('CLI --code apply_patch returns envelope result {}', () => {
   });
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.deepEqual(JSON.parse(r.stdout).result, {});
-  assert.equal(readFileSync(path.join(root, 'n.txt'), 'utf8'), 'hi');
+  assert.equal(readFileSync(path.join(root, 'n.txt'), 'utf8'), 'hi\n');
 });
 
 test('actions.find(patch) ranks apply_patch', () => {
@@ -112,7 +122,7 @@ test('fenced Add File works', async () => {
   const { fs, apply_patch } = host();
   const fenced = '```\n' + addPatch('f.txt', 'in') + '\n```';
   await apply_patch(fenced);
-  assert.equal(await fs.read_file({ path: 'f.txt' }), 'in');
+  assert.equal(await fs.read_file({ path: 'f.txt' }), 'in\n');
 });
 
 test('empty apply_patch throws and writes nothing', async () => {

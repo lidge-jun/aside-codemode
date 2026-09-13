@@ -50,15 +50,27 @@ export function createRgResolver(config, env = process.env) {
       if (existsSync(explicit)) return (cached = explicit);
       throw new RgNotFoundError();
     }
-    for (const cand of pathCandidates(env)) {
-      if (existsSync(cand)) return (cached = cand);
+    const candidates = [
+      ...pathCandidates(env),
+      '/opt/homebrew/bin/rg',
+      '/usr/local/bin/rg',
+      await whereRg(),
+    ].filter(Boolean);
+    const failures = [];
+    for (const cand of candidates) {
+      // existsSync is not enough: a directory or non-executable named rg
+      // passes it and then dies as spawn EINVAL (measured via aside exec's
+      // bash env, node v26, 2026-09-13). Prove each candidate with --version.
+      try {
+        await execFileP(cand, ['--version'], { timeout: 5000, windowsHide: true });
+        return (cached = cand);
+      } catch (e) {
+        failures.push(`${cand}: ${e.code ?? e.message}`);
+      }
     }
-    for (const cand of ['/opt/homebrew/bin/rg', '/usr/local/bin/rg']) {
-      if (existsSync(cand)) return (cached = cand);
-    }
-    const viaWhere = await whereRg();
-    if (viaWhere && existsSync(viaWhere)) return (cached = viaWhere);
-    throw new RgNotFoundError();
+    const err = new RgNotFoundError();
+    err.candidates = failures;
+    throw err;
   };
 }
 

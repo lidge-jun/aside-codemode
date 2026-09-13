@@ -54,6 +54,21 @@ export function makeRootGuard(roots, { cwd } = {}) {
   const cmp = (p) => (isWindows ? p.toLowerCase() : p);
   const cmpRoots = realRoots.map(cmp);
 
+  // `target === root || target.startsWith(root + sep)` broke on a filesystem
+  // root: for root '/' it compared against '//', so EVERY path was refused
+  // (measured 2026-09-13; same class of bug for a Windows drive root 'C:\\').
+  // path.relative answers containment directly and keeps the sibling-prefix
+  // rejection that naive startsWith also got wrong ('/a/proj' vs '/a/proj-evil').
+  const isInsideRoot = (target, root) => {
+    if (target === root) return true;
+    const rel = path.relative(root, target);
+    if (rel === '') return true;
+    if (rel === '..' || rel.startsWith('..' + path.sep)) return false;
+    // An absolute rel means the two paths share no base at all (different
+    // Windows drives), which is outside by definition.
+    return !path.isAbsolute(rel);
+  };
+
   const guard = function assertInside(p) {
     if (cmpRoots.length === 0) throw new RootEscapeError(p, realRoots);
     if (typeof p !== 'string' || !p) throw new Error('path (non-empty string) is required');
@@ -78,7 +93,7 @@ export function makeRootGuard(roots, { cwd } = {}) {
     const resolved = tail.length ? path.join(realBase, ...tail) : realBase;
     const target = cmp(resolved);
     for (const root of cmpRoots) {
-      if (target === root || target.startsWith(root + path.sep)) return resolved;
+      if (isInsideRoot(target, root)) return resolved;
     }
     throw new RootEscapeError(p, realRoots);
   };

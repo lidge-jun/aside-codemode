@@ -1,21 +1,21 @@
-// ripgrep resolution + streaming spawn (A-D4).
+// ripgrep resolution + search execution (A-D4).
 // Lazy resolution, structured failure, argv-only (never a shell).
-//
-// Why streaming instead of execFile buffering (measured 2026-09-13, macOS):
-//   search.files({ path: '~/Developer', max: 10 }) died with
-//   "stdout maxBuffer length exceeded" even though only 10 rows were wanted —
-//   execFile buffers the WHOLE rg output before JS ever sees a row, so `max`
-//   was applied after the damage. We now read stdout incrementally and kill rg
-//   once `max` accepted rows exist, which makes `max` an actual bound on work.
-import { execFile, spawn } from 'node:child_process';
+// Streaming/child-process mechanics live in ./rg-stream.js; the option contract
+// and result envelope live in ./search-schema.js and ./search-result.js.
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
+import { decorateSearchResult } from './search-result.js';
+import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
 
 const execFileP = promisify(execFile);
 const isWindows = process.platform === 'win32';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+export { RgFailedError };
 
 export class RgNotFoundError extends Error {
   constructor() {
@@ -23,16 +23,6 @@ export class RgNotFoundError extends Error {
     this.name = 'RgNotFoundError';
     this.code = 'ERG404';
     this.hint = 'install rg or set CODEMODE_RG';
-  }
-}
-
-export class RgFailedError extends Error {
-  constructor(message, { exitCode = null, stderr = '' } = {}) {
-    super(message);
-    this.name = 'RgFailedError';
-    this.code = 'ERGFAIL';
-    this.exitCode = exitCode;
-    if (stderr) this.stderr = stderr;
   }
 }
 
@@ -49,10 +39,10 @@ function pathCandidates(env) {
   return out;
 }
 
-async function whereRg() {
+async function whereRg(signal) {
   if (!isWindows) return null;
   try {
-    const { stdout } = await execFileP('where.exe', ['rg'], { timeout: 5000 });
+    const { stdout } = await execFileP('where.exe', ['rg'], { timeout: 5000, signal, killSignal: 'SIGKILL' });
     const first = stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
     return first ?? null;
   } catch {
@@ -67,9 +57,10 @@ function isInapplicableVendoredExe(abs) {
   return !isWindows && abs.toLowerCase().endsWith('.exe');
 }
 
-export function createRgResolver(config, env = process.env) {
+export function createRgResolver(config, env = process.env, { signal } = {}) {
   let cached = null;
   return async function resolveRg() {
+    signal?.throwIfAborted();
     if (cached) return cached;
     const explicit = config.rgPath || env.CODEMODE_RG;
     if (explicit) {
@@ -79,9 +70,10 @@ export function createRgResolver(config, env = process.env) {
         // never a silent fall-through to whatever PATH happens to hold.
         if (!existsSync(abs)) throw new RgNotFoundError();
         try {
-          await execFileP(abs, ['--version'], { timeout: 5000, windowsHide: true });
+          await execFileP(abs, ['--version'], { timeout: 5000, windowsHide: true, signal, killSignal: 'SIGKILL' });
           return (cached = abs);
         } catch (e) {
+          signal?.throwIfAborted();
           const err = new RgNotFoundError();
           err.candidates = [`${abs}: ${e.code ?? e.message}`];
           throw err;
@@ -94,17 +86,19 @@ export function createRgResolver(config, env = process.env) {
       '/opt/homebrew/bin/rg',
       '/usr/local/bin/rg',
       '/home/linuxbrew/.linuxbrew/bin/rg',
-      await whereRg(),
+      await whereRg(signal),
     ].filter(Boolean);
     const failures = [];
     for (const cand of candidates) {
+      signal?.throwIfAborted();
       // existsSync is not enough: a directory or non-executable named rg
       // passes it and then dies as spawn EINVAL/EACCES (measured via aside
       // exec's bash env, node v24, 2026-09-13). Prove each with --version.
       try {
-        await execFileP(cand, ['--version'], { timeout: 5000, windowsHide: true });
+        await execFileP(cand, ['--version'], { timeout: 5000, windowsHide: true, signal, killSignal: 'SIGKILL' });
         return (cached = cand);
       } catch (e) {
+        signal?.throwIfAborted();
         failures.push(`${cand}: ${e.code ?? e.message}`);
       }
     }
@@ -113,9 +107,6 @@ export function createRgResolver(config, env = process.env) {
     throw err;
   };
 }
-
-const RG_TIMEOUT_MS = 30000;
-const STDERR_CAP = 4096;
 
 // --no-config: a user's RIPGREP_CONFIG_PATH can silently change ignore rules,
 //   regex mode or output format and make this wrapper non-reproducible.
@@ -126,97 +117,13 @@ const STDERR_CAP = 4096;
 //   Unreadable paths surface through the `partial` warning instead.
 const BASE_ARGS = ['--no-config', '--path-separator=/'];
 
-// Stream rg stdout line by line. `onLine` returns true when the row counts
-// toward `max`; we SIGTERM rg as soon as the cap is reached.
-function runStream(rg, args, { max, onLine, timeoutMs = RG_TIMEOUT_MS }) {
-  return new Promise((resolve, reject) => {
-    let child;
-    try {
-      child = spawn(rg, args, { windowsHide: true });
-    } catch (e) {
-      reject(new RgFailedError(`cannot spawn rg: ${e.message}`));
-      return;
-    }
-    let buf = '';
-    let accepted = 0;
-    let truncated = false;
-    let settled = false;
-    let stderr = '';
-
-    const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch {}
-      finish(new RgFailedError(`rg timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    function finish(err) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (err) reject(err);
-      else resolve({ truncated, accepted, stderr: stderr.trim() });
-    }
-
-    function feed(line) {
-      if (!line || truncated) return;
-      if (onLine(line)) {
-        accepted += 1;
-        if (accepted >= max) {
-          truncated = true;
-          try { child.kill('SIGTERM'); } catch {}
-        }
-      }
-    }
-
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => {
-      if (settled || truncated) return;
-      buf += chunk;
-      let idx;
-      while (!truncated && (idx = buf.indexOf('\n')) !== -1) {
-        const line = buf.slice(0, idx).replace(/\r$/, '');
-        buf = buf.slice(idx + 1);
-        feed(line);
-      }
-      if (truncated) buf = '';
-    });
-    child.stdout.on('error', () => {}); // EPIPE after our own kill
-
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (d) => {
-      if (stderr.length < STDERR_CAP) stderr += d;
-    });
-    child.stderr.on('error', () => {});
-
-    child.on('error', (e) => finish(new RgFailedError(`rg failed: ${e.message}`)));
-    child.on('close', (code) => {
-      if (!truncated && buf) feed(buf.replace(/\r$/, ''));
-      if (truncated) return finish();
-      // rg exit codes: 0 = matches, 1 = no matches, 2 = error. Exit 2 covers
-      // BOTH a fatal error (bad regex) and a soft one (a single unreadable
-      // file), so failing the whole call on 2 threw away good results for an
-      // unrelated permission problem. Rule: if rows were produced, return them
-      // with a `partial` warning; only a 2 with nothing to show is an error.
-      if (code === 0 || code === 1 || code === null) return finish();
-      if (code === 2 && accepted > 0) return finish();
-      // Include rg's own diagnosis. "exited with code 2" is unactionable;
-      // "regex parse error: unclosed character class" is self-correctable.
-      const why = stderr.trim().split(/\r?\n/).filter(Boolean).slice(0, 3).join(' | ').slice(0, 400);
-      finish(new RgFailedError(
-        `rg exited with code ${code}${why ? `: ${why}` : ''}`,
-        { exitCode: code, stderr: why },
-      ));
-    });
-  });
-}
-
 // rg exits 0/1 even when some paths could not be read (permissions, broken
-// symlinks). Without --no-messages those land on stderr; surfacing them as a
-// non-enumerable `.partial` keeps the happy path clean while making an
-// incomplete traversal detectable instead of looking like a clean zero.
-function attachPartial(arr, stderr) {
-  if (!stderr) return;
-  const lines = stderr.split(/\r?\n/).filter(Boolean).slice(0, 5);
-  Object.defineProperty(arr, 'partial', { value: lines, enumerable: false });
+// symlinks). Without --no-messages those land on stderr; surfacing them keeps
+// the happy path clean while making an incomplete traversal detectable instead
+// of looking like a clean zero.
+function partialLines(stderr) {
+  if (!stderr) return [];
+  return stderr.split(/\r?\n/).filter(Boolean).slice(0, 5);
 }
 
 function decodePath(p) {
@@ -227,9 +134,20 @@ function decodePath(p) {
   return '<non-utf8-path>';
 }
 
-// Flags shared by files/content. Kept in one place so the two entry points
+function lineText(d) {
+  return typeof d.lines?.text === 'string'
+    ? d.lines.text.replace(/\r?\n$/, '')
+    : '<binary or non-utf8 line>';
+}
+
+// Flags shared by files/content/count. Kept in one place so the entry points
 // cannot drift in what they do or do not respect.
 function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }) {
+  // Defence in depth: host/search.js rejects this before we are reached, but a
+  // direct runner caller must not be able to make us spawn --follow either.
+  if (followSymlinks === true) {
+    throw new SearchOptionError(FOLLOW_SYMLINKS_UNSUPPORTED, 'ENOTSUP');
+  }
   const args = [];
   // Cheap, high-value pruning. `includeExcluded: true` opts back in.
   if (!includeExcluded && Array.isArray(excludeGlobs)) {
@@ -238,12 +156,23 @@ function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeG
   // -uu equivalent, split so callers can pick one axis at a time.
   if (noIgnore) args.push('--no-ignore');
   if (hidden) args.push('--hidden');
-  if (followSymlinks) args.push('--follow');
   if (maxFilesize != null) args.push('--max-filesize', String(maxFilesize));
   return args;
 }
 
-export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
+// A search is only complete when nothing was cut short, nothing was unreadable
+// and nothing killed the process from outside.
+function completeness({ truncated, partial, killedBySignal }) {
+  return !truncated && partial.length === 0 && !killedBySignal;
+}
+
+export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
+  const checkedResolveRg = async () => {
+    throwIfSearchCancelled(signal);
+    const binary = await resolveRg();
+    throwIfSearchCancelled(signal);
+    return binary;
+  };
   return {
     async files({
       pattern,
@@ -257,26 +186,47 @@ export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
       timeoutMs,
       includeExcluded = false,
     }) {
-      const rg = await resolveRg();
-      const args = [...BASE_ARGS, '--files'];
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
+      signal?.throwIfAborted();
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const rg = await checkedResolveRg();
+      // --null: a path may legally contain a newline, and splitting --files on
+      // '\n' turned one such file into two bogus rows (or dropped it after a
+      // pattern filter). NUL cannot appear in a path on any supported OS.
+      const args = [...BASE_ARGS, '--files', '--null', ...discovery];
       if (glob) args.push('-g', glob);
       args.push(dir);
       const out = [];
-      const { truncated, stderr } = await runStream(rg, args, {
+      const { truncated, stderr, killedBySignal } = await runStream(rg, args, {
+        signal,
         max,
-        timeoutMs,
+        timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+        delimiter: '\0',
         onLine: (line) => {
           if (pattern && !line.includes(pattern)) return false;
           out.push(line);
           return true;
         },
+        onOverflow: () => { out.pop(); },
       });
-      attachPartial(out, stderr);
-      // Non-enumerable so JSON.stringify(out) still yields a plain array,
-      // but `out.truncated` is readable in guest code.
-      Object.defineProperty(out, 'truncated', { value: truncated, enumerable: false });
-      return out;
+      const partial = partialLines(stderr);
+      return decorateSearchResult(out, {
+        truncated,
+        partial,
+        complete: completeness({ truncated, partial, killedBySignal }),
+        scope: buildScope({
+          kind: 'files',
+          maxFilesize, timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+          path: dir,
+          glob,
+          pattern,
+          max,
+          noIgnore,
+          hidden,
+          followSymlinks,
+          includeExcluded,
+          excludeGlobs,
+        }),
+      });
     },
 
     async content({
@@ -296,23 +246,42 @@ export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
       timeoutMs,
       includeExcluded = false,
     }) {
-      const rg = await resolveRg();
+      signal?.throwIfAborted();
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const rg = await checkedResolveRg();
       const args = [...BASE_ARGS, '--json'];
       if (ignoreCase) args.push('-i');
       if (fixedStrings) args.push('-F');
       if (wordRegexp) args.push('-w');
       if (multiline) args.push('-U', '--multiline-dotall');
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
-      if (Number.isFinite(context)) args.push('-C', String(context));
+      args.push(...discovery);
+      const wantContext = Number.isInteger(context) && context > 0;
+      if (wantContext) args.push('-C', String(context));
       if (glob) args.push('-g', glob);
       // NOTE: --max-count is deliberately NOT used. It is a PER-FILE cap, so
       // passing `max` there let a wide search return far more (or fewer) rows
       // than the caller asked for. `max` is enforced globally by runStream.
       args.push('--', query, dir);
+
       const hits = [];
-      const { truncated, stderr } = await runStream(rg, args, {
+      // Matching lines are also context for nearby matches. Keep a bounded
+      // recent-row window and update every hit still awaiting trailing context.
+      let recent = [];
+      let openHits = [];
+      const resetFile = () => { recent = []; openHits = []; };
+      const remember = (row) => {
+        for (const entry of openHits) {
+          if (row.line > entry.end && row.line <= entry.end + context) entry.hit.context.after.push(row);
+        }
+        openHits = openHits.filter(entry => row.line < entry.end + context);
+        recent.push(row);
+        if (recent.length > context) recent.shift();
+      };
+
+      const { truncated, stderr, killedBySignal } = await runStream(rg, args, {
+        signal,
         max,
-        timeoutMs,
+        timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
         onLine: (line) => {
           let ev;
           try {
@@ -320,18 +289,58 @@ export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
           } catch {
             return false;
           }
-          if (ev.type !== 'match') return false;
+          if (ev.type === 'begin' || ev.type === 'end') {
+            resetFile();
+            return false;
+          }
+          if (ev.type !== 'context' && ev.type !== 'match') return false;
           const d = ev.data ?? {};
-          const text = typeof d.lines?.text === 'string'
-            ? d.lines.text.replace(/\r?\n$/, '')
-            : '<binary or non-utf8 line>';
-          hits.push({ file: decodePath(d.path), line: d.line_number ?? null, text });
+          const start = d.line_number ?? null;
+          const text = lineText(d);
+          if (ev.type === 'context') {
+            if (wantContext && start !== null) remember({ line: start, text });
+            return false;
+          }
+          const hit = { file: decodePath(d.path), line: start, text };
+          if (wantContext) {
+            hit.context = {
+              before: recent.filter(row => row.line >= start - context && row.line < start),
+              after: [],
+            };
+            if (start !== null) {
+              const rows = text.split(/\r?\n/);
+              rows.forEach((text, i) => remember({ line: start + i, text }));
+              openHits.push({ hit, end: start + rows.length - 1 });
+            }
+          }
+          hits.push(hit);
           return true;
         },
+        onOverflow: () => {
+          const dropped = hits.pop();
+          openHits = openHits.filter(entry => entry.hit !== dropped);
+        },
       });
-      attachPartial(hits, stderr);
-      Object.defineProperty(hits, 'truncated', { value: truncated, enumerable: false });
-      return hits;
+      const partial = partialLines(stderr);
+      return decorateSearchResult(hits, {
+        truncated,
+        partial,
+        complete: completeness({ truncated, partial, killedBySignal }),
+        scope: buildScope({
+          kind: 'content',
+          query, ignoreCase, fixedStrings, wordRegexp, multiline,
+          maxFilesize, timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+          path: dir,
+          glob,
+          context: Number.isInteger(context) ? context : null,
+          max,
+          noIgnore,
+          hidden,
+          followSymlinks,
+          includeExcluded,
+          excludeGlobs,
+        }),
+      });
     },
 
     // Cheap pre-flight: how big is this search before pulling rows?
@@ -348,18 +357,25 @@ export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
       timeoutMs,
       includeExcluded = false,
     }) {
-      const rg = await resolveRg();
+      signal?.throwIfAborted();
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const rg = await checkedResolveRg();
       const args = [...BASE_ARGS, '--json'];
       if (ignoreCase) args.push('-i');
       if (fixedStrings) args.push('-F');
-      args.push(...discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }));
+      args.push(...discovery);
       if (glob) args.push('-g', glob);
       args.push('--', query, dir);
       let matches = 0;
       const files = new Set();
-      await runStream(rg, args, {
-        max: Number.MAX_SAFE_INTEGER,
-        timeoutMs,
+      // Counting matches as ACCEPTED rows is what makes a soft rg failure
+      // survivable here: before, count reported zero accepted rows, so a single
+      // unreadable directory (rg's soft exit 2) threw the whole call away
+      // instead of returning the readable count with a partial warning.
+      const { stderr, killedBySignal } = await runStream(rg, args, {
+        signal,
+        max: Infinity,
+        timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
         onLine: (line) => {
           let ev;
           try {
@@ -370,10 +386,27 @@ export function createRgRunner(resolveRg, { excludeGlobs = [] } = {}) {
           if (ev.type !== 'match') return false;
           matches += 1;
           files.add(decodePath(ev.data?.path));
-          return false; // counted, but never counts toward a cap
+          return true;
         },
       });
-      return { matches, files: files.size };
+      const partial = partialLines(stderr);
+      return decorateSearchResult({ matches, files: files.size }, {
+        truncated: false,
+        partial,
+        complete: completeness({ truncated: false, partial, killedBySignal }),
+        scope: buildScope({
+          kind: 'count',
+          query, ignoreCase, fixedStrings,
+          maxFilesize, timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+          path: dir,
+          glob,
+          noIgnore,
+          hidden,
+          followSymlinks,
+          includeExcluded,
+          excludeGlobs,
+        }),
+      });
     },
   };
 }

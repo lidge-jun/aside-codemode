@@ -6,7 +6,7 @@ import { createApplyPatch } from './patch.js';
 import { createActions } from './actions.js';
 
 export function createHostGlobals(config, assertInside, signal) {
-  const rgRunner = createRgRunner(createRgResolver(config), { excludeGlobs: config.excludeGlobs, signal });
+  const rgRunner = createRgRunner(createRgResolver(config, process.env, { signal }), { excludeGlobs: config.excludeGlobs, signal });
   const hostFs = createFs({ assertInside, signal });
   return {
     search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),

@@ -1,58 +1,15 @@
 // Guest global `actions` (A-D5): in-sandbox discovery over the injected globals.
-const DISCOVERY_OPTS = {
-  noIgnore: { type: 'boolean', required: false, description: 'Ignore .gitignore/.ignore rules. DEFAULT false — a parent .gitignore can silently hide an entire repo from results. Set true when a known file is missing from a search.' },
-  hidden: { type: 'boolean', required: false, description: 'Include dotfiles and dot-directories (default false)' },
-  followSymlinks: { type: 'boolean', required: false, description: 'Follow symlinks while walking (default false)' },
-  maxFilesize: { type: 'string', required: false, description: "Skip files larger than this, e.g. '1M'" },
-  timeoutMs: { type: 'number', required: false, description: 'Kill the search after this long' },
-};
+//
+// The three search entries are NOT restated here. They come from
+// ../search-schema.js, the canonical owner of the search option contract,
+// because the duplicated copies drifted: `includeExcluded` was executable but
+// absent from this catalog, so actions.check() called a working option unknown
+// (measured 2026-09-13). Value rules come from the same module, so `check` and a
+// real call agree on what is acceptable.
+import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
 
 const REGISTRY = [
-  {
-    path: 'search.files',
-    description: 'List file paths under a directory (ripgrep --files). Streams and stops at `max`, so a large tree is safe.',
-    signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
-    notes: 'Returns a plain array; a non-enumerable `.truncated` flag is true when `max` cut the result short.',
-    inputs: {
-      path: { type: 'string', required: true, description: 'Directory to list (must be inside configured roots)' },
-      pattern: { type: 'string', required: false, description: 'Case-sensitive substring filter on returned paths' },
-      glob: { type: 'string', required: false, description: "ripgrep -g glob, e.g. '**/*.ts'" },
-      max: { type: 'number', required: false, description: 'Hard cap on returned paths; rg is killed once reached' },
-      ...DISCOVERY_OPTS,
-    },
-  },
-  {
-    path: 'search.content',
-    description: 'Search file contents with ripgrep. Returns matching lines with file and line number.',
-    signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text}[]>',
-    notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `.truncated` is set when it bites. Unknown options are rejected rather than ignored.',
-    inputs: {
-      query: { type: 'string', required: true, description: 'ripgrep regex; set fixedStrings for a literal' },
-      path: { type: 'string', required: true, description: 'Directory or file to search (inside roots)' },
-      glob: { type: 'string', required: false, description: 'ripgrep -g glob' },
-      context: { type: 'number', required: false, description: 'Context lines around each match' },
-      max: { type: 'number', required: false, description: 'Global cap on total returned rows' },
-      ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive search' },
-      fixedStrings: { type: 'boolean', required: false, description: 'Treat query as a literal string (-F)' },
-      wordRegexp: { type: 'boolean', required: false, description: 'Match whole words only (-w)' },
-      multiline: { type: 'boolean', required: false, description: 'Allow matches to span lines (-U)' },
-      ...DISCOVERY_OPTS,
-    },
-  },
-  {
-    path: 'search.count',
-    description: 'Count matches and matching files WITHOUT returning rows. Use as a pre-flight to size a search before pulling results.',
-    signature: 'search.count({ query, path, glob?, ignoreCase?, fixedStrings?, noIgnore?, hidden?, followSymlinks?, maxFilesize?, timeoutMs? }) => Promise<{matches,files}>',
-    notes: 'Cheap way to detect that a default (ignore-respecting) search is hiding results: compare against the same call with noIgnore:true.',
-    inputs: {
-      query: { type: 'string', required: true, description: 'ripgrep regex' },
-      path: { type: 'string', required: true, description: 'Directory or file (inside roots)' },
-      glob: { type: 'string', required: false, description: 'ripgrep -g glob' },
-      ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive search' },
-      fixedStrings: { type: 'boolean', required: false, description: 'Literal string match (-F)' },
-      ...DISCOVERY_OPTS,
-    },
-  },
+  ...SEARCH_ACTIONS,
   {
     path: 'read_file',
     description: 'Read a file using the Aside read_file shape. offset/limit are 1-indexed lines.',
@@ -220,16 +177,31 @@ export function createActions() {
       const missing = [];
       const unknown = [];
       const typeErrors = [];
+      // Value-level problems an execution call would also refuse: max:0,
+      // context:-1, followSymlinks:true (ENOTSUP). Reported separately from
+      // typeErrors so the existing shape is unchanged for type mismatches.
+      const invalid = [];
+      const isSearch = rec.path.startsWith('search.');
       for (const [name, spec] of Object.entries(rec.inputs)) {
         if (spec.required && !(name in args)) missing.push(name);
         else if (name in args && typeOf(args[name]) !== spec.type) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
+        } else if (name in args && isSearch) {
+          const problem = checkOptionValue(name, args[name]);
+          if (problem) invalid.push(problem);
         }
       }
       for (const name of Object.keys(args)) {
         if (!(name in rec.inputs)) unknown.push(name);
       }
-      return { ok: missing.length === 0 && unknown.length === 0 && typeErrors.length === 0, missing, unknown, typeErrors, signature: rec.signature };
+      return {
+        ok: missing.length === 0 && unknown.length === 0 && typeErrors.length === 0 && invalid.length === 0,
+        missing,
+        unknown,
+        typeErrors,
+        invalid,
+        signature: rec.signature,
+      };
     },
   });
 }

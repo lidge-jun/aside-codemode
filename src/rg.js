@@ -18,7 +18,9 @@ export class RgNotFoundError extends Error {
 function pathCandidates(env) {
   const out = [];
   const pathEnv = env.PATH ?? env.Path ?? '';
-  const exts = isWindows ? ['rg.exe', 'rg.bat', 'rg.cmd', 'rg'] : ['rg'];
+  // .bat/.cmd shims are NOT spawnable via execFile (EINVAL without a shell) —
+  // measured through aside exec's bash on Windows 2026-09-13. exe/plain only.
+  const exts = isWindows ? ['rg.exe', 'rg'] : ['rg'];
   for (const dir of pathEnv.split(path.delimiter)) {
     if (!dir) continue;
     for (const name of exts) out.push(path.join(dir, name));

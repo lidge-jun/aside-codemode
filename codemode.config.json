@@ -1,5 +1,8 @@
 {
-  "roots": [],
+  "roots": [
+    "C:\\Users\\super\\.aside\\u\\0",
+    "C:\\Users\\super\\Developers"
+  ],
   "rgPath": null,
   "maxResultBytes": 65536,
   "maxTimeoutMs": 120000,

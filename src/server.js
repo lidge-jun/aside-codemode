@@ -18,6 +18,12 @@ function log(...args) {
 
 async function main() {
   const config = loadConfig();
+  if (process.env.CODEMODE_DEBUG_LOG) {
+    try {
+      const { appendFileSync } = await import('node:fs');
+      appendFileSync(process.env.CODEMODE_DEBUG_LOG, JSON.stringify({ t: Date.now(), pid: process.pid, argv: process.argv, cwd: process.cwd() }) + '\n');
+    } catch {}
+  }
   const assertInside = makeRootGuard(config.roots);
   const resolveRg = createRgResolver(config);
   const rgRunner = createRgRunner(resolveRg);

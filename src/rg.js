@@ -47,7 +47,8 @@ export function createRgResolver(config, env = process.env) {
     if (explicit) {
       // Explicit config is authoritative: a wrong path is a structured error,
       // never a silent fall-through to whatever PATH happens to hold.
-      if (existsSync(explicit)) return (cached = explicit);
+      const abs = path.isAbsolute(explicit) ? explicit : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', explicit);
+      if (existsSync(abs)) return (cached = abs);
       throw new RgNotFoundError();
     }
     const candidates = [
@@ -58,7 +59,7 @@ export function createRgResolver(config, env = process.env) {
     ].filter(Boolean);
     const failures = [];
     for (const cand of candidates) {
-      // existsSync is not enough: a directory or non-executable named rg
+    // existsSync is not enough: a directory or non-executable named rg
       // passes it and then dies as spawn EINVAL (measured via aside exec's
       // bash env, node v26, 2026-09-13). Prove each candidate with --version.
       try {
@@ -132,3 +133,4 @@ export function createRgRunner(resolveRg) {
     },
   };
 }
+import { fileURLToPath } from 'node:url';

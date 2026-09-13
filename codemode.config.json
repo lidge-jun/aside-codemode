@@ -3,7 +3,7 @@
     "C:\\Users\\super\\.aside\\u\\0",
     "C:\\Users\\super\\Developers"
   ],
-  "rgPath": null,
+  "rgPath": "bin/rg.exe",
   "maxResultBytes": 65536,
   "maxTimeoutMs": 120000,
   "searchCaps": {

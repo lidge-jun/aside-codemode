@@ -3,9 +3,9 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-const [,, baselineFile, afterFile, outFile] = process.argv;
+const [,, baselineFile, afterFile, outFile, baselineMark, afterMark] = process.argv;
 if (!baselineFile || !afterFile || !outFile) {
-  console.error('usage: node compare.mjs <baseline.jsonl> <after.jsonl> <summary.md>');
+  console.error('usage: node compare.mjs <baseline.jsonl> <after.jsonl> <summary.md> [baselineMark] [afterMark]');
   process.exit(2);
 }
 
@@ -22,8 +22,8 @@ function analyze(file, needle) {
   return { file, spanMs, fileSpanMs, toolCalls: toolNames, hit };
 }
 
-const b = analyze(baselineFile, 'area-18'); // NEEDLE-A2 location
-const a = analyze(afterFile, 'area-29'); // NEEDLE-A3 location
+const b = analyze(baselineFile, baselineMark ?? 'area-18');
+const a = analyze(afterFile, afterMark ?? 'area-29');
 const ratio = a.spanMs && b.spanMs ? (a.spanMs / b.spanMs) : null;
 const verdict = a.hit && ratio !== null && ratio < 0.5 ? 'PASS (c-speedup)' : 'REVIEW NEEDED';
 

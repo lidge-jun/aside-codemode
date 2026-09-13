@@ -1,0 +1,7 @@
+# Cooperating writes and patch semantics
+
+MODIFY src/host/fs.js: canonical path cross-process exclusive lock covers read->validate->write for edit_file and overwrite helper. Create-only remains wx. NEW host/file-lock.js if no equivalent exists. Do not use an in-memory mutex as cross-process proof. Fail closed on unknown/stale locks; bounded wait and ELOCKED/timeout error; no automatic deletion of someone else's lock. Cancellation stops waiting and releases owned locks in finally; a crash may leave explicit recovery-required lock. Preserve file mode when replacing. Bound file reads at descriptor/stream rather than loading arbitrary full file before applying maxBytes/line limits.
+
+MODIFY host/patch.js: Update has multiple @@ chunks mapped to edits against original, reject malformed patch before writing, support end-of-file marker with explicit semantics, preserve conventional final newline for Add, document unsupported Delete/Move. Application catches errors and attaches applied targets plus failed target; success stays {}. Atomic across one file's edits only; no transaction across files.
+
+NEW test/write-hardening.test.js: independent replacements via Promise.all keep both; cross-process shared-file edits or append tokens all survive; preheld lock gives bounded actionable error; failed edit releases its lock; create-only never overwrites; multi-hunk and repeated oldText with context; Add newline/EOF behavior; later failure reports earlier applied path; paged reads do not require entire large file; no unexpected files outside temp fixtures.

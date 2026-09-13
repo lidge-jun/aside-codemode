@@ -77,4 +77,6 @@ test('AGENTS template keeps three placeholders and Windows Git Bash', () => {
   assert.match(agents, /Git Bash/);
   assert.match(agents, /PowerShell/);
   assert.match(agents, /no Linux install path/);
+  assert.match(agents, /Do not invoke `src\/cli\.js`/);
+  assert.equal(/[\uac00-\ud7a3]/.test(agents), false, 'template must stay English');
 });

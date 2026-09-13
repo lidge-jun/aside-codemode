@@ -1,4 +1,8 @@
-# aside-codemode
+# make aside 50x faster
+
+**50x는 배치 실행의 목표이며, 실측한 전체 작업 속도 향상이 아닙니다.** 도구를 50번 따로 왕복하는 작업을 JavaScript 실행 한 번으로 묶자는 뜻입니다. 실제 지연은 작업·모델·호스트·배치 가능 범위에 따라 달라집니다. 기존 비교에서는 단일 검색이 약 **1.05~1.81배**, 복합 작업 한 건이 **1.13배**였으며, 가장 큰 차이에는 baseline 재시도가 포함됐습니다. [측정 근거와 한계](#performance-evidence)를 함께 확인하세요.
+
+**aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 한 번의 코드 호출로 묶습니다. 중간 데이터를 모두 모델에게 전달하지 않고, 판단에 필요한 결과와 근거만 반환합니다.
 
 지금 Aside exec는 MCP 서버를 붙이지 않습니다. 되는 길은 bash 한 번으로 `codemode` CLI를 돌리고, `~/.aside/u/0/AGENTS.md`에 그 규칙을 적는 것입니다. 화면에 뜨는 파일 카드는 네이티브 `read_file` / `write_file` / `edit_file`이고, 게스트 JS도 같은 모양을 씁니다.
 
@@ -36,7 +40,7 @@ npm install -g --prefix=/opt/homebrew .
 
 ## Guest API
 
-코드는 async 함수 본문입니다. `return`이 답입니다. 샌드박스에는 `require`, `process`, `fetch`, 네트워크가 없습니다.
+코드는 async 함수 본문입니다. `return`이 답입니다. 게스트 API에는 `require`, `process`, `fetch`, 네트워크 도구를 노출하지 않습니다. 적대적인 코드의 접근을 차단한다는 보장은 아닙니다.
 
 | 이름 | 역할 |
 | --- | --- |
@@ -50,9 +54,32 @@ npm install -g --prefix=/opt/homebrew .
 
 **기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
 
-**`max`는 전체 행 상한**입니다. 파일마다 자르는 ripgrep `--max-count`가 아닙니다. 상한에 닿으면 검색을 끊습니다.
+**`max`는 전체 행 상한**입니다. 파일마다 자르는 ripgrep `--max-count`가 아닙니다. 한 행을 추가로 확인해 정확히 `max`개인 완전한 결과와 그보다 많은 결과를 구분한 뒤 중단합니다.
 
-덜 끝난 결과는 열거되지 않는 플래그를 답니다. `max`로 잘리면 `truncated`, 읽지 못한 경로가 있으면 `partial`. 모르는 옵션은 무시하지 않고 거절합니다.
+게스트 안에서는 검색 결과에 `.map`, `.filter`, `.length`를 그대로 사용할 수 있습니다. 검색 결과를 직접 또는 다른 객체 안에 넣어 반환하면 `{ rows, complete, truncated, partial, scope }` 형태로 직렬화됩니다. count는 `{ matches, files }`에 같은 메타데이터를 담아 반환합니다. `complete`는 선택한 검색 범위를 잘림·읽기 오류 없이 확인했다는 뜻이지, ignore나 제외 설정 밖의 파일까지 찾았다는 뜻이 아닙니다. 실제 범위는 `scope`로 확인합니다. `.length`나 가공한 배열만 반환할 때는 필요한 메타데이터를 명시적으로 함께 반환하세요.
+
+`context`는 검색 행의 앞뒤 문맥을 반환합니다. 모르는 옵션과 잘못된 값은 거절합니다. `includeExcluded: true`는 설정된 제외 목록을 해제하며, `noIgnore`·`hidden`과는 별도입니다. **`followSymlinks: true`는 거절합니다.** 허용 루트 밖을 읽은 뒤 결과만 감추는 대신, 안전한 링크 탐색을 구현하기 전까지 사용을 막습니다.
+
+```sh
+codemode --cwd /abs/project --code '
+const hits = await search.content({ path: ".", query: "TODO", max: 50 });
+const paths = [...new Set(hits.map(hit => hit.file))];
+const excerpts = await fs.readMany(paths, { maxBytes: 4096, totalBytes: 32768 });
+return { hits, excerpts };
+'
+```
+
+### 읽기 상한과 호환성
+
+페이지 없이 읽거나 한 번에 반환하는 페이지 내용은 256KiB까지입니다. 페이지 읽기는 물리적인 한 줄이 256KiB를 넘으면 거절하며, `fs.grepFile`의 물리적 한 줄 상한은 1MiB입니다. 상한을 넘는 줄을 조용히 건너뛰지 않고 오류로 알립니다. 더 긴 줄은 `fs.read`에 바이트 범위를 지정해 확인합니다. 청크 사이에서 나뉜 UTF-8 문자는 보존합니다. 파일 편집은 여전히 원본 전체를 읽으므로 전역 메모리 상한은 아닙니다.
+
+호환성 변경: 검색 배열을 직접 반환한 JSON을 파싱하는 호출자는 `result.rows`와 메타데이터를 읽어야 합니다. 게스트 안의 `.map`·`.length`는 그대로입니다. Add 패치는 마지막 개행을 생성하며 96바이트 미만의 실행 출력 예산은 거절합니다. 의도된 계약 변경이며 Codex 패치 문법 전체의 호환성을 뜻하지 않습니다.
+
+### 파일 수정과 패치
+
+`edit_file`과 덮어쓰기 헬퍼는 정규화한 파일 경로의 프로세스 간 잠금을 사용합니다. 원본 읽기부터 교체 검증과 반영까지 잠금을 유지합니다. 같은 도구를 사용하는 두 프로세스의 수정 유실을 막기 위한 장치이며, 잠금을 무시하는 외부 편집기나 다른 하드링크 경로까지 보호하지는 않습니다. 잠금은 `os.tmpdir()/codemode-locks`에 저장하므로, 협력하는 프로세스는 같은 임시 디렉터리를 사용해야 합니다. 서로 다른 `TMPDIR` 값은 조정하지 않습니다.
+
+`apply_patch`는 Add와 여러 hunk를 가진 Update를 지원합니다. Delete·Move·Environment는 지원하지 않습니다. Add는 마지막 개행이 있는 텍스트 파일을 생성합니다. 성공 응답은 기존과 같은 `{}`입니다. 중간 실패 시 오류의 `applied`·`failedFile`로 앞서 적용된 파일과 실패 대상을 알립니다. 출력 예산이 충분하면 CLI 오류에도 보존됩니다. 앞선 변경은 남으므로 **여러 파일 전체의 트랜잭션이나 rollback을 보장하지 않습니다.**
 
 ## Dual path
 
@@ -106,7 +133,35 @@ ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는
 
 ## Trust model
 
-`node:vm`은 보안 경계가 아닙니다. Node 문서가 그렇게 말합니다. `--code`로 들어가는 게스트 JS는 이미 셸을 가진 Aside 에이전트가 씁니다. 신뢰 수준은 같습니다. 샌드박스는 사고 방지입니다. 코드 생성 금지, 실행 시간 제한, 출력 상한, 루트 허용 목록. 적대 코드용 장벽이 아닙니다.
+`node:vm`은 보안 경계가 아닙니다. Node 문서가 그렇게 말합니다. `--code`로 들어가는 게스트 JS는 이미 셸을 가진 Aside 에이전트가 씁니다. 신뢰 수준은 같습니다. 게스트 평가와 결과 직렬화는 별도 worker에서 실행하며, 바깥 watchdog이 비동기 무한루프와 멈춘 `toJSON`을 종료합니다. 파일·검색 함수는 부모 프로세스에서 허용된 RPC 이름을 통해 실행합니다. `actions.*`는 전용 RPC 채널을 통해 동기적으로 작동합니다.
+
+watchdog의 대상은 게스트 평가와 직렬화입니다. 임의의 동기 호스트 함수까지 중단시키지는 못합니다. 내용 검색은 ripgrep 기반 `search.content`를 권장합니다. `fs.grepFile`에 극단적으로 느린 JavaScript 정규식을 넘기면 호스트 이벤트 루프가 막힐 수 있습니다.
+
+`hostCallFailures`는 게스트가 의도적으로 잡은 오류를 포함해 실패한 호스트 호출 수를 표시합니다. 파일 작업은 반드시 `await`로 기다리세요.
+
+취소 시 새 게스트 호출을 막고 신호를 지원하는 호스트 작업을 중단합니다. 이미 제출된 파일 I/O의 rollback은 보장할 수 없습니다. 정리 대기 후에도 작업이 남으면 `pendingHostCalls`·`sideEffectsMayContinue`로 알립니다. 외부 강제 종료나 프로세스 충돌 후에는 잠금이 남아 확인이 필요할 수 있으며, 소유자를 알 수 없는 잠금을 자동으로 빼앗지 않습니다. OS·네트워크 격리나 전체 메모리 상한은 아닙니다.
+
+`maxResultBytes` / `CODEMODE_OUTPUT_BYTES`는 한글·JSON 이스케이프·로그·오류·마지막 개행을 포함한 **실행 응답 JSON 전체**의 바이트 상한입니다. 96바이트~16MiB 정수만 허용합니다. 잘못된 설정은 실행 전에 오류로 반환합니다. MCP 외부 래퍼와 `--doctor` 진단 출력은 이 실행 응답 예산에 포함하지 않습니다. 바깥 `truncated`는 출력 잘림이며, 검색 응답 안의 `truncated`는 검색 중단입니다.
+
+## Performance evidence
+
+아래는 **기존 Aside 실행 기록**입니다. 이번 안정화 버전의 새 성능 측정이 아닙니다. worker 시작 비용이 추가되므로 테스트 통과를 속도 향상 증거로 해석하면 안 됩니다.
+
+| 작업 | Baseline | Codemode | 기록상 속도 비율 |
+| --- | ---: | ---: | ---: |
+| 3,000개 파일 단일 검색 | 15,202ms | 8,408ms | 1.81배 |
+| 20,000개 파일 + 127MB 로그 | 9,083ms | 8,650ms | 1.05배 |
+| 마커 10개의 경로와 크기 | 28,717ms | 25,390ms | 1.13배 |
+
+[기존 측정 요약](evidence/summary.md)과 [복합 작업 비교](evidence/summary-compound.md)가 출처입니다. 첫 비교와 복합 작업의 baseline에는 경로 오류·재시도가 포함됐습니다. 복합 작업은 양쪽 모두 bash 3회였으므로 호출 수 감소를 입증하지 못합니다. 원래 목표인 after/baseline `<0.5`도 달성하지 못했으며, 일반적인 50배 속도 향상은 검증하지 않았습니다. 표본이 적어 평균적인 효과를 약속할 수 없습니다.
+
+새 비교에서는 실제 작업 마커를 명시합니다.
+
+```sh
+node eval/compare.mjs baseline.jsonl after.jsonl summary.md BASELINE-MARK AFTER-MARK
+```
+
+비교기는 파일 생성 시각 대신 실행 이벤트·완료 시각을 사용하고, 실패한 도구 호출과 문자열 발견을 구분합니다. 문자열이 있다는 이유로 정답 판정을 내리지 않습니다. 성능을 주장하려면 반복 실행, 최종 답의 정확한 검증, 호출 수, 반환 바이트·토큰, 잘 작성된 shell/Python 배치와의 비교가 필요합니다.
 
 ## Development
 

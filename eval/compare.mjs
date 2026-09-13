@@ -1,47 +1,86 @@
-// Compare two log-dumps (020 D3, wp2 A 교정본): message.timestamp span + file span,
-// tool-call counts, needle hit. Writes evidence/summary.md.
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+// Compare recorded events, not filesystem creation times. A marker hit is not
+// a correctness oracle; timing targets never become a blanket performance PASS.
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const [,, baselineFile, afterFile, outFile, baselineMark, afterMark] = process.argv;
-if (!baselineFile || !afterFile || !outFile) {
-  console.error('usage: node compare.mjs <baseline.jsonl> <after.jsonl> <summary.md> [baselineMark] [afterMark]');
-  process.exit(2);
+function failed(event) {
+  const result = event.result ?? {};
+  return event.isError === true || result.isError === true || result.ok === false
+    || (Number.isInteger(result.exitCode) && result.exitCode !== 0);
 }
 
-function analyze(file, needle) {
-  const events = readFileSync(file, 'utf8').trim().split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const stamps = events.map((e) => e.message && e.message.timestamp).filter((t) => Number.isFinite(t));
-  const spanMs = stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : null;
-  const st = statSync(file);
-  const fileSpanMs = Math.round(st.mtimeMs - st.birthtimeMs);
-  const starts = events.filter((e) => e.type === 'tool_execution_start');
-  const toolNames = starts.map((e) => e.toolName);
-  const ends = events.filter((e) => e.type === 'tool_execution_end');
-  const hit = ends.some((e) => JSON.stringify(e.result ?? {}).includes(needle));
-  return { file, spanMs, fileSpanMs, toolCalls: toolNames, hit };
+export function analyze(file, needle) {
+  if (typeof needle !== 'string' || !needle.trim()) throw new Error('an explicit non-empty marker is required');
+  const events = readFileSync(file, 'utf8').split(/\r?\n/).filter(line => line.trim()).map((line, i) => {
+    try { return JSON.parse(line); }
+    catch { throw new Error(`${file}: invalid JSON event at line ${i + 1}`); }
+  });
+  let first = Infinity, last = -Infinity;
+  for (const event of events) {
+    for (const value of [event.message?.timestamp, event.message?.completedAt]) {
+      if (Number.isFinite(value)) { first = Math.min(first, value); last = Math.max(last, value); }
+    }
+  }
+  const starts = events.filter(e => e.type === 'tool_execution_start');
+  const ends = events.filter(e => e.type === 'tool_execution_end');
+  const final = events.filter(e => e.type === 'message_end' && e.message?.role === 'assistant').at(-1);
+  const finalText = Array.isArray(final?.message?.content)
+    ? final.message.content.filter(x => x.type === 'text').map(x => x.text).join('\n') : '';
+  return {
+    file, marker: needle,
+    spanMs: Number.isFinite(first) && last > first ? last - first : null,
+    toolCalls: starts.map(e => e.toolName),
+    toolFailures: ends.filter(failed).length,
+    toolNeedleHit: ends.some(e => !failed(e) && JSON.stringify(e.result ?? {}).includes(needle)),
+    finalMentionsNeedle: finalText.includes(needle),
+    correctness: 'not_verified',
+  };
 }
 
-const b = analyze(baselineFile, baselineMark ?? 'area-18');
-const a = analyze(afterFile, afterMark ?? 'area-29');
-const ratio = a.spanMs && b.spanMs ? (a.spanMs / b.spanMs) : null;
-const verdict = a.hit && ratio !== null && ratio < 0.5 ? 'PASS (c-speedup)' : 'REVIEW NEEDED';
+function cell(value) { return String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' '); }
 
-const md = [
-  '# codemode exec 측정 요약',
-  '',
-  '| 항목 | baseline (NEEDLE-A2) | after (NEEDLE-A3) |',
-  '| --- | --- | --- |',
-  `| dump | ${path.basename(b.file)} | ${path.basename(a.file)} |`,
-  `| wall-clock (message.timestamp 스팬) | ${b.spanMs} ms | ${a.spanMs} ms |`,
-  `| wall-clock (파일 스팬, 보조) | ${b.fileSpanMs} ms | ${a.fileSpanMs} ms |`,
-  `| 툴콜 | ${b.toolCalls.join(', ')} (${b.toolCalls.length}) | ${a.toolCalls.join(', ')} (${a.toolCalls.length}) |`,
-  `| needle 적중 | ${b.hit} | ${a.hit} |`,
-  '',
-  `ratio: ${ratio === null ? 'n/a' : ratio.toFixed(3)} (판정 기준: < 0.5)`,
-  `verdict: **${verdict}**`,
-  '',
-  '오염 메모: baseline 첫 bash 호출은 경로 오타(codemod-eval)로 1회 실패 후 재시도했다(공개된 오염, 기각 사유 아님).',
-  ''].join('\n');
-writeFileSync(outFile, md);
-console.log(md);
+export function compare(baseline, after) {
+  const ratio = baseline.spanMs > 0 && after.spanMs > 0 ? after.spanMs / baseline.spanMs : null;
+  const clean = baseline.toolFailures === 0 && after.toolFailures === 0;
+  const timingTargetMet = clean && baseline.toolNeedleHit && after.toolNeedleHit
+    && ratio !== null && ratio < 0.5;
+  return {
+    ratio, timingTargetMet,
+    markdown: [
+      '# codemode recorded-event comparison', '',
+      `| Metric | Baseline (${cell(baseline.marker)}) | After (${cell(after.marker)}) |`,
+      '| --- | --- | --- |',
+      `| Log | ${cell(path.basename(baseline.file))} | ${cell(path.basename(after.file))} |`,
+      `| Event span, ms (timestamp + completedAt) | ${baseline.spanMs ?? 'unavailable'} | ${after.spanMs ?? 'unavailable'} |`,
+      `| Tool calls | ${baseline.toolCalls.length} | ${after.toolCalls.length} |`,
+      `| Failed tool events | ${baseline.toolFailures} | ${after.toolFailures} |`,
+      `| Marker in successful tool output | ${baseline.toolNeedleHit} | ${after.toolNeedleHit} |`,
+      `| Marker in final assistant text | ${baseline.finalMentionsNeedle} | ${after.finalMentionsNeedle} |`, '',
+      `after/baseline: ${ratio === null ? 'unavailable' : ratio.toFixed(3)}`,
+      `Timing target (<0.5 with clean tool runs): ${timingTargetMet ? 'met' : 'not met'}.`,
+      'Correctness: NOT VERIFIED. Marker presence does not prove complete paths, sizes, recall, or final-answer accuracy.',
+      'Verdict: REVIEW NEEDED until an independent task-specific correctness oracle and repeated paired runs are supplied.',
+      'Event spans cover only captured events, not omitted setup or work before logging. Filesystem birthtime/mtime are intentionally excluded.',
+      !clean ? 'Contamination: failed tool events are present; do not attribute all timing differences to codemode.' : '',
+      '',
+    ].filter((x, i, a) => x !== '' || a[i - 1] !== '').join('\n'),
+  };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const [baseline, after, output, baselineMarker, afterMarker, ...extra] = process.argv.slice(2);
+  if (!baseline || !after || !output || !baselineMarker || !afterMarker || extra.length) {
+    console.error('usage: node eval/compare.mjs <baseline.jsonl> <after.jsonl> <summary.md> <baselineMarker> <afterMarker>');
+    process.exitCode = 2;
+  } else {
+    try {
+      const report = compare(analyze(baseline, baselineMarker), analyze(after, afterMarker));
+      writeFileSync(output, report.markdown + '\n');
+      console.log(report.markdown);
+    } catch (e) {
+      console.error(`compare: ${e.message}`);
+      process.exitCode = 1;
+    }
+  }
+}

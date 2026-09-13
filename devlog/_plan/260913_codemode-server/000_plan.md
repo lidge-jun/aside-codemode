@@ -56,3 +56,10 @@ HOTL 리소스 범위: 쓰기 범위는 이 리포 + C:/Users/super/.aside/u/0/s
   동급 신뢰), codeGeneration 비활성, fs 루트 allowlist, 실행 타임아웃/출력 캡.
 - R4: baseline 측정이 모델 거동 차이로 오염. 완화: 동일 프롬프트/동일 코퍼스/
   기계 생성 needle, log-dump의 wall-clock과 툴콜 수 둘 다 기록.
+- 호스트 도구: node v24.16.0(C:/nvm4w/nodejs/node.exe), rg 15.2.0.
+- 호스트 도구: node v24.16.0(C:/nvm4w/nodejs/node.exe), rg 15.2.0.
+- 사용자 보고 증상(2026-09-13): aside 세션이 'Waiting for tool result...' 에서
+  async로 넘어가지 못하거나 툴 결과 대기 흐름이 과도하게 길어진다. 메커니즘과
+  일치 — aside-jun 실측에서 Windows bash 툴은 guard에서 무한 교착(4회 재현),
+  full-access에서도 단순 명령 9.6s. 툴콜당 고정 비용이 크고 직렬이라 파일별
+  호출은 곧 수십 초~수분. execute_code 한 번으로 납부 합성하면 대기 1회로 수렴한다.

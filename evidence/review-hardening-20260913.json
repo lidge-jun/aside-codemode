@@ -21,7 +21,35 @@
     "packageDryRunExit": 0,
     "packageFiles": 34,
     "allRuntimeHelpersPackaged": true,
-    "privateFsmPackaged": false
+    "privateFsmPackaged": false,
+    "environments": [
+      {
+        "platform": "macOS",
+        "node": "v24.17.0",
+        "ripgrep": "15.1.0",
+        "command": "npm test",
+        "exitCode": 0,
+        "tests": 196,
+        "passed": 196,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      {
+        "platform": "Linux",
+        "node": "v22.22.2",
+        "ripgrep": "14.1.1",
+        "command": "npm test",
+        "exitCode": 0,
+        "tests": 196,
+        "passed": 196,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "sourceFilesDigestMatched": 50,
+        "manifestNote": "bin/README.md is explanatory documentation and was not included in the isolated execution copy; all 50 manifest runtime/test/support files match."
+      }
+    ]
   },
   "scope": [
     "supervised guest evaluation and serialization",
@@ -44,8 +72,15 @@
     "nativeHotlArmed": false,
     "reason": "native CODEX_THREAD_ID, host goal and native agent tools unavailable; no borrowed identity or fabricated FSM transitions",
     "localCommitsAuthorized": true,
-    "pushAuthorized": false,
-    "remotePushPerformed": false
+    "pushAuthorized": true,
+    "remotePushPerformed": true,
+    "pushAuthorization": "Current user requested committed fixes and an update to the named GitHub repository.",
+    "publication": {
+      "remote": "origin",
+      "branch": "main",
+      "firstVerifiedPublishedCommit": "067ef167e61993f0af96064c943f380dbaa172b6",
+      "method": "normal fast-forward git push; matching local and remote refs checked after push"
+    }
   },
   "performance": {
     "headline": "make aside 50x faster",

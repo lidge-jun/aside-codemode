@@ -1,6 +1,8 @@
 # make aside 50x faster
 
-**50x is the batching goal, not a measured end-to-end speedup.** Replace a workflow of 50 separate tool round trips with one JavaScript orchestration call. Actual latency depends on the task, model, host and how much work can be batched. Existing paired measurements show about **1.05–1.81x** for single searches and **1.13x** for one compound task; the largest result included a baseline retry. [See measurements and limits](#performance-evidence).
+On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md).
+
+Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
 
 **aside-codemode** gives Aside a single place to search, filter, read and summarize local files. Keep intermediate data out of the model context; return the answer and the evidence needed to judge it.
 
@@ -118,6 +120,8 @@ Install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` 
 
 The repo vendors `bin/rg.exe`. Use `scripts/register-aside.ps1`. `.gitattributes` keeps `*.sh` as LF so a Windows checkout does not CRLF the macOS wrapper (issue #2).
 
+Git Bash is the default Aside shell on Windows. PowerShell is allowed for the same absolute `node` + `bin/codemode.mjs --code` call. Aside has no Linux product.
+
 ## Config
 
 Later entries win:
@@ -154,7 +158,7 @@ These are **historical paired Aside runs**, not fresh measurements of the harden
 | One needle, 20,000 files + 127 MB log | 9,083 ms | 8,650 ms | 1.05x |
 | Ten marker paths and sizes | 28,717 ms | 25,390 ms | 1.13x |
 
-Source: [recorded summary](evidence/summary.md) and [compound comparison](evidence/summary-compound.md). The first and compound baselines include a path/retry contamination. Both compound runs used three bash calls, so that pair does not prove a round-trip reduction. No pair established the original `<0.5` after/baseline target, much less a general 50x speedup. Samples are too limited to promise a typical result.
+Source: [recorded summary](evidence/summary.md) and [compound comparison](evidence/summary-compound.md). The first and compound baselines include a path/retry contamination. Both compound runs used three bash calls, so that pair does not prove a round-trip reduction. No pair established the original `<0.5` after/baseline target. The folder wall-clock above is one development-folder pair (55s vs 1s). The table is older Aside-turn timings and does not cancel that pair. It is not a promise that every machine or every task is 51x. Samples are too limited to promise a typical result.
 
 For new comparisons, pass real task markers explicitly:
 

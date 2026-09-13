@@ -24,3 +24,5 @@ native file card. File locks coordinate codemode writers, not arbitrary editors.
 A failed patch may have applied earlier files; inspect `applied` and `failedFile`.
 
 Resolve project-relative paths with `{{CWD_HINT}}` or run in that directory.
+
+On Windows, Aside's default shell is Git Bash. PowerShell is allowed for the same absolute `{{NODE}} {{CLI}} --code` call. Do not recurse with `Get-ChildItem`. On macOS, use the default bash/zsh card the same way. Aside has no Linux install path.

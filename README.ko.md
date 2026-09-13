@@ -1,6 +1,8 @@
 # make aside 50x faster
 
-**50x는 배치 실행의 목표이며, 실측한 전체 작업 속도 향상이 아닙니다.** 도구를 50번 따로 왕복하는 작업을 JavaScript 실행 한 번으로 묶자는 뜻입니다. 실제 지연은 작업·모델·호스트·배치 가능 범위에 따라 달라집니다. 기존 비교에서는 단일 검색이 약 **1.05~1.81배**, 복합 작업 한 건이 **1.13배**였으며, 가장 큰 차이에는 baseline 재시도가 포함됐습니다. [측정 근거와 한계](#performance-evidence)를 함께 확인하세요.
+로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md).
+
+예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
 
 **aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 한 번의 코드 호출로 묶습니다. 중간 데이터를 모두 모델에게 전달하지 않고, 판단에 필요한 결과와 근거만 반환합니다.
 
@@ -117,6 +119,8 @@ ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는
 
 `bin/rg.exe`를 같이 둡니다. `scripts/register-aside.ps1`을 쓰세요. `.gitattributes`가 `*.sh`를 LF로 고정해서, Windows에서 받아도 macOS 래퍼가 CRLF로 깨지지 않게 합니다 (이슈 #2).
 
+Aside 기본 셸은 Git Bash입니다. 같은 절대 경로 `node`와 `bin/codemode.mjs --code` 호출은 PowerShell에서도 됩니다. Aside에는 Linux 제품이 없습니다.
+
 ## Config
 
 뒤에 오는 값이 이깁니다.
@@ -153,7 +157,7 @@ watchdog의 대상은 게스트 평가와 직렬화입니다. 임의의 동기 �
 | 20,000개 파일 + 127MB 로그 | 9,083ms | 8,650ms | 1.05배 |
 | 마커 10개의 경로와 크기 | 28,717ms | 25,390ms | 1.13배 |
 
-[기존 측정 요약](evidence/summary.md)과 [복합 작업 비교](evidence/summary-compound.md)가 출처입니다. 첫 비교와 복합 작업의 baseline에는 경로 오류·재시도가 포함됐습니다. 복합 작업은 양쪽 모두 bash 3회였으므로 호출 수 감소를 입증하지 못합니다. 원래 목표인 after/baseline `<0.5`도 달성하지 못했으며, 일반적인 50배 속도 향상은 검증하지 않았습니다. 표본이 적어 평균적인 효과를 약속할 수 없습니다.
+[기존 측정 요약](evidence/summary.md)과 [복합 작업 비교](evidence/summary-compound.md)가 출처입니다. 첫 비교와 복합 작업의 baseline에는 경로 오류·재시도가 포함됐습니다. 복합 작업은 양쪽 모두 bash 3회였으므로 호출 수 감소를 입증하지 못합니다. 원래 목표인 after/baseline `<0.5`도 달성하지 못했습니다. 위 55초/1초는 개발 폴더 한 쌍입니다. 아래 표는 예전에 재 둔 Aside 턴 시간이며 그 측정을 취소하지 않습니다. 모든 머신·모든 작업이 51배라는 약속은 아닙니다. 표본이 적어 평균적인 효과를 약속할 수 없습니다.
 
 새 비교에서는 실제 작업 마커를 명시합니다.
 

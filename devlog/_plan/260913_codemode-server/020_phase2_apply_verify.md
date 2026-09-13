@@ -19,19 +19,19 @@
 - 멱등: 재실행 시 같은 키 덮어쓰기, 백업만 누적.
 
 ## D2 — 데몬 반영 프로브
-- 등록 직후 aside exec --permission full-access -- 프롬프트 'execute_code 툴로 return 40+2 만 실행하고 결과만 답하라'. 로그덤프에 execute_code 호출이 보이면 반영 완료.
+- 등록 직후 aside exec --permission full-access --log-dump evidence/<ts>-probe.jsonl -- 프롬프트 'execute_code 툴로 return 40+2 만 실행하고 결과만 답하라'. 로그덤프에 execute_code 호출이 보이면 반영 완료. [--log-dump 필수 — 이 파일이 c-recognition 증거다]
 - 미반영 시: aside-daemon 프로세스만 종료 후 다음 CLI 호출로 재기동 유도 → 재프로브. 그래도 안 되면 사용자 앱 재시작 절차(aside-jun host-windows의 InteractiveToken oneshot 스케줄 트릭) 안내하고 BLOCKED 보고.
 
 ## D3 — 측정 프로토콜
 - 코퍼스: <accountRoot>/codemode-eval/corpus. make-corpus.mjs가 60 디렉터리/3000 파일(각 1-3KB filler), needle NEEDLE-A1..A5를 서로 다른 깊이 파일에 심는다.
 - 과제 프롬프트(고정): 'codemode-eval/corpus 아래에서 NEEDLE-A2 가 들어있는 파일을 모두 찾아 절대경로로 보고하라' + aside-jun 3절(쓰기 울타리/다운로드/질문 금지).
 - baseline: 등록 전에 실행. after: 등록·반영 확인 후 needle을 A3로 바꿔 동일 프롬프트 실행(메모리/캐시 오염 방지).
-- 각 실행은 --log-dump evidence/<ts>-<label>.jsonl 로 기록. compare.mjs가 wall-clock(agent_start→마지막 이벤트), 툴콜 수, 종료 상태, needle 적중 여부를 evidence/summary.md로 출력.
+- 각 실행은 --log-dump evidence/<ts>-<label>.jsonl 로 기록. compare.mjs가 wall-clock, 툴콜 수, 종료 상태, needle 적중 여부를 evidence/summary.md로 출력. [wall-clock 정의: agent_start/agent_end 이벤트에는 timestamp가 없다(실측). message_* 이벤트의 message.timestamp 최소→최대 스팬과, 보조로 dump 파일 birthtime→mtime 스팬 둘 다 기록. baseline에는 첫 bash 호출이 경로 오타로 1회 실패 후 재시도한 오염이 있으니 summary에 명시]
 - 판정: after가 needle 전부 적중 + wall-clock이 baseline의 50% 미만이면 c-speedup met. 미달이면 원인 분석 후 1회 재측정(needle A4).
 
 ## D4 — 푸시 순서 (사용자 승인됨)
 1. aside-codemode 리포: gh repo create lidge-jun/aside-codemode --public --source . --remote origin --push (커밋은 wp1부터 쌓임).
-2. 상위 묶음(C:/Users/super/Developers/aside): git submodule add https://github.com/lidge-jun/aside-codemode.git aside-codemode → README 표에 행 추가 → 커밋 → push.
+2. 상위 묶음(C:/Users/super/Developers/aside): 서브모듈은 이미 등록돼 있다(url = ./aside-codemode, a5c504e). git submodule set-url aside-codemode https://github.com/lidge-jun/aside-codemode.git 으로 교정 → gitlink 범프 커밋 → push. [021 4번이 정본]
 3. 검증: git ls-remote https://github.com/lidge-jun/aside-codemode.git HEAD 와 git ls-remote <wrapper origin> HEAD 출력을 evidence에 기록.
 
 ## 수용 기준

@@ -1,7 +1,7 @@
 {
   "name": "aside-codemode",
   "version": "0.1.0",
-  "description": "Code mode MCP server for the Aside agent: one execute_code tool with rg-backed search, root-scoped fs and in-sandbox action discovery",
+  "description": "CLI code mode for the Aside agent: one `codemode --code` guest with Aside-shaped file tools and rg-backed search",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -17,7 +17,9 @@
     "bin/",
     "src/",
     "scripts/",
+    "templates/",
     "codemode.config.example.json",
-    "README.md"
+    "README.md",
+    "README.ko.md"
   ]
 }

@@ -5,6 +5,7 @@ import { makeRootGuard } from './paths.js';
 import { createRgResolver, createRgRunner, RgNotFoundError } from './rg.js';
 import { createSearch } from './host/search.js';
 import { createFs } from './host/fs.js';
+import { createApplyPatch } from './host/patch.js';
 import { createActions } from './host/actions.js';
 import { createToolHandler, TOOL_DEF, TOOL_NAME } from './tools.js';
 import { parseMessage, result, error, PROTOCOL_VERSION, ERR_METHOD_NOT_FOUND, ERR_INVALID_PARAMS } from './mcp.js';
@@ -41,9 +42,14 @@ async function main() {
   }
   const resolveRg = createRgResolver(config);
   const rgRunner = createRgRunner(resolveRg, { excludeGlobs: config.excludeGlobs });
+  const hostFs = createFs({ assertInside });
   const globals = {
     search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
-    fs: createFs({ assertInside }),
+    fs: hostFs,
+    read_file: hostFs.read_file,
+    write_file: hostFs.write_file,
+    edit_file: hostFs.edit_file,
+    apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
     actions: createActions(),
   };
   const handleToolCall = createToolHandler({ config, globals });

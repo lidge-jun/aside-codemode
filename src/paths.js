@@ -28,7 +28,7 @@ export class RootConfigError extends Error {
   }
 }
 
-export function makeRootGuard(roots) {
+export function makeRootGuard(roots, { cwd } = {}) {
   // A configured root that does not exist on this machine used to throw a raw
   // ENOENT from realpath at startup, printing a node stack trace instead of a
   // usable message. That is exactly what a fresh clone hits when the committed
@@ -59,7 +59,8 @@ export function makeRootGuard(roots) {
     if (typeof p !== 'string' || !p) throw new Error('path (non-empty string) is required');
     // realpath the nearest EXISTING ancestor, then re-join the remaining
     // segments — otherwise writes to not-yet-created files fail with ENOENT.
-    let cur = path.resolve(p);
+    const base = cwd ? path.resolve(cwd) : process.cwd();
+    let cur = path.resolve(base, p);
     const tail = [];
     let realBase;
     for (;;) {
@@ -85,5 +86,6 @@ export function makeRootGuard(roots) {
   // instead of pretending every root resolved.
   guard.roots = realRoots;
   guard.missingRoots = missing;
+  guard.cwd = cwd ? path.resolve(cwd) : undefined;
   return guard;
 }

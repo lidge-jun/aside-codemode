@@ -58,6 +58,10 @@ export async function runCode(code, { timeoutMs, globals, maxResultBytes }) {
     search: globals.search,
     fs: globals.fs,
     actions: globals.actions,
+    read_file: globals.read_file,
+    write_file: globals.write_file,
+    edit_file: globals.edit_file,
+    apply_patch: globals.apply_patch,
     console: consoleShim,
   };
   // NOTE: microtaskMode 'afterEvaluate' was specified in the plan but drops the

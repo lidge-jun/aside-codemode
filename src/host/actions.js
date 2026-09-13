@@ -54,8 +54,47 @@ const REGISTRY = [
     },
   },
   {
+    path: 'read_file',
+    description: 'Read a file using the Aside read_file shape. offset/limit are 1-indexed lines.',
+    signature: 'read_file({ path, offset?, limit? }) => Promise<string>',
+    inputs: {
+      path: { type: 'string', required: true, description: 'File path (inside roots; relative to --cwd)' },
+      offset: { type: 'number', required: false, description: '1-indexed start line' },
+      limit: { type: 'number', required: false, description: 'Max lines to return' },
+    },
+  },
+  {
+    path: 'write_file',
+    description: 'Create a new file (Aside write_file). Fails if the file already exists.',
+    signature: 'write_file({ file_path, content }) => Promise<{wrote,bytes}>',
+    inputs: {
+      file_path: { type: 'string', required: true, description: 'Target path (create-only)' },
+      content: { type: 'string', required: true, description: 'File contents' },
+    },
+  },
+  {
+    path: 'edit_file',
+    description: 'Unique oldText→newText replacements on the original file, optional appendText.',
+    signature: 'edit_file({ path, appendText?, edits:[{oldText,newText}] }) => Promise<{path,replacements,appended,diff}>',
+    inputs: {
+      path: { type: 'string', required: true, description: 'File to edit' },
+      appendText: { type: 'string', required: false, description: 'Appended after edits' },
+      edits: { type: 'array', required: false, description: 'Replacements against the original text' },
+    },
+  },
+  {
+    path: 'apply_patch',
+    description: 'Apply a Codex-shaped freeform patch string. Add/Update only. Success {}. No rollback.',
+    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument.',
+    signature: 'apply_patch(text) => Promise<{}>',
+    inputs: {
+      text: { type: 'string', required: true, description: 'Freeform *** Begin Patch … *** End Patch string' },
+    },
+  },
+  {
     path: 'fs.read',
-    description: 'Read a UTF-8 file inside roots. Truncation appends a marker naming the total size and how to get the rest.',
+    description: 'Deprecated byte-offset read. Prefer read_file (line offset).',
+    notes: 'deprecated; use read_file (line offset)',
     signature: 'fs.read(path, { maxBytes?, offset? }?) => Promise<string>',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
@@ -87,7 +126,8 @@ const REGISTRY = [
   },
   {
     path: 'fs.write',
-    description: 'Write a UTF-8 file inside roots (parent directory must exist; use fs.mkdir first).',
+    description: 'Deprecated overwrite write. Prefer write_file (create-only).',
+    notes: 'deprecated; use write_file (create-only)',
     signature: 'fs.write(path, content) => Promise<{wrote,bytes}>',
     inputs: {
       path: { type: 'string', required: true, description: 'Target file path (inside roots)' },

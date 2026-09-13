@@ -4,9 +4,11 @@
 //        node src/cli.js --doctor [--config <file>]
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
+import { resolveCwd } from './host/cwd.js';
 import { createRgResolver, createRgRunner } from './rg.js';
 import { createSearch } from './host/search.js';
 import { createFs } from './host/fs.js';
+import { createApplyPatch } from './host/patch.js';
 import { createActions } from './host/actions.js';
 import { runCode } from './sandbox.js';
 
@@ -35,18 +37,30 @@ try {
   fail(`config: ${e.message}`);
 }
 
+let workCwd;
+try {
+  workCwd = resolveCwd({ argv });
+} catch (e) {
+  fail(e.message);
+}
+
 let assertInside;
 try {
-  assertInside = makeRootGuard(config.roots);
+  assertInside = makeRootGuard(config.roots, { cwd: workCwd });
 } catch (e) {
   fail(e.message, { code: e.code ?? null });
 }
 
 const rgResolver = createRgResolver(config);
 const rgRunner = createRgRunner(rgResolver, { excludeGlobs: config.excludeGlobs });
+const hostFs = createFs({ assertInside });
 const globals = {
   search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
-  fs: createFs({ assertInside }),
+  fs: hostFs,
+  read_file: hostFs.read_file,
+  write_file: hostFs.write_file,
+  edit_file: hostFs.edit_file,
+  apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
   actions: createActions(),
 };
 
@@ -57,6 +71,7 @@ if (has('--doctor')) {
     ok: true,
     node: process.version,
     platform: process.platform,
+    cwd: workCwd,
     roots: assertInside.roots,
     missingRoots: assertInside.missingRoots,
     configSources: config._sources,
@@ -77,8 +92,8 @@ if (has('--doctor')) {
 
 const code = flag('--code');
 if (!code) {
-  console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N]");
-  console.error('       node src/cli.js --doctor [--config <file>]');
+  console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
+  console.error('       node src/cli.js --doctor [--config <file>] [--cwd <dir>]');
   process.exit(2);
 }
 

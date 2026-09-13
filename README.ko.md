@@ -165,6 +165,8 @@ node eval/compare.mjs baseline.jsonl after.jsonl summary.md BASELINE-MARK AFTER-
 
 ## Development
 
+안정화 검증(2026-09-13): [196개 테스트 통과, 소스 해시와 남은 한계](evidence/review-hardening-20260913.json).
+
 ```sh
 npm test   # node --test "test/*.test.js" — 의존성 없음
 ```

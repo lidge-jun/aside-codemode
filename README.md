@@ -166,6 +166,8 @@ The comparator uses recorded timestamps and completion timestamps, counts failed
 
 ## Development
 
+Hardening verification (2026-09-13): [196 passing tests, source hashes and remaining limits](evidence/review-hardening-20260913.json).
+
 ```sh
 npm test   # node --test "test/*.test.js" — zero dependencies
 ```

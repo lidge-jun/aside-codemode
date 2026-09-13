@@ -9,7 +9,7 @@ This unit repairs the runtime, search, and file-mutation defects reproduced agai
 - Goal: watchdog-bounded guest execution, preserved search completeness, consistent root policy, coordinated writes, supported multi-hunk patches, trustworthy evidence and documentation.
 - Non-goals: modify Aside/codexclaw, parent repository changes, account/config installation, dependency additions, npm publication, force-push, hostile-code sandbox certification, or an invented 50x end-to-end result.
 - Verifiers: existing `npm test` (package script reads test/*.test.js importing src); targeted new node:test regressions; actual CLI stdout JSON checks; npm package dry-run; source syntax checks; remote HEAD after authorized update. Baseline execution evidence is captured separately before production edits.
-- Stop: all scoped repairs verified, independent diff review resolved, focused commits created, remote commit confirmed; disclose unsupported environments and workflow capabilities.
+- Stop: all scoped repairs verified, independent diff review resolved, focused commits created, local commit verified; remote publication only after separate push approval. Disclose unsupported environments and workflow capabilities.
 - Memory: this numbered unit, sanitized evidence/ review-hardening report, private raw execution logs outside the checkout.
 - Outcomes: DONE for verified code/update; BLOCKED for actual transport/push refusal; NEEDS_HUMAN for untested Windows or unavailable native loop setup. No time/token limit was supplied; tool processes receive per-invocation watchdogs, not a goal-completion time budget.
 - Escalation: no dependency/config/permission expansion; main reclaims delegated work after two distinct failures. Main alone integrates and commits. Unrelated work remains untouched.
@@ -61,3 +61,11 @@ Assets are files under configured roots, task responsiveness, and truthful searc
 ## Completion ledger
 
 Planning recorded before any production edits. Runtime preflight failure is preserved; no native PABCD completion claim is permitted.
+
+## Delivery conclusion (2026-09-13)
+
+The authorized implementation and local commit scope is complete. The final production/test source at47b9829 was verified by a fresh `npm test`:196 passed,0 failed,0 cancelled,0 skipped. HEAD and source SHA-256 values were unchanged across that run. Syntax checks passed for49 JS/MJS files. Package dry-run included34 files, all worker/search/file helpers, and no private .codexclaw state. The sanitized durable proof is evidence/review-hardening-20260913.json; raw agent transcripts and execution logs remain outside the checkout.
+
+Independent reviews covered the runtime and search/file integration. A broad runtime review was stopped when it did not converge and is not counted as PASS; the bounded replacement returned PASS after17 runtime tests and byte-cap/RPC probes. The search/file reviewer accepted the repaired scope with a low-severity internal window-validation finding subsequently fixed and regression-tested. No global security certification or 50x wall-clock improvement was established.
+
+Formal native HOTL/Stop continuation remains unavailable: no CODEX_THREAD_ID or host goal capability. No historical session or FSM was reused. Push was not performed because separate current approval is absent. Windows remains untested; trusted-agent, synchronous-host, temp-lock-directory and external-editor residuals remain documented. The next operation requiring user authority is remote publication, not another automatic build cycle.

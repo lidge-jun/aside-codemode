@@ -10,7 +10,7 @@ Both implementation leaves completed with scoped source changes and test evidenc
 
 ## Final integration disposition
 
-The staged write remains in the existing fs.js owner: exclusive temporary creation, fixed-length UUID basename, mode preservation and a pre-rename cancellation check are already implemented and verified. A separate file-write module is not needed for this scoped repair. Do not add a parallel owner merely to satisfy a line-count preference. Synchronous host callbacks and JavaScript regexp backtracking remain outside the guest-worker watchdog; READMEs state that residual explicitly.
+The staged write was first verified inline, then the final integration placed that same responsibility in src/host/file-write.js (f150881), called by the locked fs.js writer. Exclusive temporary creation, fixed-length UUID basename, mode preservation and pre-rename cancellation remain intact. The existing implementation was moved, not duplicated; the final source and its direct caller passed the delivery tests. Synchronous host callbacks and JavaScript regexp backtracking remain outside the guest-worker watchdog; READMEs state that residual explicitly.
 
 Remote publication is withheld pending the user's separate push approval under DEV-GIT-PUSH-01. The current request explicitly authorizes local commits; a local plan is not independent permission to publish. No npm publication, global installation, parent-repository write or native FSM mutation was performed.
 

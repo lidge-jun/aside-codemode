@@ -31,6 +31,7 @@ export async function readBounded(p, { maxBytes = READ_CAP, offset = 0, signal }
   if (maxBytes !== Infinity && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) throw new Error('maxBytes must be a non-negative integer');
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer');
   const info = await stat(p);
+  if (!info.isFile()) throw new Error('read: expected a regular file');
   const totalBytes = info.size;
   const cap = Math.max(0, maxBytes);
   const start = Math.max(0, offset);
@@ -99,6 +100,8 @@ export async function readLines(p, {
 /** Stream physical lines, preserving UTF-8 seams and the final empty split line. */
 export async function eachLine(p, onLine, { maxBytes = Infinity, maxLineBytes = READ_CAP, signal } = {}) {
   signal?.throwIfAborted();
+  const info = await stat(p);
+  if (!info.isFile()) throw new Error('read: expected a regular file');
   const fh = await open(p, 'r');
   try {
     const chunk = Buffer.allocUnsafe(STREAM_CHUNK);

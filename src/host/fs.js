@@ -8,10 +8,10 @@
 //     rename their own complete file, and the second silently erases the first.
 //   * Reads are bounded at the descriptor. The cap used to be applied after
 //     readFile() had already pulled the whole file into memory.
-import { readdir, stat, mkdir, writeFile, rename, chmod, unlink, open } from 'node:fs/promises';
+import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { types as utilTypes } from 'node:util';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
 
@@ -55,34 +55,6 @@ function boundLine(text, maxLineBytes) {
 
 export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS } = {}) {
   const lockOpts = { timeoutMs: lockTimeoutMs, signal };
-
-  // Atomic replacement that preserves the existing mode. The temporary file is
-  // created in the target's own directory because rename() is only atomic
-  // within one filesystem, and it is renamed away before this resolves, so it
-  // never lingers in the user's tree. Only this task-owned temp file is ever
-  // removed — no broad cleanup of user files happens anywhere in this module.
-  async function replaceAtomically(target, content) {
-    signal?.throwIfAborted();
-    let mode;
-    try { mode = (await stat(target)).mode & 0o777; }
-    catch (e) { if (e.code !== 'ENOENT') throw e; }
-    const tmp = path.join(path.dirname(target), `.codemode-${randomUUID()}.tmp`);
-    let owned = false;
-    try {
-      signal?.throwIfAborted();
-      const handle = await open(tmp, 'wx', mode ?? 0o666);
-      owned = true;
-      try { await handle.writeFile(content, { encoding: 'utf8', signal }); }
-      finally { await handle.close(); }
-      if (mode !== undefined) await chmod(tmp, mode);
-      signal?.throwIfAborted();
-      await rename(tmp, target);
-      owned = false;
-    } finally {
-      if (owned) await unlink(tmp).catch(e => { if (e.code !== 'ENOENT') throw e; });
-    }
-    return { bytes: Buffer.byteLength(content) };
-  }
 
   const api = {
     async read(p, { maxBytes = READ_CAP, offset = 0 } = {}) {
@@ -178,7 +150,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       // Locked even though this is a whole-file overwrite: a concurrent
       // edit_file must not read the original while this replacement lands.
       return withFileLock(target, lockOpts, async () => {
-        const { bytes } = await replaceAtomically(target, content);
+        const { bytes } = await replaceAtomically(target, content, { signal });
         return { wrote: target, bytes };
       });
     },
@@ -351,7 +323,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
           next = next.slice(0, r.start) + r.newText + next.slice(r.end);
         }
         if (typeof appendText === 'string' && appendText.length) next += appendText;
-        await replaceAtomically(target, next);
+        await replaceAtomically(target, next, { signal });
         const diff = `--- a/${p}\n+++ b/${p}\n@@\n${original}\n→\n${next}`;
         return {
           path: target,

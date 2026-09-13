@@ -7,12 +7,14 @@ const { code, timeoutMs, maxResultBytes, manifest, syncPort, syncBuffer } = work
 const MAX_PENDING = 256;
 const pending = new Map();
 let nextId = 0;
+let hostCallFailures = 0;
 let restoreSearch;
 parentPort.on('message', async msg => {
   const call = pending.get(msg.id);
   if (msg.type !== 'reply' || !call) return;
   pending.delete(msg.id);
   if (msg.error) {
+    hostCallFailures++;
     call.reject(Object.assign(new Error(msg.error.error), msg.error));
     return;
   }
@@ -32,7 +34,7 @@ function rpc(name, args) {
   promise.catch(() => {});
   pending.set(id, { resolve, reject, promise });
   try { parentPort.postMessage({ type: 'call', id, name, args }); }
-  catch (e) { pending.delete(id); reject(e); }
+  catch (e) { pending.delete(id); hostCallFailures++; reject(e); }
   return promise;
 }
 
@@ -84,6 +86,7 @@ try {
   out = { ok: false, ...errorFields(e) };
 }
 out.logs = logs;
+if (hostCallFailures) out.hostCallFailures = hostCallFailures;
 if (logsTruncated) { out.logsTruncated = true; out.truncated = true; }
 out.elapsedMs = Date.now() - started;
 parentPort.postMessage({ type: 'done', out: fitEnvelope(out, maxResultBytes) });

@@ -50,3 +50,17 @@ test('cancelling an active stream kills its child instead of waiting for the rg 
     onLine:()=>{controller.abort();return true;},
   }),e=>e.code==='ECANCELLED');
 });
+
+test('discovery and execution reject filesize spellings ripgrep cannot parse', async()=>{
+  const {createActions}=await import('../src/host/actions.js');
+  const {validateSearchOptions}=await import('../src/search-schema.js');
+  const actions=createActions();
+  for(const value of ['1k','1KB','1.5M','1 M',' 1M ','1B','18446744073709551616']) {
+    const opts={path:'.',query:'needle',maxFilesize:value};
+    assert.equal(actions.check('search.content',opts).ok,false,value);
+    assert.throws(()=>validateSearchOptions('search.content',opts),/maxFilesize|size/i);
+  }
+  for(const value of ['0','2048','512K','1M','1G']) {
+    assert.equal(actions.check('search.content',{path:'.',query:'needle',maxFilesize:value}).ok,true,value);
+  }
+});

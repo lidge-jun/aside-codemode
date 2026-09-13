@@ -28,7 +28,7 @@ const FOLLOW_SYMLINKS_UNSUPPORTED =
   'followSymlinks:true is not supported: following a symlink can read outside the configured roots '
   + 'before results are filtered. Use followSymlinks:false (default), or point `path` at the real directory.';
 
-const MAX_FILESIZE_RE = /^\d+(\.\d+)?\s*(b|k|kb|m|mb|g|gb)?$/i;
+const MAX_FILESIZE_RE = /^(\d+)([KMG]?)$/;
 
 function positiveInt(name, v) {
   if (!Number.isSafeInteger(v) || v <= 0) {
@@ -104,9 +104,10 @@ const OPTS = {
     validate: (v) => {
       const s = nonEmptyString('maxFilesize', v);
       if (s) return s;
-      return MAX_FILESIZE_RE.test(v.trim())
-        ? null
-        : `maxFilesize must be a ripgrep size like '1M', '512K' or '2048' (got ${JSON.stringify(v)})`;
+      const match = MAX_FILESIZE_RE.exec(v);
+      const powers = { '': 0n, K: 10n, M: 20n, G: 30n };
+      if (match && v.length <= 21 && (BigInt(match[1]) << powers[match[2]]) <= 18446744073709551615n) return null;
+      return `maxFilesize must be an unsigned 64-bit ripgrep size: digits with an optional uppercase K, M or G (got ${JSON.stringify(v)})`;
     },
   },
   ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive search (-i)' },

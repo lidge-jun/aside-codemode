@@ -139,3 +139,43 @@ test('cancellation reaches the per-execution host scope and prevents later write
   assert.equal(writes, 0);
   assert.equal(out.pendingHostCalls, undefined);
 });
+
+test('search completeness survives host RPC and nested final serialization', async () => {
+  const { decorateSearchResult } = await import('../src/search-result.js');
+  const out = await runCode('const hits=await search.content({}); return {hits,first:hits.map(x=>x.file)[0]};', {
+    ...options,
+    globals: { search: { content: async () => decorateSearchResult([{file:'a.txt',line:1,text:'needle'}], {
+      truncated: true, partial: ['fixture unreadable path'], scope: {path:'/fixture',noIgnore:false},
+    }) } },
+  });
+  assert.equal(out.ok, true, out.error);
+  assert.equal(out.result.first, 'a.txt');
+  assert.equal(out.result.hits.complete, false);
+  assert.equal(out.result.hits.truncated, true);
+  assert.deepEqual(out.result.hits.partial, ['fixture unreadable path']);
+  assert.equal(out.result.hits.scope.path, '/fixture');
+  assert.equal(out.result.hits.rows.length, 1);
+});
+
+test('count metadata survives RPC without changing guest count access', async () => {
+  const { decorateSearchResult } = await import('../src/search-result.js');
+  const out = await runCode('const count=await search.count({}); return {count,n:count.matches};', {
+    ...options,
+    globals: { search: { count: async () => decorateSearchResult({matches:3,files:2}, {scope:{path:'/fixture'}}) } },
+  });
+  assert.equal(out.ok, true, out.error);
+  assert.equal(out.result.n, 3);
+  assert.equal(out.result.count.complete, true);
+  assert.equal(out.result.count.matches, 3);
+});
+
+test('a settled fire-and-forget host failure is not silently reported as a clean success', async()=>{
+  const out=await runCode('write_file({}); await read_file({}); return "finished";', {
+    ...options,
+    globals: {
+      write_file: async()=>{throw new Error('fixture write failed');},
+      read_file: async()=> 'fixture',
+    },
+  });
+  assert.ok(out.ok===false || out.hostCallFailures>0, JSON.stringify(out));
+});

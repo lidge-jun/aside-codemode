@@ -42,7 +42,12 @@ export function createRgResolver(config, env = process.env) {
   return async function resolveRg() {
     if (cached) return cached;
     const explicit = config.rgPath || env.CODEMODE_RG;
-    if (explicit && existsSync(explicit)) return (cached = explicit);
+    if (explicit) {
+      // Explicit config is authoritative: a wrong path is a structured error,
+      // never a silent fall-through to whatever PATH happens to hold.
+      if (existsSync(explicit)) return (cached = explicit);
+      throw new RgNotFoundError();
+    }
     for (const cand of pathCandidates(env)) {
       if (existsSync(cand)) return (cached = cand);
     }

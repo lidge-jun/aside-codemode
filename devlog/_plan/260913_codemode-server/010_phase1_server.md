@@ -36,7 +36,7 @@ Windows/macOS 공통 코드, 플랫폼 차이는 경로 해석 한 곳(src/paths
 
 ### A-D2 — execute_code 샌드박스
 - MCP 공개 툴은 execute_code({ code, timeoutMs? }) 하나. input 스키마: code 필수 string, timeoutMs 기본 30000/상한 config.maxTimeoutMs=120000.
-- vm.createContext(새 global, { codeGeneration: { strings:false, wasm:false }, microtaskMode: 'afterEvaluate' }). importModuleDynamically는 넘기지 않는다(동적 import 거부).
+- vm.createContext(새 global, { codeGeneration: { strings:false, wasm:false } }). importModuleDynamically는 넘기지 않는다(동적 import 거부). [B 편차, 2026-09-13 실측: microtaskMode 'afterEvaluate'는 이 패턴에서 runInContext가 돌려준 promise를 영영 해결하지 않는다(Node v24 재현). 제거하고 Promise.race deadline을 비동기 상한으로 쓴다.]
 - 주입 전역은 search, fs, actions, console(캡처)뿐. process/require/fetch/net/child_process/Worker 미주입(차단 목록 테스트).
 - 실행: vm.Script(code).runInContext(ctx, { timeout }) 후 Promise면 await. timeout 옵션은 동기 구간(+afterEvaluate 마이크로태스크)만 끊으므로, 비동기 강제는 Promise.race의 별도 deadline이 담당하고 rg/fs 호출에는 자체 Abort/timeout을 둔다.
 - 출력: { ok, result?, error?, logs: string[], elapsedMs, truncated? } 를 text 콘텐츠 JSON. result/error는 config.maxResultBytes(기본 64KB) 절단.
@@ -69,7 +69,7 @@ Windows/macOS 공통 코드, 플랫폼 차이는 경로 해석 한 곳(src/paths
 
 1. initialize 전 stdout 0바이트, initialize → tools/list가 execute_code 1개 (mcp.test.js).
 2. execute_code return 1+1 → ok:true result:2 (mcp.test.js).
-3. 동기 무한루프 → vm timeout으로 ok:false (sandbox.test.js). afterEvaluate: Promise.resolve 체인 배수가 결과에 반영 (sandbox.test.js).
+3. 동기 무한루프 → vm timeout으로 ok:false (sandbox.test.js). [afterEvaluate 항목은 위 편차로 삭제]
 4a. notifications/cancelled는 서버를 죽이지 않음 — 해당 call 응답 없이 이후 tools/list가 정상 응답 (mcp.test.js).
 4b. stdin close는 진행 중 call을 abort하고 서버가 스스로 종료(exit 0) (mcp.test.js).
 5. roots 밖 경로/심볼릭링크 이탈 → 거부 (fs.test.js).

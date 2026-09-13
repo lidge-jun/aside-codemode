@@ -48,6 +48,11 @@ const roots = devRoot ? [accountRoot, devRoot] : [accountRoot];
 const configPath = path.join(repoRoot, 'codemode.config.json');
 const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) : {};
 config.roots = roots;
+// The vendored bin/rg.exe only runs on Windows. On macOS clear rgPath so the
+// resolver walks its normal ladder (PATH, Homebrew locations).
+if (process.platform !== 'win32' && typeof config.rgPath === 'string' && config.rgPath.endsWith('.exe')) {
+  config.rgPath = null;
+}
 writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 
 console.log(JSON.stringify({ ok: true, backup: backupPath, server: settings.mcp.servers['aside-codemode'], roots }, null, 2));

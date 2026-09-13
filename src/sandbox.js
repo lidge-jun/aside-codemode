@@ -1,104 +1,120 @@
-// execute_code sandbox (A-D2). node:vm is NOT a security boundary — see README trust model.
-import vm from 'node:vm';
-import util from 'node:util';
+// Guest CPU and serialization run off the host event loop. This is accident
+// containment for trusted agents, NOT a hostile-code security boundary.
+import { Worker, MessageChannel } from 'node:worker_threads';
+import { errorFields, fitEnvelope, requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
 
-const LOG_CAP = 200;
+const HOST_DRAIN_MS = 1000;
+const ROOTS = ['search', 'fs', 'actions', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
 
-function safeStringify(value, maxBytes) {
-  const seen = new WeakSet();
-  let text;
-  try {
-    text = JSON.stringify(value, (k, v) => {
-      if (typeof v === 'function') return `[function ${v.name ?? 'anonymous'}]`;
-      if (typeof v === 'bigint') return v.toString();
-      if (v && typeof v === 'object') {
-        if (seen.has(v)) return '[circular]';
-        seen.add(v);
+function hostMethods(globals) {
+  const methods = new Map();
+  for (const root of ROOTS) {
+    const value = globals[root];
+    if (typeof value === 'function') methods.set(root, value.bind(globals));
+    else if (value && typeof value === 'object') {
+      for (const [name, fn] of Object.entries(value)) {
+        if (typeof fn === 'function') methods.set(`${root}.${name}`, fn.bind(value));
       }
-      return v;
-    });
-  } catch (e) {
-    text = undefined;
+    }
   }
-  if (text === undefined) text = util.inspect(value, { depth: 4 });
-  const total = Buffer.byteLength(text);
-  if (total > maxBytes) {
-    // Head-only truncation destroys the end of a result, which is where a
-    // summary or a final count usually lives. Keep both ends and say what was
-    // dropped, so the model can narrow the query instead of guessing.
-    // (Pattern follows the Codex tool-runtime note: head + marker + tail.)
-    const marker = `\n...[truncated: ${total} bytes total — narrow the query, lower max, or return fewer fields]...\n`;
-    // The cap must hold INCLUDING the marker, otherwise "capped at N" is a
-    // lie and a downstream buffer sized to N still overflows.
-    const budget = Math.max(0, maxBytes - Buffer.byteLength(marker));
-    const head = Math.floor(budget * 0.7);
-    const tail = budget - head;
-    const kept = tail > 0
-      ? text.slice(0, head) + marker + text.slice(text.length - tail)
-      : text.slice(0, budget) + marker;
-    return { text: kept, truncated: true, totalBytes: total };
-  }
-  return { text, truncated: false };
+  return methods;
 }
 
-export async function runCode(code, { timeoutMs, globals, maxResultBytes }) {
+export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResultBytes = 65536, signal } = {}) {
   const started = Date.now();
-  const logs = [];
-  const pushLog = (level, args) => {
-    if (logs.length < LOG_CAP) logs.push(`[${level}] ` + util.format(...args));
-  };
-  const consoleShim = {
-    log: (...a) => pushLog('log', a),
-    info: (...a) => pushLog('log', a),
-    warn: (...a) => pushLog('warn', a),
-    error: (...a) => pushLog('error', a),
-  };
-
-  const sandboxGlobal = {
-    search: globals.search,
-    fs: globals.fs,
-    actions: globals.actions,
-    read_file: globals.read_file,
-    write_file: globals.write_file,
-    edit_file: globals.edit_file,
-    apply_patch: globals.apply_patch,
-    console: consoleShim,
-  };
-  // NOTE: microtaskMode 'afterEvaluate' was specified in the plan but drops the
-  // returned promise forever in this pattern (measured 2026-09-13, Node v24):
-  // the async IIFE never resolves. Left out on purpose; the Promise.race
-  // deadline below is the async bound.
-  const context = vm.createContext(sandboxGlobal, {
-    codeGeneration: { strings: false, wasm: false },
-  });
-
-  let result;
   try {
-    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: 'guest.js' });
-    const promise = script.runInContext(context, { timeout: timeoutMs });
-    result = await Promise.race([
-      promise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`deadline exceeded (${timeoutMs}ms)`)), timeoutMs)),
-    ]);
+    requireInteger('timeoutMs', timeoutMs);
+    requireInteger('maxResultBytes', maxResultBytes, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
+    if (typeof code !== 'string' || !code.trim()) throw new Error('code (non-empty string) is required');
   } catch (e) {
-    return { ok: false, error: String(e && e.message ? e.message : e), logs, elapsedMs: Date.now() - started };
+    return { ok: false, error: e.message, logs: [], elapsedMs: Date.now() - started };
   }
+  const controller = new AbortController();
+  let host;
+  try { host = typeof globals === 'function' ? globals(controller.signal) : globals; }
+  catch (e) { return fitEnvelope({ ok: false, ...errorFields(e), elapsedMs: Date.now() - started }, maxResultBytes); }
+  const methods = hostMethods(host);
+  const manifest = [...methods.keys()];
+  const { port1, port2 } = new MessageChannel();
+  const syncState = new Int32Array(new SharedArrayBuffer(4));
+  const logs = [];
+  const active = new Set();
 
-  if (result === undefined) {
-    return { ok: true, result: undefined, logs, elapsedMs: Date.now() - started };
-  }
-  const { text, truncated, totalBytes } = safeStringify(result, maxResultBytes);
-  let parsed;
-  try {
-    parsed = truncated ? text : JSON.parse(text);
-  } catch {
-    parsed = text;
-  }
-  return {
-    ok: true,
-    result: parsed,
-    logs,
-    elapsedMs: Date.now() - started,
-    ...(truncated ? { truncated, totalBytes } : {}),
-  };
+  return new Promise((resolve) => {
+    let worker, timer, settled = false;
+    const abort = () => { void finish({ ok: false, error: 'execution cancelled', code: 'ECANCELLED' }); };
+    async function finish(out) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      controller.abort(new Error(out.ok ? 'execution complete' : 'execution stopped'));
+      if (worker) await worker.terminate().catch(() => {});
+      port1.close();
+      port2.close();
+      if (active.size) {
+        let drainTimer;
+        await Promise.race([
+          Promise.allSettled([...active]),
+          new Promise(r => { drainTimer = setTimeout(r, HOST_DRAIN_MS); }),
+        ]);
+        clearTimeout(drainTimer);
+      }
+      const pending = active.size ? { pendingHostCalls: active.size, sideEffectsMayContinue: true } : {};
+      resolve(fitEnvelope({ ...out, logs: out.logs ?? logs, ...pending, elapsedMs: Date.now() - started }, maxResultBytes));
+    }
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      worker = new Worker(new URL('./execution-worker.js', import.meta.url), {
+        workerData: { code, timeoutMs, maxResultBytes, manifest, syncPort: port2, syncBuffer: syncState.buffer },
+        transferList: [port2],
+        execArgv: [], stdout: true, stderr: true,
+        resourceLimits: { maxOldGenerationSizeMb: 128 },
+      });
+      worker.stdout.resume();
+      worker.stderr.resume();
+    } catch (e) { void finish({ ok: false, ...errorFields(e) }); return; }
+    timer = setTimeout(() => { void finish({ ok: false, error: `deadline exceeded (${timeoutMs}ms)`, code: 'ETIMEOUT' }); }, timeoutMs);
+    worker.on('error', e => { void finish({ ok: false, ...errorFields(e) }); });
+    worker.on('exit', code => {
+      if (!settled) void finish({ ok: false, error: `guest worker exited before a result (${code})` });
+    });
+    worker.on('message', msg => {
+      if (settled) return;
+      if (msg.type === 'log') { logs.push(msg.text); return; }
+      if (msg.type === 'done') { void finish(msg.out); return; }
+      if (msg.type === 'syncCall') {
+        let reply;
+        try {
+          const fn = methods.get(msg.name);
+          if (!msg.name.startsWith('actions.') || !fn || !Array.isArray(msg.args)) throw new Error('unknown synchronous action');
+          const value = fn(...msg.args);
+          if (value?.then) throw new Error('actions must be synchronous');
+          reply = { value };
+        } catch (e) { reply = { error: errorFields(e) }; }
+        try { port1.postMessage(reply); }
+        catch (e) { port1.postMessage({ error: errorFields(e) }); }
+        Atomics.store(syncState, 0, 1);
+        Atomics.notify(syncState, 0);
+        return;
+      }
+      if (msg.type !== 'call') return;
+      const task = (async () => {
+        try {
+          const fn = methods.get(msg.name);
+          if (!fn || !Array.isArray(msg.args)) throw new Error(`unknown host action: ${msg.name}`);
+          const value = await fn(...msg.args);
+          if (settled) return;
+          // Array metadata is deliberately transferred, not lost to structuredClone.
+          const search = msg.name.startsWith('search.') && typeof value?.toJSON === 'function';
+          worker.postMessage({ type: 'reply', id: msg.id, value: search ? value.toJSON() : value, search });
+        } catch (e) {
+          if (!settled) worker.postMessage({ type: 'reply', id: msg.id, error: errorFields(e) });
+        }
+      })();
+      active.add(task);
+      task.finally(() => active.delete(task)).catch(e => { void finish({ ok: false, ...errorFields(e) }); });
+    });
+  });
 }

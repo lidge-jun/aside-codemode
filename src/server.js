@@ -2,11 +2,8 @@
 // stdio NDJSON: one JSON-RPC message per line. stdout carries MCP only; logs go to stderr.
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
-import { createRgResolver, createRgRunner, RgNotFoundError } from './rg.js';
-import { createSearch } from './host/search.js';
-import { createFs } from './host/fs.js';
-import { createApplyPatch } from './host/patch.js';
-import { createActions } from './host/actions.js';
+import { RgNotFoundError } from './rg.js';
+import { createHostGlobals } from './host/globals.js';
 import { createToolHandler, TOOL_DEF, TOOL_NAME } from './tools.js';
 import { parseMessage, result, error, PROTOCOL_VERSION, ERR_METHOD_NOT_FOUND, ERR_INVALID_PARAMS } from './mcp.js';
 
@@ -40,31 +37,20 @@ async function main() {
     log(`FATAL ${e.code ?? 'ECONFIG'}: ${e.message}`);
     process.exit(2);
   }
-  const resolveRg = createRgResolver(config);
-  const rgRunner = createRgRunner(resolveRg, { excludeGlobs: config.excludeGlobs });
-  const hostFs = createFs({ assertInside });
-  const globals = {
-    search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
-    fs: hostFs,
-    read_file: hostFs.read_file,
-    write_file: hostFs.write_file,
-    edit_file: hostFs.edit_file,
-    apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
-    actions: createActions(),
-  };
+  const globals = signal => createHostGlobals(config, assertInside, signal);
   const handleToolCall = createToolHandler({ config, globals });
 
-  const cancelled = new Set();
   const inFlight = new Map();
+  let closing = false;
 
   function send(msg) {
-    process.stdout.write(JSON.stringify(msg) + '\n');
+    if (!closing) process.stdout.write(JSON.stringify(msg) + '\n');
   }
 
   async function handle(msg) {
     if (msg.method === 'notifications/initialized' || msg.method === 'notifications/cancelled') {
       if (msg.method === 'notifications/cancelled' && msg.params && msg.params.requestId !== undefined) {
-        cancelled.add(msg.params.requestId);
+        inFlight.get(msg.params.requestId)?.controller.abort();
       }
       return;
     }
@@ -92,12 +78,18 @@ async function main() {
           send(error(id, ERR_INVALID_PARAMS, `unknown tool: ${name}`));
           return;
         }
+        if (inFlight.size >= 8 || inFlight.has(id)) {
+          send(error(id, ERR_INVALID_PARAMS, 'too many active calls or duplicate request id'));
+          return;
+        }
+        const controller = new AbortController();
+        inFlight.set(id, { controller });
         const run = (async () => {
           try {
-            const out = await handleToolCall((msg.params && msg.params.arguments) ?? {});
-            if (!cancelled.has(id)) send(result(id, out));
+            const out = await handleToolCall((msg.params && msg.params.arguments) ?? {}, { signal: controller.signal });
+            if (!controller.signal.aborted) send(result(id, out));
           } catch (e) {
-            if (cancelled.has(id)) return;
+            if (controller.signal.aborted) return;
             if (e && e.invalidParams) send(error(id, ERR_INVALID_PARAMS, e.message));
             else if (e instanceof RgNotFoundError) {
               send(result(id, { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: e.message, hint: e.hint }) }], isError: true }));
@@ -105,11 +97,10 @@ async function main() {
               send(result(id, { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) }) }], isError: true }));
             }
           } finally {
-            cancelled.delete(id);
             inFlight.delete(id);
           }
         })();
-        inFlight.set(id, run);
+        inFlight.get(id).run = run;
         return;
       }
       default:
@@ -137,8 +128,10 @@ async function main() {
     }
   });
   process.stdin.on('end', () => {
-    log('stdin closed; exiting');
-    process.exit(0);
+    closing = true;
+    for (const { controller } of inFlight.values()) controller.abort();
+    log('stdin closed; cancelling active work');
+    process.exitCode = 0;
   });
   log(`${SERVER_NAME} ${SERVER_VERSION} ready (roots: ${config.roots.length})`);
 }

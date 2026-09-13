@@ -1,5 +1,6 @@
 // execute_code tool definition + handler (A-D2/A-D5).
 import { runCode } from './sandbox.js';
+import { requireInteger } from './execution-output.js';
 
 export const TOOL_NAME = 'execute_code';
 
@@ -36,14 +37,16 @@ export const TOOL_DEF = {
 };
 
 export function createToolHandler({ config, globals }) {
-  return async function handleToolCall(args) {
+  return async function handleToolCall(args, { signal } = {}) {
     if (!args || typeof args.code !== 'string' || args.code.length === 0) {
       const err = new Error('code (non-empty string) is required');
       err.invalidParams = true;
       throw err;
     }
-    const timeoutMs = Math.min(Number.isFinite(args.timeoutMs) ? args.timeoutMs : 30000, config.maxTimeoutMs);
-    const out = await runCode(args.code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes });
+    let timeoutMs;
+    try { timeoutMs = Math.min(args.timeoutMs === undefined ? 30000 : requireInteger('timeoutMs', args.timeoutMs), config.maxTimeoutMs); }
+    catch (e) { e.invalidParams = true; throw e; }
+    const out = await runCode(args.code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes, signal });
     return {
       content: [{ type: 'text', text: JSON.stringify(out) }],
       ...(out.ok ? {} : { isError: true }),

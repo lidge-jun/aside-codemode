@@ -5,12 +5,10 @@
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
-import { createRgResolver, createRgRunner } from './rg.js';
-import { createSearch } from './host/search.js';
-import { createFs } from './host/fs.js';
-import { createApplyPatch } from './host/patch.js';
-import { createActions } from './host/actions.js';
+import { createRgResolver } from './rg.js';
+import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
+import { requireInteger } from './execution-output.js';
 
 const argv = process.argv.slice(2);
 function flag(name) {
@@ -52,17 +50,7 @@ try {
 }
 
 const rgResolver = createRgResolver(config);
-const rgRunner = createRgRunner(rgResolver, { excludeGlobs: config.excludeGlobs });
-const hostFs = createFs({ assertInside });
-const globals = {
-  search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
-  fs: hostFs,
-  read_file: hostFs.read_file,
-  write_file: hostFs.write_file,
-  edit_file: hostFs.edit_file,
-  apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
-  actions: createActions(),
-};
+const globals = signal => createHostGlobals(config, assertInside, signal);
 
 // `--doctor` answers "why is this not working" without making the caller
 // reverse-engineer it from a failed search.
@@ -97,7 +85,11 @@ if (!code) {
   process.exit(2);
 }
 
-const timeoutMs = Math.min(Number(flag('--timeout-ms')) || 30000, config.maxTimeoutMs);
+let timeoutMs;
+try {
+  const requested = has('--timeout-ms') ? requireInteger('--timeout-ms', Number(flag('--timeout-ms'))) : 30000;
+  timeoutMs = Math.min(requested, config.maxTimeoutMs);
+} catch (e) { fail(e.message); }
 const out = await runCode(code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes });
 process.stdout.write(JSON.stringify(out) + '\n');
-process.exit(out.ok ? 0 : 1);
+process.exitCode = out.ok ? 0 : 1;

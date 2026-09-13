@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
 
 // Directories that cost a lot to walk and almost never hold an answer.
 // Measured on this machine with roots=$HOME: 1,565,196 files / 7.8s without
@@ -103,11 +104,11 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
       cfg.rgPath = obj.rgPath;
     }
     if (Array.isArray(obj.excludeGlobs)) cfg.excludeGlobs = obj.excludeGlobs.filter((g) => typeof g === 'string');
-    if (Number.isFinite(obj.maxResultBytes)) cfg.maxResultBytes = obj.maxResultBytes;
-    if (Number.isFinite(obj.maxTimeoutMs)) cfg.maxTimeoutMs = obj.maxTimeoutMs;
+    if ('maxResultBytes' in obj) cfg.maxResultBytes = requireInteger('maxResultBytes', obj.maxResultBytes, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
+    if ('maxTimeoutMs' in obj) cfg.maxTimeoutMs = requireInteger('maxTimeoutMs', obj.maxTimeoutMs);
     if (obj.searchCaps && typeof obj.searchCaps === 'object') {
-      if (Number.isFinite(obj.searchCaps.files)) cfg.searchCaps.files = obj.searchCaps.files;
-      if (Number.isFinite(obj.searchCaps.content)) cfg.searchCaps.content = obj.searchCaps.content;
+      if ('files' in obj.searchCaps) cfg.searchCaps.files = requireInteger('searchCaps.files', obj.searchCaps.files);
+      if ('content' in obj.searchCaps) cfg.searchCaps.content = requireInteger('searchCaps.content', obj.searchCaps.content);
     }
     cfg._sources.push(source);
   };
@@ -125,8 +126,8 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
   if (env.CODEMODE_EXCLUDES !== undefined) {
     cfg.excludeGlobs = env.CODEMODE_EXCLUDES.split(',').map((g) => g.trim()).filter(Boolean);
   }
-  if (env.CODEMODE_TIMEOUT_MS && Number.isFinite(Number(env.CODEMODE_TIMEOUT_MS))) cfg.maxTimeoutMs = Number(env.CODEMODE_TIMEOUT_MS);
-  if (env.CODEMODE_OUTPUT_BYTES && Number.isFinite(Number(env.CODEMODE_OUTPUT_BYTES))) cfg.maxResultBytes = Number(env.CODEMODE_OUTPUT_BYTES);
+  if (env.CODEMODE_TIMEOUT_MS !== undefined) cfg.maxTimeoutMs = requireInteger('CODEMODE_TIMEOUT_MS', Number(env.CODEMODE_TIMEOUT_MS));
+  if (env.CODEMODE_OUTPUT_BYTES !== undefined) cfg.maxResultBytes = requireInteger('CODEMODE_OUTPUT_BYTES', Number(env.CODEMODE_OUTPUT_BYTES), MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
 
   // A global install with no config file anywhere would otherwise have an empty
   // allowlist, i.e. deny-everything, which reads as a broken binary. Default to

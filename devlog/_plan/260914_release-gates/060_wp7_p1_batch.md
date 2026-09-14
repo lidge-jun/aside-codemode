@@ -26,8 +26,22 @@
 1. `schema.js:65`의 `JOB_KEYS`에 `'fullText'`를 추가한다(`rejectUnknown`이 202행에서 모르는 키를 거절한다).
    `validateJob`은 `fullText`를 boolean으로 검증하고 기본값은 false다.
 2. `script.js:115-140`의 `compile` payload에 `fullText: job.fullText === true`를 추가한다(payload는 나열된 키만 싣는다).
-3. `script.js`의 렌더 구간(331-341행)에서 `JOB.fullText`일 때만 `out.text = visibleText.slice(0, JOB.maxTextChars || 200000)`을 싣는다.
-   기본 경로의 페이로드 크기는 그대로 둔다.
+3. `script.js`의 렌더 구간은 `page.evaluate` **안**이라 `JOB`이 보이지 않는다. 인자로 넘겨야 한다.
+   331-341행의 return 객체에 본문을 추가하고, 342행의 인자에 플래그를 넣는다:
+
+        return {
+          textChars: visibleText.length,
+          ...
+          sample: visibleText.slice(0, 160),
+          full: opts.fullText ? visibleText.slice(0, opts.maxTextChars) : null,
+        };
+        }, { selectors: JOB.requireSelector || [], fullText: JOB.fullText === true, maxTextChars: JOB.maxTextChars || 200000 });
+
+   그리고 evaluate 밖에서 만들어지는 `out`(364행)에 복사한다:
+
+        if (out_render && out_render.full) { out.text = out_render.full; delete out_render.full; }
+
+   `out.text`는 `fullText`를 요청했을 때만 생긴다. 기본 경로의 페이로드 크기는 그대로다.
 4. `read-text.js:122`의 폴백 호출에 플래그를 넣는다:
    `await browse.exec({ urls: [url], snapshot: true, fullText: true, timeoutMs: opts.timeoutMs || timeoutMs })`
 

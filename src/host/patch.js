@@ -22,7 +22,7 @@ export function parseApplyPatch(input) {
   if (text.startsWith('```')) {
     text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '');
   }
-  const lines = text.split(/\n/);
+  const lines = text.split(/\r?\n/);
   if (lines[0].trim() !== '*** Begin Patch' || lines[lines.length - 1].trim() !== '*** End Patch') {
     throw new Error('apply_patch: first/last lines must be exactly *** Begin Patch / *** End Patch');
   }
@@ -53,6 +53,7 @@ export function parseApplyPatch(input) {
       const edits = [];
       let olds = [];
       let news = [];
+      let ops = [];
       let atEof = false;
       let started = false;
 
@@ -68,9 +69,17 @@ export function parseApplyPatch(input) {
             'an oldText/context line ("-" or " ") is required to place the insertion',
           );
         }
-        edits.push({ oldText: olds.join('\n'), newText: news.join('\n'), atEof });
+        edits.push({
+          oldLines: olds.slice(),
+          newLines: news.slice(),
+          oldText: olds.join('\n'),
+          newText: news.join('\n'),
+          atEof,
+          ops: ops.slice(),
+        });
         olds = [];
         news = [];
+        ops = [];
         atEof = false;
       };
 
@@ -85,10 +94,20 @@ export function parseApplyPatch(input) {
           continue;
         }
         started = true;
-        if (L.startsWith('-')) olds.push(L.slice(1));
-        else if (L.startsWith('+')) news.push(L.slice(1));
-        else if (L.startsWith(' ')) { olds.push(L.slice(1)); news.push(L.slice(1)); }
-        else throw new Error(`apply_patch: bad update line: ${L}`);
+        if (L.startsWith('-')) {
+          const t = L.slice(1);
+          olds.push(t);
+          ops.push({ op: 'del', text: t });
+        } else if (L.startsWith('+')) {
+          const t = L.slice(1);
+          news.push(t);
+          ops.push({ op: 'add', text: t });
+        } else if (L.startsWith(' ')) {
+          const t = L.slice(1);
+          olds.push(t);
+          news.push(t);
+          ops.push({ op: 'keep', text: t });
+        } else throw new Error(`apply_patch: bad update line: ${L}`);
         i += 1;
       }
       if (i < lines.length - 1 && lines[i].trim() === EOF_MARKER) {
@@ -129,7 +148,12 @@ export function createApplyPatch({ write_file, edit_file }) {
           // One file at a time, and edit_file releases its own lock before
           // returning — no call ever holds file A's lock while acquiring B's,
           // so the AB-BA deadlock is unreachable by construction.
-          const out = await edit_file({ path: h.path, edits: h.edits, eof: h.edits.some((e) => e.atEof) });
+          const out = await edit_file({
+            path: h.path,
+            edits: h.edits,
+            eof: h.edits.some((e) => e.atEof),
+            lineMatch: true,
+          });
           applied.push(out?.path ?? h.path);
         }
       } catch (e) {

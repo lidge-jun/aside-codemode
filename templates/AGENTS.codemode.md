@@ -12,6 +12,8 @@ the answer. Available tools: `search.files|content|count`,
 `write_file({file_path, content})` (create-only),
 `edit_file({path, edits, appendText?})`, and compound `fs.*` helpers.
 `apply_patch(text)` is a guest helper, not a separate AGENTS command.
+Update hunks match whole lines (not substrings), delete lines without leaving a
+blank, and keep the file's original newline (LF or CRLF).
 
 Search arrays support iteration in guest code. Return the search result directly
 or preserve its `complete`, `truncated`, `partial`, and `scope` metadata when

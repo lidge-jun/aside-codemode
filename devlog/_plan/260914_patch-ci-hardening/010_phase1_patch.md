@@ -2,6 +2,21 @@
 
 Execute only after WP0 D. Re-read this file at the next P and amend if lines drifted.
 
+## WP1 P revalidation (2026-09-14)
+
+Previous D (WP0): docs-only roadmap locked at `0c4cbcc`; `npm test` 208/208. Direction unchanged — line-based `apply_patch` before search/51x/CI.
+
+Production sources are still `8223264` (docs commit added no `src/`). Confirmed live:
+- `src/host/patch.js:25` `split(/\n/)`; `:71` `oldText` join only; `:132` `edit_file` without `lineMatch`
+- `src/host/fs.js:271` signature `{ path, appendText, edits, eof }`; `:296` `indexOf`
+- `test/write-hardening.test.js:366-419` multi-hunk vs original + `/not unique/`
+- `src/tools.js:17` still “Update File → edit_file”
+- `src/host/actions.js:45` notes; `README.md:84` Writes-and-patches
+
+No amendment to IN/OUT, `ops`, or `reconstructFromOps`. Execute this file as written.
+
+Architect WP1 reflection ([00d848f1](00d848f1-a1c3-4ed3-b72d-b73fa693f26b)): **ALIGNED**. Implements D1–D4 + D11 only.
+
 ## Loop spec (this cycle)
 
 - Archetype: satisfy-spec.
@@ -16,7 +31,7 @@ Execute only after WP0 D. Re-read this file at the next P and amend if lines dri
 
 ## IN / OUT
 
-IN: `src/host/patch.js`, NEW `src/host/line-edit.js`, `src/host/fs.js` (`edit_file` only), `src/tools.js` (one GUEST_API_DOC line), `src/host/actions.js` (apply_patch notes), `README.md` / `README.ko.md` Writes-and-patches paragraph, NEW `test/patch-line.test.js`.  
+IN: `src/host/patch.js`, NEW `src/host/line-edit.js`, `src/host/fs.js` (`edit_file` only), `src/tools.js` (one GUEST_API_DOC line), `src/host/actions.js` (apply_patch notes), `README.md` / `README.ko.md` Writes-and-patches paragraph, `templates/AGENTS.codemode.md` (guest contract sentence; keep `{{NODE}}` `{{CLI}}` `{{CWD_HINT}}`), NEW `test/patch-line.test.js`.  
 OUT: `grepFile`, LICENSE, CI, 51x numbers, `edit_file` public schema.
 
 ## D1–D4 recap
@@ -236,6 +251,12 @@ Substring path (`:286-324`) stays for public `edit_file`. Do not CRLF-normalize 
 `src/host/actions.js` apply_patch `notes` (`:45`): append `Update hunks are line-based; a substring that is not a whole line does not match. CRLF files keep CRLF.`
 
 `README.md:84` and `README.ko.md:84` after the Add/Update sentence, add one sentence: line match / line delete / original newline preserved. Do not mention 51x here.
+
+`templates/AGENTS.codemode.md` after the `apply_patch(text)` sentence (`:14`):
+
+`Update hunks match whole lines (not substrings), delete lines without leaving a blank, and keep the file's original newline (LF or CRLF).`
+
+Keep the three placeholders. English only. Required by 000 SoT (`000_plan.md:42`) — A GO-WITH-FIXES #1.
 
 ## NEW `test/patch-line.test.js`
 

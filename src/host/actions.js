@@ -42,7 +42,7 @@ const REGISTRY = [
   {
     path: 'apply_patch',
     description: 'Apply a Codex-shaped freeform patch string. Add/Update only. Success {}. No rollback.',
-    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument.',
+    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument. Update hunks are line-based; a substring that is not a whole line does not match. CRLF files keep CRLF.',
     signature: 'apply_patch(text) => Promise<{}>',
     inputs: {
       text: { type: 'string', required: true, description: 'Freeform *** Begin Patch … *** End Patch string' },

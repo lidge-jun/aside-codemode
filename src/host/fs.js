@@ -14,6 +14,7 @@ import path from 'node:path';
 import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
+import { applyLineEdits } from './line-edit.js';
 
 // A single returned line is bounded so one pathological minified file cannot
 // blow the result budget. The bound is the same 256 KB read cap rather than a
@@ -264,11 +265,11 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       });
     },
 
-    // `eof` is an INTERNAL opt-in used only by apply_patch's *** End of File
-    // marker. The public plain schema ({ path, edits, appendText }) is
-    // unchanged: without an explicit eof:true every edit keeps the strict
-    // unique-match contract.
-    async edit_file({ path: p, appendText, edits = [], eof = false } = {}) {
+    // `eof` and `lineMatch` are INTERNAL opt-ins used only by apply_patch.
+    // The public plain schema ({ path, edits, appendText }) is unchanged:
+    // without eof:true every substring edit stays unique-match; without
+    // lineMatch:true mid-line oldText still matches.
+    async edit_file({ path: p, appendText, edits = [], eof = false, lineMatch = false } = {}) {
       if (typeof p !== 'string' || !p) throw new Error('edit_file: path (non-empty string) is required');
       if (!Array.isArray(edits)) throw new Error('edit_file: edits must be an array');
       if (edits.length === 0 && (typeof appendText !== 'string' || appendText.length === 0)) {
@@ -282,6 +283,19 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       // replaced by the time we write.
       return withFileLock(target, lockOpts, async () => {
         const original = (await readBounded(target, { maxBytes: Infinity, signal })).text;
+        if (lineMatch === true) {
+          if (typeof appendText === 'string' && appendText.length) {
+            throw new Error('edit_file: appendText is not supported with lineMatch');
+          }
+          const next = applyLineEdits(original, edits, { eof });
+          await replaceAtomically(target, next, { signal });
+          return {
+            path: target,
+            replacements: edits.length,
+            appended: false,
+            diff: `--- a/${p}\n+++ b/${p}\n@@\n${original}\n→\n${next}`,
+          };
+        }
         const ranges = [];
         for (const ed of edits) {
           if (!ed || typeof ed.oldText !== 'string' || typeof ed.newText !== 'string') {

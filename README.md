@@ -81,7 +81,7 @@ Migration: callers parsing a directly returned search array must now read `resul
 
 `edit_file` and the overwrite helper coordinate cooperating processes on the canonical file path. The lock covers reading the original, validating replacements and committing the update. Separate processes editing different parts of the same file no longer silently overwrite each other's successful changes. This is not protection against an editor that ignores the lock or another hard-link alias. Locks are stored in `os.tmpdir()/codemode-locks`; cooperating processes must share that directory. Different `TMPDIR` settings are not coordinated.
 
-`apply_patch` supports Add and multi-hunk Update; Delete, Move and Environment remain unsupported. Add creates a newline-terminated text file. Successful application still returns `{}`. A later failure is a thrown error carrying `applied` and `failedFile`, also preserved by CLI error responses when they fit the output budget. Earlier files remain changed: this is **not a multi-file transaction**.
+`apply_patch` supports Add and multi-hunk Update; Delete, Move and Environment remain unsupported. Add creates a newline-terminated text file. Update hunks match whole lines (not mid-line substrings), delete lines without leaving a blank, and keep the file's original newline (LF or CRLF). Successful application still returns `{}`. A later failure is a thrown error carrying `applied` and `failedFile`, also preserved by CLI error responses when they fit the output budget. Earlier files remain changed: this is **not a multi-file transaction**.
 
 ## Dual path
 

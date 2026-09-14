@@ -11,6 +11,16 @@ export const CAPABILITY_MATRIX = Object.freeze({
     present: ['goto', 'title', 'content', 'url', 'screenshot', 'pdf', 'evaluate', 'locator', 'click', 'fill', 'waitForSelector', 'waitForLoadState', 'close', 'reload', 'goBack', 'goForward', 'frames', 'mainFrame', 'viewportSize', 'on', 'bringToFront', 'video'],
     absent: ['route', 'unroute', 'setViewportSize', 'emulateMedia', 'waitForFunction', 'waitForTimeout', 'waitForNavigation', 'waitForRequest', 'waitForResponse', 'cookies', 'boundingBox', 'textContent', 'innerText', 'getAttribute', 'isVisible', 'setContent', 'addStyleTag', 'addScriptTag', 'setDefaultTimeout', 'exposeFunction', 'isClosed', 'accessibility', 'press', 'focus', 'hover', 'selectOption'],
   },
+  // page.absent is NOT surface-absent. Every name below is missing on the page object and
+  // present on page.locator(target), measured 2026-09-14 by calling each one on a real
+  // locator and reading the result back. Reporting only the page row implied this build
+  // cannot type or select, which is false and was the reason codemode had no action layer.
+  locator: {
+    present: ['click', 'dblclick', 'fill', 'type', 'press', 'hover', 'focus', 'check', 'uncheck', 'selectOption', 'scrollIntoViewIfNeeded', 'boundingBox', 'textContent', 'innerText', 'isVisible'],
+    note: 'a locator enumerates as [] via getOwnPropertyNames while every method on it works, so detect capability by calling and catching, never by property check',
+    refs: 'locator accepts an accessibility ref from the snapshot tree. A child frame element arrives as an f-prefixed ref (f1e1) and resolves from the top-level page, so iframe interaction needs no frame API',
+    staleness: 'a ref belongs to the snapshot that produced it; one measured click grew a tree from 3126 to 23530 chars and renumbered it, so a ref step after a navigation is refused with EREFSTALE unless allowStaleRefs is set',
+  },
   refused: UNSUPPORTED,
   waitStates: WAIT_STATES,
   facts: Object.freeze([

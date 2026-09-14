@@ -25,6 +25,34 @@ export const UNSUPPORTED = Object.freeze({
 
 export const WAIT_STATES = Object.freeze(['load', 'domcontentloaded', 'stable']);
 
+// One measured locator click cost 2,143ms against a 25,000ms inner deadline, so a long
+// step list cannot finish and advertising one would only produce deadline failures.
+export const MAX_ACTION_STEPS = 20;
+
+// target: 'required' means ref or selector; 'selector' means the verb's own value IS the
+// selector; 'none' means the verb acts on the page. via records which object answered,
+// because page and locator have genuinely different surfaces.
+export const ACTION_VERBS = Object.freeze({
+  click: { target: 'required', value: 'none', via: 'locator' },
+  dblclick: { target: 'required', value: 'none', via: 'locator' },
+  fill: { target: 'required', value: 'string', via: 'locator' },
+  type: { target: 'required', value: 'string', via: 'locator' },
+  press: { target: 'required', value: 'string', via: 'locator' },
+  hover: { target: 'required', value: 'none', via: 'locator' },
+  focus: { target: 'required', value: 'none', via: 'locator' },
+  check: { target: 'required', value: 'none', via: 'locator' },
+  uncheck: { target: 'required', value: 'none', via: 'locator' },
+  selectOption: { target: 'required', value: 'string', via: 'locator' },
+  scrollIntoView: { target: 'required', value: 'none', via: 'locator' },
+  waitFor: { target: 'selector', value: 'none', via: 'page' },
+  waitForLoadState: { target: 'none', value: 'state', via: 'page' },
+  goBack: { target: 'none', value: 'none', via: 'page' },
+  goForward: { target: 'none', value: 'none', via: 'page' },
+  reload: { target: 'none', value: 'none', via: 'page' },
+  scroll: { target: 'none', value: 'scroll', via: 'page' },
+  sleepMs: { target: 'none', value: 'int', via: 'none' },
+});
+
 export class BrowseOptionError extends Error {
   constructor(message, code) {
     super(message);
@@ -33,7 +61,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs']);
 
 // The accessibility tree is already fetched for EVERY page, because block detection reads
 // it. Until now only its length survived. These modes decide how much of it comes back:
@@ -71,6 +99,83 @@ function requirePositiveInt(name, value) {
     throw new BrowseOptionError(`${name} must be a positive integer`, 'EBADVAL');
   }
   return value;
+}
+
+/**
+ * An ordered action list. Each step carries exactly one verb and, when the verb needs a
+ * target, exactly one of ref or selector. A ref addresses the accessibility tree, which is
+ * what makes iframe content reachable: a child frame's button arrives as f1e1 and
+ * page.locator('f1e1') resolves it with no frame API.
+ */
+export function validateActions(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) throw new BrowseOptionError('actions must be an array of steps', 'EBADVAL');
+  if (raw.length === 0) return null;
+  if (raw.length > MAX_ACTION_STEPS) {
+    throw new BrowseOptionError(
+      `actions is capped at ${MAX_ACTION_STEPS} steps; a measured locator click cost 2143ms against a ${DEFAULT_INNER_CAP_MS}ms inner deadline, so a longer list cannot finish`,
+      'EBADVAL',
+    );
+  }
+  return raw.map((step, i) => {
+    const where = `actions[${i}]`;
+    if (!step || typeof step !== 'object' || Array.isArray(step)) {
+      throw new BrowseOptionError(`${where} must be an object`, 'EBADVAL');
+    }
+    const keys = Object.keys(step);
+    for (const k of keys) {
+      if (k !== 'ref' && k !== 'selector' && !(k in ACTION_VERBS)) {
+        throw new BrowseOptionError(`unknown ${where} key "${k}"; valid: ref, selector, ${Object.keys(ACTION_VERBS).join(', ')}`, 'EBADOPT');
+      }
+    }
+    const verbs = keys.filter((k) => k in ACTION_VERBS);
+    if (verbs.length !== 1) {
+      throw new BrowseOptionError(`${where} needs exactly one verb, got ${verbs.length ? verbs.join(' and ') : 'none'}`, 'EBADVAL');
+    }
+    const verb = verbs[0];
+    const spec = ACTION_VERBS[verb];
+    const named = keys.filter((k) => k === 'ref' || k === 'selector');
+    if (named.length > 1) throw new BrowseOptionError(`${where} must name only one of ref or selector`, 'EBADVAL');
+
+    let target = null;
+    let targetKind = null;
+    if (spec.target === 'selector') {
+      target = step[verb];
+      targetKind = 'selector';
+      if (typeof target !== 'string' || !target.length) {
+        throw new BrowseOptionError(`${where}.${verb} must be a non-empty css selector`, 'EBADVAL');
+      }
+    } else if (spec.target === 'required') {
+      if (named.length !== 1) throw new BrowseOptionError(`${where}.${verb} needs a ref or a selector`, 'EBADVAL');
+      target = step[named[0]];
+      targetKind = named[0] === 'ref' ? 'ref' : 'selector';
+      if (typeof target !== 'string' || !target.length) {
+        throw new BrowseOptionError(`${where}.${named[0]} must be a non-empty string`, 'EBADVAL');
+      }
+    } else if (named.length) {
+      throw new BrowseOptionError(`${where}.${verb} acts on the page and takes no ref or selector`, 'EBADVAL');
+    }
+
+    let value = null;
+    if (spec.value === 'string') {
+      value = step[verb];
+      if (typeof value !== 'string') throw new BrowseOptionError(`${where}.${verb} must be a string`, 'EBADVAL');
+    } else if (spec.value === 'int') {
+      value = requirePositiveInt(`${where}.${verb}`, step[verb]);
+      if (value > 10000) throw new BrowseOptionError(`${where}.${verb} must be at most 10000ms; the inner deadline is shared`, 'EBADVAL');
+    } else if (spec.value === 'state') {
+      value = step[verb];
+      if (!WAIT_STATES.includes(value)) {
+        throw new BrowseOptionError(`${where}.${verb} must be one of ${WAIT_STATES.join(', ')}`, 'EBADVAL');
+      }
+    } else if (spec.value === 'scroll') {
+      value = step[verb];
+      const okScroll = value === 'top' || value === 'bottom' || (Number.isSafeInteger(value) && value >= 0);
+      if (!okScroll) throw new BrowseOptionError(`${where}.scroll must be 'top', 'bottom' or a non-negative integer`, 'EBADVAL');
+    }
+
+    return Object.freeze({ verb, target, targetKind, value, via: spec.via });
+  });
 }
 
 export function validateJob(raw, browseCaps = {}) {
@@ -156,6 +261,9 @@ export function validateJob(raw, browseCaps = {}) {
     waitSelector: raw.waitSelector ?? null,
     snapshot: normalizeSnapshot(raw.snapshot),
     maxTreeChars: raw.maxTreeChars === undefined ? 20000 : requirePositiveInt('maxTreeChars', raw.maxTreeChars),
+    actions: validateActions(raw.actions),
+    stopOnError: raw.stopOnError !== false,
+    allowStaleRefs: raw.allowStaleRefs === true,
     screenshot,
     pdf,
     concurrency,

@@ -5,6 +5,7 @@
 // finish under its OWN timer: inner deadline first, host deadline second.
 import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS } from './schema.js';
 import { detectionPatterns } from './policy.js';
+import { ACTION_STEP_SRC } from './actions-run.js';
 
 export const SLACK_MS = 1500;
 
@@ -70,6 +71,9 @@ export function compile(job, plan = null) {
     waitUntil: job.waitUntil,
     snapshot: job.snapshot,
     maxTreeChars: job.maxTreeChars || 20000,
+    actions: job.actions || null,
+    stopOnError: job.stopOnError !== false,
+    allowStaleRefs: job.allowStaleRefs === true,
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
@@ -80,13 +84,17 @@ export function compile(job, plan = null) {
   };
   return TEMPLATE
     .replace('__JOB__', JSON.stringify(payload))
-    .replace('/*__TREE_SUMMARY__*/', TREE_SUMMARY_SRC);
+    .replace('/*__TREE_SUMMARY__*/', TREE_SUMMARY_SRC)
+    .replace('/*__ACTION_STEPS__*/', ACTION_STEP_SRC);
 }
 
 // Kept as one string so a test can evaluate it with fake globals instead of grepping it.
 const TEMPLATE = `"use strict";
 const JOB = __JOB__;
 /*__TREE_SUMMARY__*/
+/*__ACTION_STEPS__*/
+const SCRIPT_STARTED_AT = Date.now();
+const ACTION_DEADLINE_AT = SCRIPT_STARTED_AT + JOB.innerMs;
 const opened = [];
 const pending = [];
 const items = [];
@@ -115,7 +123,7 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
 async function one(item) {
   if (deadlineHit) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
   if (item.skip) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
-  const t = { navigate: 0, waitFor: 0, detect: 0, snapshot: 0, screenshot: 0, pdf: 0 };
+  const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
   const lap = () => { const d = Date.now() - mark; mark = Date.now(); return d; };
@@ -218,6 +226,26 @@ async function one(item) {
     }
     }
     const out = { url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
+    // The render verdict above describes the page we ARRIVED at. If an action navigates,
+    // that verdict is about a document we have left, so it is stamped with its stage and
+    // the move is reported rather than left for the caller to infer from a changed url.
+    if (out_render) out_render.stage = 'pre-actions';
+    if (JOB.actions && JOB.actions.length) {
+      const urlBeforeActions = finalUrl;
+      const ran = await runActions(page, JOB.actions, {
+        deadlineAt: ACTION_DEADLINE_AT,
+        urlAtSnapshot: urlBeforeActions,
+        allowStaleRefs: JOB.allowStaleRefs,
+        stopOnError: JOB.stopOnError
+      });
+      t.actions = lap();
+      out.actions = ran.steps;
+      out.actionsOk = ran.ok;
+      out.urlBeforeActions = urlBeforeActions;
+      out.navigatedDuringActions = ran.navigated;
+      if (ran.urlAfter) { finalUrl = ran.urlAfter; out.finalUrl = ran.urlAfter; }
+      if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = 'EACTION'; }
+    }
     if (JOB.extract) {
       // ONE evaluate for the whole schema: the point of #10 is to avoid shipping a tree.
       out.data = await page.evaluate((schema) => {

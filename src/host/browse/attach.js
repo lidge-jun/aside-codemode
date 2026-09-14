@@ -28,6 +28,7 @@
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
 import { TREE_SUMMARY_SRC } from './script.js';
+import { ACTION_STEP_SRC } from './actions-run.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
 const REQ = __REQ__;
@@ -123,6 +124,21 @@ try {
           }
         } catch (e) { row.snapshotError = String((e && e.message) || e); }
       }
+      if (REQ.actions && REQ.actions.length) {
+        // These act on a tab the user owns. We still never close it, and a ref step
+        // refuses once the url has moved, because the refs came from the read above.
+        const ran = await runActions(page, REQ.actions, {
+          deadlineAt: Date.now() + (REQ.actionBudgetMs || 20000),
+          urlAtSnapshot: row.href || null,
+          allowStaleRefs: REQ.allowStaleRefs,
+          stopOnError: REQ.stopOnError
+        });
+        row.actions = ran.steps;
+        row.actionsOk = ran.ok;
+        row.navigatedDuringActions = ran.navigated;
+        row.urlBeforeActions = ran.urlBefore;
+        if (ran.urlAfter) row.hrefAfterActions = ran.urlAfter;
+      }
       out.rows.push(row);
       out.ok = row.contentVerified !== false;
     }
@@ -134,7 +150,8 @@ console.log(JSON.stringify(out));
 `;
 
 export function compileAttach(req) {
-  return TREE_SUMMARY_SRC + '\n' + ATTACH_TEMPLATE.replace('__REQ__', JSON.stringify(req));
+  return TREE_SUMMARY_SRC + '\n' + ACTION_STEP_SRC + '\n'
+    + ATTACH_TEMPLATE.replace('__REQ__', JSON.stringify(req));
 }
 
 function disabled(name) {
@@ -209,6 +226,10 @@ export function createAttach({ config = {}, session }) {
         snapshotBytes: page.snapshotBytes ?? null,
         snapshot: page.snapshot ?? null,
         snapshotError: page.snapshotError ?? null,
+        actions: page.actions ?? null,
+        actionsOk: page.actionsOk ?? null,
+        navigatedDuringActions: page.navigatedDuringActions ?? null,
+        hrefAfterActions: page.hrefAfterActions ?? null,
         note: 'attached to an existing tab; it was not closed',
       };
     },

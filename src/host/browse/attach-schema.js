@@ -1,6 +1,8 @@
 // Input contract for browse.attach. Kept separate from the browse job schema so the two
 // evolve independently: attach has no urls, no navigation and no artifacts.
 
+import { validateActions } from './schema.js';
+
 function bad(message) {
   const e = new Error(message);
   e.code = 'EINVAL';
@@ -15,6 +17,7 @@ export function validateAttach(input = {}) {
     'targetId', 'urlIncludes', 'titleIncludes',
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
     'snapshot', 'maxTreeChars',
+    'actions', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
   ]);
   for (const k of Object.keys(input)) {
     if (!known.has(k)) throw bad('unknown browse.attach option: ' + k);
@@ -62,5 +65,9 @@ export function validateAttach(input = {}) {
     sampleChars: num('sampleChars', 1, 20000, 400),
     snapshot,
     maxTreeChars: num('maxTreeChars', 1, 5000000, 20000),
+    actions: validateActions(input.actions),
+    stopOnError: input.stopOnError !== false,
+    allowStaleRefs: input.allowStaleRefs === true,
+    actionBudgetMs: num('actionBudgetMs', 1, 120000, 20000),
   };
 }

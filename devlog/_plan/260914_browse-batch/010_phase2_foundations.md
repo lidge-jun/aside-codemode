@@ -429,7 +429,6 @@ export function compileBrowseScript(job, { innerDeadlineMs }) {
   return `"use strict";
 const JOB = ${payload};
 const opened = [];
-function sleep(ms) { return (typeof sleep === 'function' ? sleep(ms) : new Promise(r => setTimeout(r, ms))); }
 function elapsed(t0) { return Date.now() - t0; }
 function failItem(url, error, timings, scope) {
   return { url, ok: false, error: String(error && error.message ? error.message : error), timings, scope, path: null, bytes: null };
@@ -688,13 +687,19 @@ export function createBrowseSession({
   mkdtempImpl = mkdtempSync,
   rmImpl = rmSync,
   tmpdirImpl = os.tmpdir,
+  deadlines,
 } = {}) {
-  const resolver = resolveAside || createAsideResolver(config, env, { signal });
+  const resolver = resolveAside || createAsideResolver(config, env, { signal, exists: existsImpl });
   return {
     async run(rawJob) {
       const job = validateBrowseJob('browse.exec', rawJob);
+      if (config?.browseCaps?.enabled === false) {
+        const err = new Error('browse is disabled (browseCaps.enabled=false)');
+        err.code = 'EDISABLED';
+        throw err;
+      }
       const requested = job.timeoutMs ?? config.browseCaps?.timeoutMs ?? 30_000;
-      const { innerDeadlineMs, hostDeadlineMs } = deadlineMath(requested);
+      const { innerDeadlineMs, hostDeadlineMs } = deadlines || deadlineMath(requested);
       const bin = await resolver();
       const dir = mkdtempImpl(path.join(tmpdirImpl(), 'codemode-browse-'));
       const scriptPath = path.join(dir, 'job.js');
@@ -977,7 +982,7 @@ const DEFAULTS = {
   maxResultBytes: 65536,
   maxTimeoutMs: 120000,
   searchCaps: { files: 5000, content: 500 },
-  browseCaps: { timeoutMs: 30000, maxTabs: 8 },
+  browseCaps: { enabled: true, timeoutMs: 30000, maxTabs: 8 },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 ```
@@ -1014,6 +1019,7 @@ After (insert asidePath next to rgPath; copy browseCaps field-wise like searchCa
       if ('content' in obj.searchCaps) cfg.searchCaps.content = requireInteger('searchCaps.content', obj.searchCaps.content);
     }
     if (obj.browseCaps && typeof obj.browseCaps === 'object') {
+      if ('enabled' in obj.browseCaps) cfg.browseCaps.enabled = obj.browseCaps.enabled === true;
       if ('timeoutMs' in obj.browseCaps) cfg.browseCaps.timeoutMs = requireInteger('browseCaps.timeoutMs', obj.browseCaps.timeoutMs);
       if ('maxTabs' in obj.browseCaps) cfg.browseCaps.maxTabs = requireInteger('browseCaps.maxTabs', obj.browseCaps.maxTabs);
     }
@@ -1030,6 +1036,9 @@ After:
 ```js
   if (env.CODEMODE_RG) cfg.rgPath = env.CODEMODE_RG;
   if (env.CODEMODE_ASIDE) cfg.asidePath = env.CODEMODE_ASIDE;
+  if (env.CODEMODE_BROWSE_ENABLED !== undefined) {
+    cfg.browseCaps.enabled = env.CODEMODE_BROWSE_ENABLED === '1' || env.CODEMODE_BROWSE_ENABLED === 'true';
+  }
   if (env.CODEMODE_BROWSE_TIMEOUT_MS !== undefined) {
     cfg.browseCaps.timeoutMs = requireInteger('CODEMODE_BROWSE_TIMEOUT_MS', Number(env.CODEMODE_BROWSE_TIMEOUT_MS));
   }
@@ -1324,6 +1333,7 @@ Current `codemode.config.example.json:1-23`. After, add next to `rgPath`:
 ```json
   "asidePath": null,
   "browseCaps": {
+    "enabled": true,
     "timeoutMs": 30000,
     "maxTabs": 8
   },
@@ -1346,7 +1356,16 @@ These are in the unit write scope; wp2 C must patch them because guest-visible n
 
 `templates/AGENTS.codemode.md:10-14` available-tools sentence — append `browse.exec|probe`. After the doctor sentence (`templates/AGENTS.codemode.md:31`) add: if browsing is needed, run `{{NODE}} {{CLI}} --doctor --browse` and do not call `aside` on PATH from the agent card.
 
-`src/register.js` is OUT of wp2 unless a default `asidePath` must be seeded. It must not be. Resolver PATH + `%LOCALAPPDATA%\Aside\CLI\current\aside.exe` is enough. Do not edit `mergeMachineConfig`.
+`src/register.js` `mergeMachineConfig` (`src/register.js:23-35`) seeds roots / excludeGlobs / rgPath. After the rgPath branch, seed browse defaults without inventing a binary path:
+
+```js
+  if (!config.browseCaps || typeof config.browseCaps !== 'object') {
+    config.browseCaps = { enabled: true, timeoutMs: 30000, maxTabs: 8 };
+  }
+  if (!('asidePath' in config)) config.asidePath = null;
+```
+
+Do not write `~/.aside` credentials. Do not set `asidePath` to a guessed install.
 
 ---
 
@@ -1470,27 +1489,638 @@ All `node:test` + `node:assert/strict`. No network, no `shell:true`, no live Asi
 
 #### `test/browse-schema.test.js`
 
-Mirror `test/search-hardening.test.js:221-241` / `299-302`.
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  validateBrowseJob, checkBrowseOptionValue,
+  MAX_WIDTH_UNSUPPORTED, VIEWPORT_UNSUPPORTED, PDF_FORMAT_UNSUPPORTED, ROUTE_UNSUPPORTED,
+} from '../src/host/browse/schema.js';
+
+test('unknown option is EBADOPT and names valid keys', () => {
+  assert.throws(
+    () => validateBrowseJob('browse.exec', { urls: ['https://example.com'], bogus: 1 }),
+    (e) => e.code === 'EBADOPT' && /valid:/.test(e.message),
+  );
+});
+
+test('missing urls is EBADVAL', () => {
+  assert.throws(() => validateBrowseJob('browse.exec', {}), (e) => e.code === 'EBADVAL' && /urls/.test(e.message));
+});
+
+test('non-http url is EBADVAL', () => {
+  assert.throws(() => validateBrowseJob('browse.exec', { urls: ['ftp://x'] }), (e) => e.code === 'EBADVAL');
+});
+
+test('maxWidth is ENOTSUP before any spawn', () => {
+  for (const opts of [
+    { urls: ['https://example.com'], maxWidth: 640 },
+    { urls: ['https://example.com'], screenshot: { maxWidth: 640 } },
+  ]) {
+    assert.throws(() => validateBrowseJob('browse.exec', opts), (e) => e.code === 'ENOTSUP' && /maxWidth/.test(e.message));
+  }
+  assert.equal(checkBrowseOptionValue('maxWidth', 640).code, 'ENOTSUP');
+  assert.match(MAX_WIDTH_UNSUPPORTED, /1440/);
+});
+
+test('viewport is ENOTSUP', () => {
+  assert.throws(
+    () => validateBrowseJob('browse.exec', { urls: ['https://example.com'], viewport: { width: 800, height: 600 } }),
+    (e) => e.code === 'ENOTSUP' && /1440/.test(e.message),
+  );
+  assert.match(VIEWPORT_UNSUPPORTED, /1440/);
+});
+
+test('pdf.format is ENOTSUP and paper inches are required', () => {
+  assert.throws(
+    () => validateBrowseJob('browse.exec', { urls: ['https://example.com'], pdf: { format: 'A4' } }),
+    (e) => e.code === 'ENOTSUP' && /612/.test(e.message),
+  );
+  assert.throws(
+    () => validateBrowseJob('browse.exec', { urls: ['https://example.com'], pdf: {} }),
+    (e) => e.code === 'EBADVAL' && /paperWidth/.test(e.message),
+  );
+  validateBrowseJob('browse.exec', { urls: ['https://example.com'], pdf: { paperWidth: 210 / 25.4, paperHeight: 297 / 25.4 } });
+  assert.match(PDF_FORMAT_UNSUPPORTED, /612 792/);
+});
+
+test('route and blockResources are ENOTSUP', () => {
+  for (const opts of [{ route: true }, { blockResources: true }]) {
+    assert.throws(
+      () => validateBrowseJob('browse.exec', { urls: ['https://example.com'], ...opts }),
+      (e) => e.code === 'ENOTSUP',
+    );
+  }
+  assert.match(ROUTE_UNSUPPORTED, /page\.route/);
+});
+
+test('waitUntil networkidle is EBADVAL; load is ok', () => {
+  assert.throws(() => validateBrowseJob('browse.exec', { urls: ['https://example.com'], waitUntil: 'networkidle' }), (e) => e.code === 'EBADVAL');
+  validateBrowseJob('browse.exec', { urls: ['https://example.com'], waitUntil: 'load' });
+});
+
+test('probe rejects extra keys', () => {
+  assert.throws(() => validateBrowseJob('browse.probe', { urls: [] }), (e) => e.code === 'EBADOPT');
+  assert.deepEqual(validateBrowseJob('browse.probe'), {});
+});
+
+test('jpeg quality 20 is allowed by schema (runtime warning lives on the probe matrix)', () => {
+  validateBrowseJob('browse.exec', { urls: ['https://example.com'], screenshot: { type: 'jpeg', quality: 20 } });
+});
+```
 
 #### `test/browse-result.test.js`
 
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildEnvelope, buildItem, summariseTimings } from '../src/host/browse/result.js';
+
+test('complete envelope is enumerable and has no toJSON', () => {
+  const env = buildEnvelope({ items: [buildItem({ url: 'https://example.com', ok: true, timings: { navigate: 1 } })] });
+  assert.equal(env.complete, true);
+  assert.equal(env.status, 'complete');
+  assert.deepEqual(env.partial, []);
+  assert.equal(typeof env.toJSON, 'undefined');
+  const json = JSON.parse(JSON.stringify(env));
+  assert.equal(json.items[0].timings.navigate, 1);
+});
+
+test('item failure is partial and stays inside items[]', () => {
+  const env = buildEnvelope({ items: [buildItem({ url: 'https://example.com', ok: false, error: 'boom' })] });
+  assert.equal(env.complete, false);
+  assert.equal(env.status, 'partial');
+  assert.equal(env.items[0].error, 'boom');
+});
+
+test('kill reports leakedUrls and a permanent-leak warning', () => {
+  const env = buildEnvelope({ items: [], leakedUrls: ['https://example.com'], killed: true });
+  assert.equal(env.status, 'partial');
+  assert.deepEqual(env.leakedUrls, ['https://example.com']);
+  assert.ok(env.partial.some((w) => /remain open/i.test(w)));
+});
+
+test('truncated status', () => {
+  const env = buildEnvelope({ items: [buildItem({ url: 'https://example.com', ok: true })], truncated: true });
+  assert.equal(env.status, 'truncated');
+  assert.equal(env.complete, false);
+});
+
+test('slowest is top 5 by ms', () => {
+  const items = [
+    buildItem({ url: 'a', ok: true, timings: { navigate: 10, waitFor: 50 } }),
+    buildItem({ url: 'b', ok: true, timings: { snapshot: 5, screenshot: 80, postprocess: 20 } }),
+    buildItem({ url: 'c', ok: true, timings: { navigate: 3 } }),
+  ];
+  const { slowest } = summariseTimings(items);
+  assert.equal(slowest.length, 5);
+  assert.equal(slowest[0].ms, 80);
+});
+```
+
 #### `test/browse-script.test.js`
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { compileBrowseScript, deadlineMath, CLEANUP_SLACK_MS, ASIDE_REPL_HARD_CAP_MS, HOST_KILL_SLACK_MS } from '../src/host/browse/script.js';
+
+const job = { urls: ['https://example.com', 'https://example.net', 'https://example.org'] };
+
+test('compiled source has one JSON log, finally closeTab, no forbidden APIs', () => {
+  const src = compileBrowseScript(job, { innerDeadlineMs: 1000 });
+  assert.equal((src.match(/console\.log\(JSON\.stringify/g) || []).length, 1);
+  assert.match(src, /finally/);
+  assert.match(src, /closeTab/);
+  assert.equal(/page\.route/.test(src), false);
+  assert.equal(/setViewportSize/.test(src), false);
+  assert.equal(/maxWidth/.test(src), false);
+  assert.equal(/format:\s*['"]A4['"]/.test(src), false);
+  assert.match(src, /Promise\.all/);
+  assert.match(src, /JOB\.urls/);
+});
+
+test('clip and pdf inches are compiled; format is not', () => {
+  const src = compileBrowseScript({
+    urls: ['https://example.com'],
+    screenshot: { clip: { x: 0, y: 0, width: 320, height: 200 } },
+    pdf: { paperWidth: 210 / 25.4, paperHeight: 297 / 25.4 },
+  }, { innerDeadlineMs: 1000 });
+  assert.match(src, /clip/);
+  assert.match(src, /paperWidth/);
+  assert.match(src, /paperHeight/);
+  assert.equal(/format/.test(src), false);
+});
+
+test('deadlineMath: host sits behind inner by CLEANUP_SLACK_MS and under the 120s cap', () => {
+  const a = deadlineMath(30_000);
+  assert.equal(a.innerDeadlineMs, 30_000);
+  assert.equal(a.hostDeadlineMs, 30_000 + CLEANUP_SLACK_MS);
+  const b = deadlineMath(200_000);
+  const innerCeiling = ASIDE_REPL_HARD_CAP_MS - CLEANUP_SLACK_MS - HOST_KILL_SLACK_MS;
+  assert.ok(b.innerDeadlineMs <= innerCeiling);
+  assert.equal(b.hostDeadlineMs, b.innerDeadlineMs + CLEANUP_SLACK_MS);
+  assert.ok(b.hostDeadlineMs < ASIDE_REPL_HARD_CAP_MS);
+  assert.ok(a.innerDeadlineMs < a.hostDeadlineMs, 'inner must fire first so finally can run');
+});
+```
 
 #### `test/browse-session.test.js`
 
-Fake child: EventEmitter + PassThrough stdout/stderr. Inject as `spawnAsideImpl`.
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createBrowseSession, createAsideResolver, AsideNotFoundError } from '../src/host/browse/session.js';
+
+function fakeChild({ stdoutText = '', hang = false } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.killSignal = null;
+  child.kill = (sig) => {
+    child.killed = true;
+    child.killSignal = sig;
+    queueMicrotask(() => child.emit('close', null, sig));
+  };
+  queueMicrotask(() => {
+    if (stdoutText) child.stdout.end(stdoutText);
+    else child.stdout.end();
+    child.stderr.end();
+    if (!hang) child.emit('close', 0, null);
+  });
+  return child;
+}
+
+function sessionFor(spawnAsideImpl, extra = {}) {
+  return createBrowseSession({
+    config: { browseCaps: { timeoutMs: 30_000, maxTabs: 8 } },
+    resolveAside: async () => '/fake/aside',
+    spawnAsideImpl,
+    ...extra,
+  });
+}
+
+const okJson = JSON.stringify({
+  items: [{ url: 'https://example.com', ok: true, timings: { navigate: 1, waitFor: 1, snapshot: 0, screenshot: 0, postprocess: 0 }, scope: { requested: {}, actual: {} } }],
+});
+
+test('spawn argv is repl plus the temp script path', async () => {
+  let captured;
+  const sess = sessionFor((bin, args, extra) => {
+    captured = { bin, args, extra };
+    return fakeChild({ stdoutText: okJson + '\n[ok | 12ms]\n' });
+  });
+  await sess.run({ urls: ['https://example.com'] });
+  assert.equal(captured.bin, '/fake/aside');
+  assert.equal(captured.args[0], 'repl');
+  assert.equal(captured.args.length, 2);
+  assert.equal(path.basename(captured.args[1]), 'job.js');
+  assert.equal(captured.extra?.shell, undefined);
+});
+
+test('ok marker plus JSON is success even when exit is 0 and would also be 0 on failure', async () => {
+  const sess = sessionFor(() => fakeChild({ stdoutText: okJson + '\n[ok | 12ms]\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.complete, true);
+  assert.equal(env.items[0].ok, true);
+});
+
+test('error marker is not success at exit 0', async () => {
+  const sess = sessionFor(() => fakeChild({ stdoutText: okJson + '\n[error | 12ms]\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.complete, false);
+  assert.ok(env.partial.some((w) => /marker is \[error\]/.test(w)));
+});
+
+test('missing marker is not success', async () => {
+  const sess = sessionFor(() => fakeChild({ stdoutText: okJson + '\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.complete, false);
+  assert.ok(env.partial.some((w) => /missing/.test(w)));
+});
+
+test('no JSON object is not success', async () => {
+  const sess = sessionFor(() => fakeChild({ stdoutText: '[ok | 12ms]\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.ok(env.partial.some((w) => /JSON/.test(w)));
+});
+
+test('claimed file missing flips the item', async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'codemode-claimed-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const missing = path.join(dir, 'nope.png');
+  const body = JSON.stringify({
+    items: [{ url: 'https://example.com', ok: true, path: missing, timings: { navigate: 1, waitFor: 0, snapshot: 0, screenshot: 0, postprocess: 0 }, scope: { requested: {}, actual: {} } }],
+  });
+  const sess = sessionFor(() => fakeChild({ stdoutText: body + '\n[ok | 12ms]\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.items[0].ok, false);
+  assert.match(env.items[0].error, /missing/);
+});
+
+test('claimed empty file flips the item', async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'codemode-claimed-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const empty = path.join(dir, 'empty.png');
+  writeFileSync(empty, '');
+  const body = JSON.stringify({
+    items: [{ url: 'https://example.com', ok: true, path: empty, timings: { navigate: 1, waitFor: 0, snapshot: 0, screenshot: 0, postprocess: 0 }, scope: { requested: {}, actual: {} } }],
+  });
+  const sess = sessionFor(() => fakeChild({ stdoutText: body + '\n[ok | 12ms]\n' }));
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.items[0].ok, false);
+  assert.match(env.items[0].error, /empty/);
+});
+
+test('host deadline kill is SIGKILL plus leakedUrls', async () => {
+  const sess = sessionFor(() => fakeChild({ hang: true }), { deadlines: { innerDeadlineMs: 60_000, hostDeadlineMs: 0 } });
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(env.status, 'partial');
+  assert.deepEqual(env.leakedUrls, ['https://example.com']);
+  assert.ok(env.partial.some((w) => /remain open/i.test(w)));
+});
+
+test('abort before spawn does not spawn', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let spawned = 0;
+  const sess = sessionFor(() => { spawned += 1; return fakeChild(); }, { signal: controller.signal });
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(spawned, 0);
+  assert.ok(env.partial.some((w) => /cancel/i.test(w)));
+});
+
+test('abort after spawn kills and reports leakedUrls via ready/go handshake', async () => {
+  const controller = new AbortController();
+  let child;
+  const sess = sessionFor(() => {
+    child = fakeChild({ hang: true });
+    queueMicrotask(() => controller.abort());
+    return child;
+  }, { signal: controller.signal });
+  const env = await sess.run({ urls: ['https://example.com'] });
+  assert.equal(child.killSignal, 'SIGKILL');
+  assert.deepEqual(env.leakedUrls, ['https://example.com']);
+});
+
+test('explicit missing asidePath does not fall through to PATH', async () => {
+  let execCalls = 0;
+  const sess = createBrowseSession({
+    config: { asidePath: '/no/such/aside', browseCaps: { timeoutMs: 1000, maxTabs: 8 } },
+    existsImpl: () => false,
+    spawnAsideImpl: () => { throw new Error('spawned'); },
+  });
+  await assert.rejects(sess.run({ urls: ['https://example.com'] }), (e) => e instanceof AsideNotFoundError || e.code === 'EASIDE404');
+  assert.equal(execCalls, 0);
+});
+
+test('browseCaps.enabled false throws EDISABLED and does not spawn', async () => {
+  let spawned = 0;
+  const sess = createBrowseSession({
+    config: { browseCaps: { enabled: false, timeoutMs: 1000, maxTabs: 8 } },
+    resolveAside: async () => '/fake/aside',
+    spawnAsideImpl: () => { spawned += 1; return fakeChild(); },
+  });
+  await assert.rejects(sess.run({ urls: ['https://example.com'] }), (e) => e.code === 'EDISABLED');
+  assert.equal(spawned, 0);
+});
+
+test('temp script dir is removed after success and failure', async () => {
+  const dirs = [];
+  const orig = mkdtempSync;
+  const sess = createBrowseSession({
+    config: { browseCaps: { timeoutMs: 1000, maxTabs: 8 } },
+    resolveAside: async () => '/fake/aside',
+    spawnAsideImpl: () => fakeChild({ stdoutText: okJson + '\n[ok | 1ms]\n' }),
+    mkdtempImpl: (p) => { const d = orig(p); dirs.push(d); return d; },
+  });
+  await sess.run({ urls: ['https://example.com'] });
+  assert.equal(dirs.length, 1);
+  assert.equal(existsSync(dirs[0]), false);
+});
+```
+
+Resolver tests (import `createAsideResolver` already exported from session.js):
+
+```js
+import { createAsideResolver } from '../src/host/browse/session.js';
+
+test('explicit missing path is EASIDE404 with no PATH walk', async () => {
+  const calls = [];
+  const resolve = createAsideResolver(
+    { asidePath: '/no/such/aside' },
+    {},
+    { exists: () => false, execFileAsideImpl: async (bin) => { calls.push(bin); return { stdout: 'Aside 1' }; } },
+  );
+  await assert.rejects(resolve(), (e) => e.code === 'EASIDE404');
+  assert.deepEqual(calls, []);
+});
+
+test('explicit path that fails --version does not fall through', async () => {
+  const calls = [];
+  const resolve = createAsideResolver(
+    { asidePath: '/broken/aside' },
+    { PATH: '/other' },
+    {
+      exists: () => true,
+      execFileAsideImpl: async (bin) => { calls.push(bin); throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    },
+  );
+  await assert.rejects(resolve(), (e) => e.code === 'EASIDE404' && Array.isArray(e.candidates));
+  assert.deepEqual(calls, ['/broken/aside']);
+});
+
+test('PATH candidate is proven with --version', async () => {
+  const env = { PATH: '/bin' };
+  const wanted = process.platform === 'win32' ? path.join('/bin', 'aside.exe') : path.join('/bin', 'aside');
+  const resolve = createAsideResolver(
+    { asidePath: null },
+    env,
+    {
+      exists: () => true,
+      execFileAsideImpl: async (bin, args) => {
+        assert.deepEqual(args, ['--version']);
+        if (bin === wanted) return { stdout: 'Aside 1.26' };
+        throw new Error('skip');
+      },
+    },
+  );
+  assert.equal(await resolve(), wanted);
+});
+
+test('where.exe .cmd shim is skipped', async () => {
+  if (process.platform !== 'win32') return;
+  const resolve = createAsideResolver(
+    { asidePath: null },
+    { PATH: '', LOCALAPPDATA: '' },
+    {
+      exists: () => true,
+      execFileAsideImpl: async (bin, args) => {
+        if (bin === 'where.exe') return { stdout: 'C:\\shim\\aside.cmd\n' };
+        throw new Error('must not spawn .cmd: ' + bin);
+      },
+    },
+  );
+  await assert.rejects(resolve(), (e) => e.code === 'EASIDE404');
+});
+```
+
+Host-deadline test S35: `fakeChild({ hang: true })` never emits close until `kill`. `session.run`'s host timer will call `kill`. That is a real timer. To keep timing out of the oracle, inject `deadlineMath`... session currently calls `deadlineMath(requested)` internally. **Locked extra injection for tests:** `createBrowseSession` accepts optional `deadlines: { innerDeadlineMs, hostDeadlineMs }`. When present, skip `deadlineMath`. Session tests pass `deadlines: { innerDeadlineMs: 60_000, hostDeadlineMs: 1 }` only if needed. Prefer hang-child that is killed by abort handshake (S37) as the kill-path proof; the host-timer path can be activated by passing `deadlines: { innerDeadlineMs: 60_000, hostDeadlineMs: 0 }` so the timer fires on the next turn without being a race against 300ms of CPU load. Implement `hostDeadlineMs: 0` as "kill on next macrotask" (`setTimeout(fn, 0)`), then assert SIGKILL. Do not use 300ms.
+
+Add to `createBrowseSession` options:
+
+```js
+deadlines, // optional { innerDeadlineMs, hostDeadlineMs } override
+```
+
+and `const { innerDeadlineMs, hostDeadlineMs } = deadlines || deadlineMath(requested);`
 
 #### `test/browse-probe.test.js`
 
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { probeCaps, ASIDE_CAPS } from '../src/host/browse/probe.js';
+import { createBrowse } from '../src/host/browse/browse.js';
+
+test('static matrix matches measured constraints and does not spawn', async () => {
+  let spawned = 0;
+  const browse = createBrowse({
+    config: { browseCaps: { timeoutMs: 1000, maxTabs: 8 } },
+    session: { run: async () => { spawned += 1; }, },
+  });
+  const caps = await browse.probe();
+  assert.equal(spawned, 0);
+  assert.equal(caps.screenshot.maxWidthHonoured, false);
+  assert.equal(caps.screenshot.clipHonoured, true);
+  assert.equal(caps.screenshot.viewportSettable, false);
+  assert.equal(caps.pdf.formatA4Honoured, false);
+  assert.equal(caps.network.pageRoute, false);
+  assert.equal(caps.session.killLeaksTabs, true);
+  assert.match(caps.decision, /B-shaped engine/);
+  assert.ok(caps.page.absent.includes('route'));
+  assert.equal(ASIDE_CAPS.screenshot.jpegQuality20Unreliable, true);
+});
+```
+
 #### `test/browse-doctor.test.js`
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js');
+
+function cfg(obj) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-doc-browse-'));
+  const p = path.join(dir, 'c.json');
+  writeFileSync(p, JSON.stringify({ roots: [dir], ...obj }));
+  return p;
+}
+
+test('--doctor --browse prints the matrix and failed resolver without launching repl', () => {
+  const r = spawnSync(process.execPath, [cli, '--doctor', '--browse', '--config', cfg({})], {
+    encoding: 'utf8',
+    env: { ...process.env, CODEMODE_ASIDE: path.join(tmpdir(), 'no-such-aside-binary') },
+  });
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.browse.screenshot.maxWidthHonoured, false);
+  assert.ok(body.browse.page.absent.includes('route'));
+  assert.equal(body.browse.pdf.formatA4Honoured, false);
+  assert.equal(body.browse.asideResolved, null);
+  assert.ok(body.browse.asideError);
+  assert.equal(r.status, 1);
+});
+
+test('--doctor without --browse does not require Aside', () => {
+  const r = spawnSync(process.execPath, [cli, '--doctor', '--config', cfg({})], {
+    encoding: 'utf8',
+    env: { ...process.env, CODEMODE_ASIDE: path.join(tmpdir(), 'no-such-aside-binary') },
+  });
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.browse, undefined);
+});
+
+test('bare --browse is usage exit 2', () => {
+  const r = spawnSync(process.execPath, [cli, '--browse'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+});
+
+test('--doctor --browse still prints when every root is missing', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-doc-missing-'));
+  const p = path.join(dir, 'c.json');
+  writeFileSync(p, JSON.stringify({ roots: [path.join(dir, 'nope-root')] }));
+  const r = spawnSync(process.execPath, [cli, '--doctor', '--browse', '--config', p], {
+    encoding: 'utf8',
+    env: { ...process.env, CODEMODE_ASIDE: path.join(tmpdir(), 'no-such-aside-binary') },
+  });
+  const body = JSON.parse(r.stdout);
+  assert.ok(body.rootError || body.ok === false);
+  assert.ok(body.browse);
+  assert.ok(body.browse.page);
+});
+```
 
 #### `test/browse-wire.test.js`
 
-Guest wiring through `runCode`.
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { runCode } from '../src/sandbox.js';
+import { createBrowse } from '../src/host/browse/browse.js';
+
+test('guest sees browse.exec, browse.probe, and an empty report object', async () => {
+  const browse = createBrowse({
+    config: { browseCaps: { timeoutMs: 1000, maxTabs: 8 } },
+    session: { run: async (job) => ({ items: [{ url: job.urls[0], ok: true }], complete: true, truncated: false, partial: [], leakedUrls: [], timings: [], slowest: [], status: 'complete', scope: {} }) },
+  });
+  const globals = { search: {}, fs: {}, actions: {}, browse, report: Object.freeze({}) };
+  const keys = await runCode('return Object.keys(browse).sort();', { timeoutMs: 5000, globals, maxResultBytes: 1024 });
+  assert.deepEqual(keys.result, ['exec', 'probe']);
+  const probe = await runCode('return await browse.probe();', { timeoutMs: 5000, globals, maxResultBytes: 4096 });
+  assert.equal(probe.ok, true);
+  assert.equal(probe.result.screenshot.maxWidthHonoured, false);
+  const exec = await runCode("return await browse.exec({ urls: ['https://example.com'] });", { timeoutMs: 5000, globals, maxResultBytes: 4096 });
+  assert.equal(exec.ok, true);
+  assert.equal(exec.result.items[0].ok, true);
+  assert.equal(typeof exec.result.timings, 'object');
+  const report = await runCode('return typeof report;', { timeoutMs: 5000, globals, maxResultBytes: 1024 });
+  assert.equal(report.result, 'object');
+});
+```
+
+Wire test must use the real `createHostGlobals` path too:
+
+```js
+import { createHostGlobals } from '../src/host/globals.js';
+import { makeRootGuard } from '../src/paths.js';
+
+test('createHostGlobals injects browse and report so the worker freeze does not throw', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'codemode-g-'));
+  const globals = createHostGlobals({ searchCaps: { files: 1, content: 1 }, browseCaps: { timeoutMs: 1000, maxTabs: 8 }, excludeGlobs: [] }, makeRootGuard([root], { cwd: root }));
+  const out = await runCode('return [typeof browse.exec, typeof browse.probe, typeof report];', {
+    timeoutMs: 5000,
+    globals: (signal) => globals,
+    maxResultBytes: 1024,
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.result, ['function', 'function', 'object']);
+});
+```
+
+That second test will try to construct a real Aside resolver only if `browse.exec` is called. `probe` is static. Safe.
 
 #### `test/config.test.js` additions
 
+```js
+test('asidePath null clears an inherited string; env CODEMODE_ASIDE wins; browseCaps is field-wise', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-aside-'));
+  const first = writeCfg(dir, 'a.json', { roots: [dir], asidePath: '/from-file', browseCaps: { timeoutMs: 9 } });
+  const second = writeCfg(dir, 'b.json', { asidePath: null });
+  const cleared = loadConfig(['--config', second], {});
+  // apply() is per-file; loadConfig reads one --config. Test the copier via two sequential applies by putting both keys in one file:
+  const both = writeCfg(dir, 'c.json', { roots: [dir], asidePath: null, browseCaps: { timeoutMs: 9 } });
+  const cfg = loadConfig(['--config', both], {});
+  assert.equal(cfg.asidePath, null);
+  assert.equal(cfg.browseCaps.timeoutMs, 9);
+  assert.equal(cfg.browseCaps.maxTabs, 8);
+  const viaEnv = loadConfig(['--config', first], { CODEMODE_ASIDE: '/from-env' });
+  assert.equal(viaEnv.asidePath, '/from-env');
+});
+```
+
+Add a second test that a later config file is not how loadConfig works — only one `--config`. The null-clear behaviour is the `apply()` branch `'asidePath' in obj`. Drive it with a single JSON `{ asidePath: null }` after defaults (defaults are already null). To prove clear-from-string, `loadConfig` applies repo file then argv. Use env `CODEMODE_CONFIG` string path then argv file with null... actually argv `--config` is applied after `CODEMODE_CONFIG` (`src/config.js:120-123`). So:
+
+```js
+test('later asidePath null clears CODEMODE_CONFIG string', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-aside2-'));
+  const envCfg = writeCfg(dir, 'env.json', { roots: [dir], asidePath: '/inherited' });
+  const argvCfg = writeCfg(dir, 'argv.json', { asidePath: null });
+  const cfg = loadConfig(['--config', argvCfg], { CODEMODE_CONFIG: envCfg });
+  assert.equal(cfg.asidePath, null);
+});
+```
+
 #### `test/windows-hide.test.js` addition
+
+```js
+import { createAsideProcessFns } from '../src/child-opts.js';
+
+test('spawnAside forwards rgChildOpts to the process impl', () => {
+  const captured = [];
+  const { spawnAside } = createAsideProcessFns({
+    spawnImpl(bin, args, opts) {
+      captured.push({ bin, args, opts });
+      return { pid: 0 };
+    },
+  });
+  spawnAside('aside', ['repl', 'job.js'], { timeout: 5 }, {});
+  assert.equal(Object.hasOwn(captured[0].opts, 'windowsHide'), false);
+  captured.length = 0;
+  spawnAside('aside', ['repl', 'job.js'], {}, { CODEMODE_WINDOWS_HIDE: '1' });
+  assert.equal(captured[0].opts.windowsHide, true);
+});
+
+test('browse session spawn only through child-opts helpers', () => {
+  const session = readFileSync(path.join(srcDir, 'host', 'browse', 'session.js'), 'utf8');
+  assert.match(session, /spawnAside/);
+  assert.equal(/\bspawn\s*\(/.test(session), false);
+  assert.equal(/shell\s*:\s*true/.test(session), false);
+});
+```
+
+`srcDir` already exists at `test/windows-hide.test.js:8`. `readFileSync` is already imported.
 
 #### `test/actions.test.js`
 
@@ -1594,6 +2224,8 @@ Every new conditional path has an ACTIVATION SCENARIO. Timing is never the oracl
 | S59 | pdf inches in compile | paperWidth 210/25.4 | compiled source contains `paperWidth` and `paperHeight`, not `format` |
 | S60 | empty screenshot object | `screenshot:{}` | validate ok; compile emits png screenshot without clip |
 
+| S61 | disabled exec | `browseCaps.enabled:false` then `session.run({urls:['https://example.com']})` | throws `code==='EDISABLED'`; spawn count 0. `browse.probe()` still returns the matrix |
+
 S35/S37 must use fake-child handshake, not `Date.now()` diffs.
 
 ---
@@ -1632,4 +2264,18 @@ If a verifier does not observe the change, the row is human-review. Live tab-lea
 | Creating `aside-cli.js` or `src/host/report/*.js` in wp2 | Collides with 002 layout and with the wp5 sibling. |
 | Empty `browse: {}` without methods | Namespace is visible but `browse.exec` is undefined; guest wiring tests fail. Must ship probe+exec. |
 
+| `browseCaps.enabled:false` still spawning | Falsifier: S61. Probe must keep working. |
+
 **#23 record:** `probe.js` `decision: 'A-shaped surface, B-shaped engine'` plus the README row stating the engine is the Aside CLI, not Playwright. Closing the GitHub issue is wp7.
+
+The compiled `function sleep(ms)` in the §3.3 skeleton must not be emitted: it would shadow Aside `sleep` and recurse. Implement the inner `Promise.race` timeout with `setTimeout` only.
+
+`browse.probe()` stays available when `browseCaps.enabled===false`. Only `session.run` / `browse.exec` throw `EDISABLED`.
+
+---
+
+## 8. Guest names locked for later phases
+
+wp2 guest verbs: `browse.probe`, `browse.exec`. wp4 `captureMany` may wrap `exec` or become a sibling; do not add it here. `report.build` is wp5. `web.*` / `api.*` / `media.*` from the original #23 A sketch are **not** injected. `report` is a frozen empty object so the worker freeze does not throw when wp5 adds methods.
+
+#23 is **recorded** (decision text in §1.2 and doctor `browse.decision`). #23 is **closed** in wp7 (`000_plan.md`).

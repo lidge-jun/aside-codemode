@@ -846,6 +846,7 @@ const DEFAULTS = {
     maxNavigateTimeoutMs: 25000,
     breakerFailures: 2,
     breakerCooldownMs: 0,
+    domainTimeouts: {},
   },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
@@ -884,6 +885,15 @@ copied here is silently dropped — 002):
         cfg.browseCaps.breakerCooldownMs = requireInteger(
           'browseCaps.breakerCooldownMs', obj.browseCaps.breakerCooldownMs, 0, 120000,
         );
+      }
+      if (obj.browseCaps.domainTimeouts && typeof obj.browseCaps.domainTimeouts === 'object' && !Array.isArray(obj.browseCaps.domainTimeouts)) {
+        const next = { ...(cfg.browseCaps.domainTimeouts || {}) };
+        for (const [host, ms] of Object.entries(obj.browseCaps.domainTimeouts)) {
+          if (typeof host !== 'string' || !host) continue;
+          const key = host.toLowerCase().replace(/^www\./, '');
+          next[key] = requireInteger('browseCaps.domainTimeouts.' + host, ms, 1000, 25000);
+        }
+        cfg.browseCaps.domainTimeouts = next;
       }
     }
 ```
@@ -932,7 +942,10 @@ keys. After, insert alongside `searchCaps`:
     "navigateTimeoutMs": 15000,
     "maxNavigateTimeoutMs": 25000,
     "breakerFailures": 2,
-    "breakerCooldownMs": 0
+    "breakerCooldownMs": 0,
+    "domainTimeouts": {
+      "x.com": 8000
+    }
   },
 ```
 
@@ -948,13 +961,14 @@ test('browseCaps field-wise copy and env override', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-browse-'));
   const cfg = writeCfg(dir, 'c.json', {
     roots: [path.join(dir, 'r')],
-    browseCaps: { navigateTimeoutMs: 12000, breakerFailures: 3, ignored: 1 },
+    browseCaps: { navigateTimeoutMs: 12000, breakerFailures: 3, ignored: 1, domainTimeouts: { 'X.com': 8000 } },
   });
   const fromFile = loadConfig(['--config', cfg], {});
   assert.equal(fromFile.browseCaps.navigateTimeoutMs, 12000);
   assert.equal(fromFile.browseCaps.breakerFailures, 3);
   assert.equal(fromFile.browseCaps.breakerCooldownMs, 0);
   assert.equal(fromFile.browseCaps.maxNavigateTimeoutMs, 25000);
+  assert.equal(fromFile.browseCaps.domainTimeouts['x.com'], 8000);
   assert.equal('ignored' in fromFile.browseCaps, false);
   const fromEnv = loadConfig(['--config', cfg], { CODEMODE_BROWSE_NAV_TIMEOUT_MS: '8000' });
   assert.equal(fromEnv.browseCaps.navigateTimeoutMs, 8000);
@@ -962,6 +976,8 @@ test('browseCaps field-wise copy and env override', () => {
     () => loadConfig(['--config', cfg], { CODEMODE_BROWSE_NAV_TIMEOUT_MS: '30000' }),
     /CODEMODE_BROWSE_NAV_TIMEOUT_MS/,
   );
+  const tooHigh = writeCfg(dir, 'hi.json', { roots: [path.join(dir, 'r')], browseCaps: { domainTimeouts: { 'x.com': 30000 } } });
+  assert.throws(() => loadConfig(['--config', tooHigh], {}), /browseCaps.domainTimeouts.x.com/);
 });
 ```
 
@@ -1094,6 +1110,7 @@ C17 is the #17 "do not retry" gate **and** feeds the breaker (login counts as
 | T2 | domain override | `domainTimeouts: { 'x.com': 8000 }`, domain `x.com`. | `=== 8000`. |
 | T3 | requestedMs | `requestedMs: 12000`, no domain override. | `=== 12000`. |
 | T4 | reject above Aside cap | `requestedMs: 30000` or `maxMs: 30000`. | throws `EBADVAL`. Does **not** return 30000. |
+| T4b | domainTimeouts 30000 refused in config | file `browseCaps.domainTimeouts: { 'x.com': 30000 }`. | `loadConfig` throws `browseCaps.domainTimeouts.x.com` (max 25000). |
 | T5 | reject below min | `requestedMs: 0`. | throws `EBADVAL`. |
 | T6 | env 30000 | `loadConfig(..., { CODEMODE_BROWSE_NAV_TIMEOUT_MS: '30000' })`. | throws, names the env key. |
 | T7 | runItem receives clamped budget | `runGuardedBatch` with `requestedMs: 8000`; `runItem` records `timeoutMs`. | recorded `timeoutMs === 8000`. No elapsed-time assert. |
@@ -1229,4 +1246,3 @@ wp4 `captureMany` / wp2 session:
   `ECANCELLED` or a non-ok error.
 
 wp5 wait-strategy and wp6 recipes must not bypass `runGuardedBatch`.
-

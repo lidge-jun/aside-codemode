@@ -634,3 +634,832 @@ export const BROWSE_ACTIONS = [
   },
 ];
 ```
+
+`validateCaptureOptions` / `validateReadTextOptions` — copy these exactly:
+
+```js
+export function validateCaptureOptions(opts, items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new BrowseOptionError('browse.captureMany: items (non-empty array) is required', 'EBADVAL');
+  }
+  const o = opts ?? {};
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) {
+    throw new BrowseOptionError('browse.captureMany: options must be an object', 'EBADVAL');
+  }
+  if ('maxWidth' in o && o.maxWidth !== undefined) {
+    throw new BrowseOptionError(`browse.captureMany: ${MAX_WIDTH_UNSUPPORTED}`, 'ENOTSUP');
+  }
+  const bad = Object.keys(o).filter((k) => !CAPTURE_OPTS.has(k) && k !== 'maxWidth');
+  if (bad.length) {
+    throw new BrowseOptionError(
+      `browse.captureMany: unknown option(s) ${bad.map((b) => JSON.stringify(b)).join(', ')}. `
+      + `valid: ${[...CAPTURE_OPTS].join(', ')}`,
+      'EBADOPT',
+    );
+  }
+  if ('concurrency' in o && o.concurrency !== undefined) {
+    if (!Number.isSafeInteger(o.concurrency) || o.concurrency < 1 || o.concurrency > MAX_CONCURRENCY) {
+      throw new BrowseOptionError(`browse.captureMany: concurrency must be an integer in [1, ${MAX_CONCURRENCY}]`, 'EBADVAL');
+    }
+  }
+  if ('quality' in o && o.quality !== undefined) {
+    if (!Number.isSafeInteger(o.quality) || o.quality < 1 || o.quality > 100) {
+      throw new BrowseOptionError('browse.captureMany: quality must be an integer in [1, 100]', 'EBADVAL');
+    }
+  }
+  if ('type' in o && o.type !== undefined && o.type !== 'png' && o.type !== 'jpeg') {
+    throw new BrowseOptionError('browse.captureMany: type must be png or jpeg', 'EBADVAL');
+  }
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i];
+    if (!it || typeof it !== 'object' || typeof it.url !== 'string' || !it.url) {
+      throw new BrowseOptionError(`browse.captureMany: items[${i}].url (non-empty string) is required`, 'EBADVAL');
+    }
+    if ('maxWidth' in it) {
+      throw new BrowseOptionError(`browse.captureMany: items[${i}]: ${MAX_WIDTH_UNSUPPORTED}`, 'ENOTSUP');
+    }
+    const extra = Object.keys(it).filter((k) => !CAPTURE_ITEM_KEYS.has(k) && k !== 'maxWidth');
+    if (extra.length) {
+      throw new BrowseOptionError(`browse.captureMany: items[${i}] unknown key(s) ${extra.join(', ')}`, 'EBADOPT');
+    }
+    if (it.clip === 'auto' && !it.selector) {
+      throw new BrowseOptionError(`browse.captureMany: items[${i}] clip:"auto" requires selector`, 'EBADVAL');
+    }
+    if (it.clip && it.clip !== 'auto') {
+      for (const k of ['x', 'y', 'width', 'height']) {
+        if (!Number.isFinite(it.clip[k])) {
+          throw new BrowseOptionError(`browse.captureMany: items[${i}].clip.${k} must be a number`, 'EBADVAL');
+        }
+      }
+    }
+  }
+  const screenshot = o.screenshot !== false;
+  if (screenshot && (typeof o.outDir !== 'string' || !o.outDir)) {
+    throw new BrowseOptionError('browse.captureMany: outDir (inside roots) is required when screenshot is true', 'EBADVAL');
+  }
+  return o;
+}
+
+export function validateReadTextOptions(opts) {
+  const o = opts ?? {};
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) {
+    throw new BrowseOptionError('browse.readText: options must be an object', 'EBADVAL');
+  }
+  const bad = Object.keys(o).filter((k) => !READTEXT_OPTS.has(k));
+  if (bad.length) {
+    throw new BrowseOptionError(
+      `browse.readText: unknown option(s) ${bad.map((b) => JSON.stringify(b)).join(', ')}. `
+      + `valid: ${[...READTEXT_OPTS].join(', ')}`,
+      'EBADOPT',
+    );
+  }
+  if ('fallback' in o && o.fallback !== undefined) {
+    const ok = o.fallback === true || o.fallback === false
+      || o.fallback === 'never' || o.fallback === 'whenRequired' || o.fallback === 'always';
+    if (!ok) throw new BrowseOptionError('browse.readText: fallback must be never|whenRequired|always', 'EBADVAL');
+  }
+  return o;
+}
+```
+
+### 5.5 MODIFY `src/host/browse/script.js` (wp2 file; insert)
+
+Two compilers. They must **not** emit `page.route`, `setViewportSize`,
+`maxWidth`, or `format:'A4'`. Tab pool lives **inside** the script (`001` E6:
+5 pages 908 ms parallel vs 3397 ms sequential; 1.4–2.4 s process overhead
+forbids one process per URL).
+
+`compileCaptureManyScript({ items, opts, scriptDeadlineMs, outDir })` returns
+one string. Required in-script constants and control flow (copy the skeleton):
+
+```js
+export function compileCaptureManyScript({ items, opts, scriptDeadlineMs, outDir }) {
+  const concurrency = Math.min(opts.concurrency ?? 4, items.length);
+  const wantText = opts.text !== false;
+  const wantShot = opts.screenshot !== false;
+  const type = opts.type === 'jpeg' ? 'jpeg' : 'png';
+  const quality = type === 'jpeg' ? (opts.quality ?? 90) : undefined;
+  const payload = JSON.stringify(items.map((it, index) => ({
+    index, url: it.url, selector: it.selector || null, name: it.name || ('item-' + index),
+    clip: it.clip && it.clip !== 'auto' ? it.clip : null, autoClip: it.clip === 'auto',
+    margin: Number.isFinite(it.margin) ? it.margin : 0,
+  })));
+  return [
+    'const ITEMS = ' + payload + ';',
+    'const CONCURRENCY = ' + concurrency + ';',
+    'const DEADLINE = Date.now() + ' + scriptDeadlineMs + ';',
+    'const OUTDIR = ' + JSON.stringify(outDir || '') + ';',
+    'const WANT_TEXT = ' + wantText + ';',
+    'const WANT_SHOT = ' + wantShot + ';',
+    'const TYPE = ' + JSON.stringify(type) + ';',
+    'const QUALITY = ' + (quality === undefined ? 'undefined' : String(quality)) + ';',
+    'const owned = [];',
+    'const items = new Array(ITEMS.length);',
+    'function emit(obj) { console.log(JSON.stringify(obj)); }',
+    'async function closeOwned() {',
+    '  const tabs = owned.splice(0);',
+    '  for (const t of tabs) {',
+    '    try { await closeTab(t.id); } catch {}',
+    '    emit({ event: "unlease", tabId: t.id, url: t.url });',
+    '  }',
+    '}',
+    QUERY_CLIP_FN,
+    RUN_ITEM_FN,
+    WORKER_AND_MAIN,
+  ].join('\n');
+}
+```
+
+`QUERY_CLIP_FN` (string constant in script.js):
+
+```js
+async function queryClip(p, selector, margin) {
+  const js = "(function(){var el=document.querySelector(" + JSON.stringify(selector) + ");"
+    + "if(!el)return {missing:true};var b=el.getBoundingClientRect();"
+    + "return {x:b.x,y:b.y,width:b.width,height:b.height};})()";
+  const box = await p.evaluate(js);
+  if (!box || box.missing) return { error: "selector not found: " + selector };
+  const vp = (typeof p.viewportSize === "function" ? p.viewportSize() : { width: 1440, height: 900 }) || { width: 1440, height: 900 };
+  const x = Math.max(0, box.x - margin);
+  const y = Math.max(0, box.y - margin);
+  const width = Math.min(vp.width - x, Math.max(1, box.width + 2 * margin));
+  const height = Math.min(vp.height - y, Math.max(1, box.height + 2 * margin));
+  if (width < 1 || height < 1) return { error: "clip empty after clamp" };
+  return { clip: { x, y, width, height }, requestedGeometry: { width, height } };
+}
+```
+
+`RUN_ITEM_FN` — per-item `try/catch` is mandatory. A throw becomes
+`items[i].error`. No rethrow that empties the array. Screenshot opts may
+include `path`, `type`, `quality` (jpeg only), `clip`. Never `maxWidth`.
+Never `fullPage:true` as a geometry strategy (E4: fullPage still 1440x900).
+On success emit `{event:'item', index, ok:true}` after assigning `items[i]`.
+In `finally` of `runItem`: if `tab` is still in `owned`, `closeTab`,
+`unlease`, splice it out.
+`RUN_ITEM_FN` (string constant; this is the in-script source, not host JS):
+
+```js
+async function runItem(it) {
+  let tab;
+  const started = Date.now();
+  try {
+    if (Date.now() > DEADLINE) {
+      return { index: it.index, name: it.name, url: it.url, error: { error: "in-script deadline", code: "ETIMEOUT" } };
+    }
+    tab = await openTab(it.url);
+    owned.push({ id: tab.id, url: it.url });
+    emit({ event: "lease", tabId: tab.id, url: it.url, index: it.index });
+    const p = tab.page;
+    if (typeof p.waitForLoadState === "function") {
+      try { await p.waitForLoadState("domcontentloaded"); } catch {}
+    }
+    const title = typeof p.title === "function" ? await p.title() : "";
+    let clip = it.clip;
+    let requestedGeometry = clip ? { width: clip.width, height: clip.height } : null;
+    if (it.selector && (it.autoClip || !clip)) {
+      const q = await queryClip(p, it.selector, it.margin);
+      if (q.error) {
+        return { index: it.index, name: it.name, url: it.url, title, error: { error: q.error, code: "ESELECTOR" }, ms: Date.now() - started };
+      }
+      clip = q.clip;
+      requestedGeometry = q.requestedGeometry;
+    }
+    let path = null;
+    if (WANT_SHOT) {
+      const ext = TYPE === "jpeg" ? ".jpg" : ".png";
+      path = OUTDIR.replace(/[\\/]+$/, "") + "/" + String(it.name).replace(/[^a-zA-Z0-9._-]+/g, "_") + ext;
+      const shotOpts = { path, type: TYPE };
+      if (TYPE === "jpeg") shotOpts.quality = QUALITY;
+      if (clip) shotOpts.clip = clip;
+      await p.screenshot(shotOpts);
+    }
+    let text;
+    if (WANT_TEXT) {
+      const raw = await p.evaluate('(document.body && document.body.innerText) || ""');
+      text = typeof raw === "string" && raw.length > 32768 ? raw.slice(0, 32768) : raw;
+    }
+    return { index: it.index, name: it.name, url: it.url, title, path, text, requestedGeometry, format: TYPE, ms: Date.now() - started };
+  } catch (e) {
+    return { index: it.index, name: it.name, url: it.url, error: { error: String(e && e.message || e), code: e && e.code }, ms: Date.now() - started };
+  } finally {
+    if (tab) {
+      const idx = owned.findIndex((t) => t.id === tab.id);
+      if (idx !== -1) owned.splice(idx, 1);
+      try { await closeTab(tab.id); } catch {}
+      emit({ event: "unlease", tabId: tab.id, url: it.url });
+    }
+  }
+}
+```
+
+
+`WORKER_AND_MAIN`:
+
+```js
+async function worker(queue) {
+  for (;;) {
+    if (Date.now() > DEADLINE) return;
+    const it = queue.shift();
+    if (!it) return;
+    items[it.index] = await runItem(it);
+    emit({ event: "item", index: it.index, ok: !items[it.index].error });
+  }
+}
+try {
+  if (typeof fs !== "undefined" && OUTDIR && typeof fs.mkdir === "function") {
+    try { await fs.mkdir(OUTDIR); } catch {}
+  }
+  const queue = ITEMS.slice();
+  const n = Math.min(CONCURRENCY, queue.length);
+  await Promise.all(Array.from({ length: n }, () => worker(queue)));
+  for (let i = 0; i < ITEMS.length; i++) {
+    if (!items[i]) items[i] = { index: i, name: ITEMS[i].name, url: ITEMS[i].url, error: { error: "in-script deadline", code: "ETIMEOUT" } };
+  }
+  emit({ event: "result", items });
+} finally {
+  await closeOwned();
+}
+```
+
+`compileRenderedHtmlScript({ urls, scriptDeadlineMs })` is its **own**
+template, not a string-replace of the capture compiler. Same pool, lease,
+`finally closeOwned`, concurrency `Math.min(4, urls.length)`. Per item:
+`openTab` → optional `waitForLoadState('domcontentloaded')` → `p.content()`
++ `p.title()` + `p.url()` → emit `{event:'item', index, html, title,
+finalUrl}` → close. **No screenshot.** `WANT_SHOT` is not present.
+Copy-paste skeleton for `compileRenderedHtmlScript` (own template, same pool):
+
+```js
+export function compileRenderedHtmlScript({ urls, scriptDeadlineMs }) {
+  const payload = JSON.stringify(urls.map((url, index) => ({ index, url, name: 'read-' + index })));
+  const concurrency = Math.min(4, urls.length);
+  return [
+    'const ITEMS = ' + payload + ';',
+    'const CONCURRENCY = ' + concurrency + ';',
+    'const DEADLINE = Date.now() + ' + scriptDeadlineMs + ';',
+    'const owned = [];',
+    'const items = new Array(ITEMS.length);',
+    'function emit(obj) { console.log(JSON.stringify(obj)); }',
+    CLOSE_OWNED_FN, // identical to captureMany
+    'async function runItem(it) {',
+    '  let tab;',
+    '  try {',
+    '    if (Date.now() > DEADLINE) return { index: it.index, url: it.url, error: { error: "in-script deadline", code: "ETIMEOUT" } };',
+    '    tab = await openTab(it.url);',
+    '    owned.push({ id: tab.id, url: it.url });',
+    '    emit({ event: "lease", tabId: tab.id, url: it.url, index: it.index });',
+    '    const p = tab.page;',
+    '    if (typeof p.waitForLoadState === "function") { try { await p.waitForLoadState("domcontentloaded"); } catch {} }',
+    '    const title = typeof p.title === "function" ? await p.title() : "";',
+    '    const finalUrl = typeof p.url === "function" ? p.url() : it.url;',
+    '    const html = await p.content();',
+    '    const row = { index: it.index, url: it.url, title, finalUrl, html };',
+    '    emit({ event: "item", ...row });',
+    '    return row;',
+    '  } catch (e) {',
+    '    return { index: it.index, url: it.url, error: { error: String(e && e.message || e), code: e && e.code } };',
+    '  } finally {',
+    '    if (tab) {',
+    '      const idx = owned.findIndex((t) => t.id === tab.id);',
+    '      if (idx !== -1) owned.splice(idx, 1);',
+    '      try { await closeTab(tab.id); } catch {}',
+    '      emit({ event: "unlease", tabId: tab.id, url: it.url });',
+    '    }',
+    '  }',
+    '}',
+    WORKER_AND_MAIN, // identical to captureMany, including finally closeOwned
+  ].join('\n');
+}
+```
+
+
+Hard rules inside both templates:
+
+- `try/catch` per item.
+- `owned` + `finally { await closeOwned() }` even on script-level throw.
+- `console.log(JSON.stringify(...))` for every lease/unlease/item/result.
+  The host parser never uses exit code.
+- Source must not match `page.route`, `p.on('request')`, `setViewportSize`,
+  or `maxWidth`.
+
+### 5.6 MODIFY `src/host/browse/result.js` (wp2 file; insert)
+
+Browse envelopes are **plain enumerable objects**. Do not join the search
+`toJSON` lane (`src/sandbox.js:109-112`, `002`). Per-item failures live in
+`items[]` so `fitEnvelope` log-then-body trim cannot turn a partial batch
+into a clean list (`src/execution-output.js:59-91`, `002`).
+
+```js
+export function parseReplTranscript(stdout) {
+  const text = String(stdout || '').replace(/\r\n/g, '\n');
+  const marker = /\[(ok|error) \| (\d+)ms\]\s*$/.exec(text);
+  const leases = new Map();
+  const leakedUrls = [];
+  const items = [];
+  let resultItems = null;
+  for (const line of text.split('\n')) {
+    const s = line.trim();
+    if (!s.startsWith('{}'.slice(0, 1))) continue;
+    let ev;
+    try { ev = JSON.parse(s); } catch { continue; }
+    if (ev.event === 'lease') leases.set(ev.tabId, ev.url);
+    else if (ev.event === 'unlease') leases.delete(ev.tabId);
+    else if (ev.event === 'item' && ev.html) items.push(ev);
+    else if (ev.event === 'result' && Array.isArray(ev.items)) resultItems = ev.items;
+  }
+  for (const url of leases.values()) leakedUrls.push(url);
+  return {
+    marker: marker ? marker[1] : null,
+    markerMs: marker ? Number(marker[2]) : null,
+    items: resultItems || items,
+    leakedUrls,
+  };
+}
+
+export function buildCaptureEnvelope({ parsed, killed, inspectItem }) {
+  const items = (parsed.items || []).map((it) => (inspectItem ? inspectItem(it) : it));
+  const failed = items.filter((it) => it && it.error).length;
+  const leaked = parsed.leakedUrls || [];
+  const complete = parsed.marker === 'ok' && !killed && leaked.length === 0 && failed === 0;
+  return {
+    items,
+    complete,
+    truncated: false,
+    partial: killed || leaked.length > 0 || failed > 0 || parsed.marker !== 'ok',
+    leakedUrls: leaked,
+    killed: !!killed,
+    marker: parsed.marker,
+    scope: { kind: 'captureMany', itemCount: items.length, failed, leaked: leaked.length },
+  };
+}
+```
+
+In the `startsWith` check, test `s.startsWith('{')` — the `.slice` above is
+only to keep this markdown fence from confusing a later patch. `parseItemsFromStdout`
+is an alias of `parseReplTranscript`.
+
+### 5.7 MODIFY `src/host/browse/session.js` / `pool.js` (wp2)
+
+Do not add a second spawn. After `session.run` returns, `captureMany`
+**must** call `parseReplTranscript`. If wp2's session already parses a final
+JSON only, keep that for probe and add transcript parsing here.
+
+`pool.js` host-side: record leases from the transcript. `leakedUrls()`
+returns still-leased URLs after run. If wp2 already does this, call it;
+do not duplicate state.
+
+Deadline wiring in `browse.captureMany`:
+
+```js
+const scriptDeadlineMs = Math.max(1000, (opts.timeoutMs ?? 25000));
+const hostDeadlineMs = scriptDeadlineMs + HOST_SLACK_MS; // 3000
+// pass scriptDeadlineMs into the compiler; hostDeadlineMs into session.run
+// session must NOT SIGKILL before hostDeadlineMs
+// if abortSignal fires, session MAY kill; then killed:true and leakedUrls from transcript
+```
+
+If the guest `timeoutMs` / sandbox deadline is tighter than
+`hostDeadlineMs`, clamp `scriptDeadlineMs` so both still satisfy
+script < host < sandbox, with at least 1000 ms of script time. If that clamp
+cannot be satisfied (sandbox timeout < 4000 ms), throw `EBADVAL` naming the
+minimum rather than killing first.
+
+### 5.8 MODIFY `src/host/browse/browse.js` (wp2 factory; add methods)
+
+```js
+import { readFileSync } from 'node:fs';
+import { validateCaptureOptions, validateReadTextOptions, DEFAULT_CONCURRENCY, HOST_SLACK_MS, BROWSE_ACTIONS } from './schema.js';
+import { compileCaptureManyScript, compileRenderedHtmlScript } from './script.js';
+import { parseReplTranscript, buildCaptureEnvelope } from './result.js';
+import { inspectCaptureFile } from './image.js';
+import { createFetchFirst } from './fetch-first.js';
+
+export function createBrowse({ session, assertInside, signal, fetchImpl, detectBlock, browseCaps } = {}) {
+  const fetchFirst = createFetchFirst({
+    fetchImpl, session, compileRenderedHtmlScript, detectBlock,
+    parseReplTranscript, signal,
+  });
+
+  async function captureMany(items, opts = {}) {
+    const o = validateCaptureOptions(opts, items);
+    const outDir = o.screenshot !== false ? assertInside(o.outDir) : '';
+    const scriptDeadlineMs = Math.max(1000, o.timeoutMs ?? 25000);
+    const source = compileCaptureManyScript({
+      items,
+      opts: { ...o, concurrency: o.concurrency ?? browseCaps?.concurrency ?? DEFAULT_CONCURRENCY },
+      scriptDeadlineMs,
+      outDir,
+    });
+    const raw = await session.run(source, { hostDeadlineMs: scriptDeadlineMs + HOST_SLACK_MS, signal });
+    const parsed = parseReplTranscript(raw.stdout);
+    if (raw.killed) {
+      parsed.leakedUrls = [...new Set([...(parsed.leakedUrls || []), ...((raw.leakedUrls) || [])])];
+    }
+    const envelope = buildCaptureEnvelope({
+      parsed,
+      killed: raw.killed,
+      inspectItem: (it) => inspectCaptureFile(it, { readFileSyncImpl: readFileSync, assertInside }),
+    });
+    envelope.scope.concurrency = o.concurrency ?? browseCaps?.concurrency ?? DEFAULT_CONCURRENCY;
+    return envelope;
+  }
+
+  async function screenshot(input, opts = {}) {
+    if (input && typeof input === 'object' && typeof input.then === 'function') {
+      throw Object.assign(new Error('browse.screenshot: page handles are not transferable; pass {url, ...}'), { code: 'EBADVAL' });
+    }
+    const items = Array.isArray(input) ? input : [input];
+    const envelope = await captureMany(items, { ...opts, screenshot: true, text: false, outDir: opts.outDir || input?.outDir });
+    return Array.isArray(input) ? envelope : envelope.items[0];
+  }
+
+  async function readText(urlOrUrls, opts = {}) {
+    validateReadTextOptions(opts);
+    return fetchFirst.readText(urlOrUrls, opts);
+  }
+
+  return Object.freeze({ captureMany, screenshot, readText });
+}
+
+export { BROWSE_ACTIONS };
+```
+
+### 5.9 MODIFY `src/host/browse/probe.js` (wp2 doctor payload)
+
+Add these keys to the existing doctor/capability object (wp2 owns
+`--doctor --browse` printing). If the object is built as `matrix`:
+
+```js
+matrix.captureMany = { pool: 'in-script', maxConcurrency: 8, defaultConcurrency: 4 };
+matrix.screenshot = {
+  clip: true,
+  maxWidth: 'ENOTSUP',
+  viewportSettable: false,
+  jpegQualityDefault: 90,
+  resize: 'ENOTSUP',
+  dimensions: 'png-ihdr+jpeg-sof',
+};
+matrix.readText = {
+  engine: 'fetch-first',
+  jsDetection: 'content-and-shell',
+  fallback: 'opt-in',
+  guestName: 'browse.readText',
+};
+```
+
+Verifier note: `node bin/codemode.mjs --doctor --browse` observes this only
+after wp2 wired the flag. If that flag is absent when wp4 runs, this row is
+**human-review** on the doctor JSON; unit-test `probe.js` export directly.
+
+### 5.10 MODIFY `src/host/actions.js`
+
+Current splice (`src/host/actions.js:9-12`):
+
+```js
+import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
+
+const REGISTRY = [
+  ...SEARCH_ACTIONS,
+```
+
+After:
+
+```js
+import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
+import { BROWSE_ACTIONS } from './browse/schema.js';
+
+const REGISTRY = [
+  ...SEARCH_ACTIONS,
+  ...BROWSE_ACTIONS,
+```
+
+Current value-check gate (`src/host/actions.js:185-192`):
+
+```js
+      const isSearch = rec.path.startsWith('search.');
+      for (const [name, spec] of Object.entries(rec.inputs)) {
+        if (spec.required && !(name in args)) missing.push(name);
+        else if (name in args && typeOf(args[name]) !== spec.type) {
+          typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
+        } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
+          const problem = checkOptionValue(name, args[name]);
+          if (problem) invalid.push(problem);
+        }
+      }
+```
+
+After (so `actions.check('browse.captureMany', {maxWidth:640})` reports
+ENOTSUP the same way `followSymlinks:true` does):
+
+```js
+      const isSearch = rec.path.startsWith('search.');
+      const isBrowse = rec.path.startsWith('browse.');
+      for (const [name, spec] of Object.entries(rec.inputs)) {
+        if (spec.required && !(name in args)) missing.push(name);
+        else if (name in args && name === 'maxWidth' && isBrowse) {
+          invalid.push({ name, code: 'ENOTSUP', message: 'maxWidth is not supported: use clip or selector+margin' });
+        } else if (name in args && typeOf(args[name]) !== spec.type) {
+          typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
+        } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
+          const problem = checkOptionValue(name, args[name]);
+          if (problem) invalid.push(problem);
+        }
+      }
+```
+
+Clip as object vs string `'auto'` will trip `type: 'object'` in
+`actions.check` if someone passes `'auto'`. That is acceptable: execution
+validates `'auto'` in `validateCaptureOptions`; discovery catalog type stays
+object. Do not invent a union type in the catalog.
+
+### 5.11 MODIFY `src/tools.js`
+
+Current last two bullets (`src/tools.js:19-21`):
+
+```
+  '- actions.list(filter?), actions.find(query), actions.describe(path), actions.check(path, args) — discover the above without schema dumps. Recommended flow: find -> describe -> check -> call.',
+  'IMPORTANT — searches respect .gitignore by default. ...
+```
+
+After, insert before the IMPORTANT line:
+
+```
+  '- browse.captureMany(items[], {concurrency?, outDir?, text?, type?, quality?}) => {items,complete,partial,leakedUrls,scope} — one Aside repl, in-script tab pool. Per-item {error}; siblings kept. maxWidth is ENOTSUP (Aside ignores it; clip is the geometry control). JPEG quality default 90.',
+  '- browse.screenshot({url, selector?, clip?, margin?, type?, quality?, outDir}) — captureMany wrapper. There is no page handle.',
+  '- browse.readText(url|url[], {fallback?, concurrency?}) => {title,markdown,byline,publishedAt,links,needsBrowser,engine} — host fetch then readability. Browser fallback only when detectJsRequired is true and fallback is whenRequired|always. Issue #8 name web.readText ships as browse.readText (hostMethods is one-level).',
+```
+
+`inputSchema` stays `{code, timeoutMs}` (`src/tools.js:28-36`, `002`).
+
+### 5.12 MODIFY `src/config.js` and `codemode.config.example.json`
+
+Current `DEFAULTS` (`src/config.js:29-36`):
+
+```js
+const DEFAULTS = {
+  roots: [],
+  rgPath: null,
+  maxResultBytes: 65536,
+  maxTimeoutMs: 120000,
+  searchCaps: { files: 5000, content: 500 },
+  excludeGlobs: DEFAULT_EXCLUDES,
+};
+```
+
+After: add `browseCaps: { concurrency: 4 }`.
+
+Current nested copy (`src/config.js:109-112`):
+
+```js
+    if (obj.searchCaps && typeof obj.searchCaps === 'object') {
+      if ('files' in obj.searchCaps) cfg.searchCaps.files = requireInteger('searchCaps.files', obj.searchCaps.files);
+      if ('content' in obj.searchCaps) cfg.searchCaps.content = requireInteger('searchCaps.content', obj.searchCaps.content);
+    }
+```
+
+After, immediately below:
+
+```js
+    if (obj.browseCaps && typeof obj.browseCaps === 'object') {
+      if (!cfg.browseCaps) cfg.browseCaps = { concurrency: 4 };
+      if ('concurrency' in obj.browseCaps) {
+        cfg.browseCaps.concurrency = requireInteger('browseCaps.concurrency', obj.browseCaps.concurrency, 1, 8);
+      }
+    }
+```
+
+After env overrides (`src/config.js:124-130`), add:
+
+```js
+  if (env.CODEMODE_BROWSE_CONCURRENCY !== undefined) {
+    cfg.browseCaps.concurrency = requireInteger(
+      'CODEMODE_BROWSE_CONCURRENCY',
+      Number(env.CODEMODE_BROWSE_CONCURRENCY),
+      1,
+      8,
+    );
+  }
+```
+
+If wp2 already introduced `browseCaps`, only add the `concurrency` field-wise
+copy and the env key — do not reset `enabled` / `asidePath`.
+
+`codemode.config.example.json` current has no `browseCaps`. After, sibling
+to `searchCaps`:
+
+```json
+  "browseCaps": {
+    "concurrency": 4
+  }
+```
+
+A key not copied in `apply()` is silently dropped (`002`). This copy is
+mandatory.
+
+### 5.13 MODIFY `README.md:47-55` and `README.ko.md:47-55`
+
+English table, after the `actions.*` row (`README.md:55`):
+
+```
+| `browse.captureMany` | One Aside repl, in-script tab pool, screenshot+text. Per-item `{error}`. `maxWidth` is ENOTSUP; pass `clip` or `selector` |
+| `browse.screenshot` | `captureMany` wrapper. No page handle |
+| `browse.readText` | Host fetch → markdown. Browser fallback only when JS is required and `fallback` is on |
+```
+
+Korean table, after `README.ko.md:55`:
+
+```
+| `browse.captureMany` | Aside repl 한 번, 스크립트 안 탭 풀, 스크린샷+텍스트. 항목 실패는 `{error}`. `maxWidth`는 ENOTSUP, `clip`/`selector` 사용 |
+| `browse.screenshot` | `captureMany` 래퍼. page 핸들 없음 |
+| `browse.readText` | 호스트 fetch → 마크다운. JS가 필요할 때만 브라우저 폴백 |
+```
+
+Do not claim the guest gained `fetch`. `README.md:45` stays true: the guest
+has no `fetch`; `browse.readText` is a host RPC.
+
+### 5.14 MODIFY `templates/AGENTS.codemode.md`
+
+Current tools sentence (lines 12-15):
+
+```
+Available tools: `search.files|content|count`,
+`read_file({path, offset?, limit?})` (1-indexed lines),
+`write_file({file_path, content})` (create-only),
+`edit_file({path, edits, appendText?})`, and compound `fs.*` helpers.
+```
+
+After, append:
+
+```
+When browse is enabled: `browse.captureMany` (one repl, in-script pool; per-item errors; never pass maxWidth — use clip/selector), `browse.screenshot({url,...})` (no page handle), `browse.readText` (fetch-first; set fallback:"whenRequired" only if needsBrowser). Do not spawn Aside yourself and do not kill the CLI to cancel — leaked tabs cannot be closed later.
+```
+
+### 5.15 NOT modified in wp4
+
+| File | Why |
+| --- | --- |
+| `src/sandbox.js` | wp2 adds `'browse'` to `ROOTS` (`src/sandbox.js:7`). wp4 methods are one-level `browse.captureMany` |
+| `src/execution-worker.js` | wp2 pre-creates/freezes `injected.browse` (`src/execution-worker.js:50-56`) |
+| `src/host/globals.js` | wp2 calls `createBrowse(...)`. wp4 changes the factory internals |
+| `src/child-opts.js` | Aside spawn injection lives on the wp2 session, copying `createRgProcessFns` (`src/child-opts.js:13-27`) without overloading the rg comment |
+| `package.json` | zero deps remain |
+
+If stale-check finds `browse` missing from `ROOTS` / `injected`, **stop and
+amend 010**. Do not paper over it in wp4.
+
+## 6. Dependency order of edits
+
+1. `schema.js` capture/readText options + `BROWSE_ACTIONS` + ENOTSUP
+2. `image.js` (no deps on session)
+3. `result.js` transcript parser + enumerable envelope
+4. `script.js` compilers (pure string builders; test without spawn)
+5. `fetch-first.js` (imports `detectJsRequired`, takes `session` optionally)
+6. `browse.js` factory methods
+7. `session.js` / `pool.js` only if transcript/kill leakedUrls are not yet
+   plumbed
+8. `probe.js` doctor fields
+9. `actions.js` splice + `maxWidth` check
+10. `config.js` + example JSON
+11. `tools.js` bullets
+12. `README.md` / `README.ko.md` / `templates/AGENTS.codemode.md`
+13. tests last, against the public functions
+
+No file in this list is allowed to `import` `report/*`.
+
+## 7. Testable acceptance criteria
+
+Every conditional has an ACTIVATION SCENARIO. Observable effect proves that
+branch ran. Injected fakes; no live browser; no timing oracle.
+
+### 7.1 Schema / ENOTSUP (no spawn)
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| S1 | empty items | `captureMany([], {})` | throws `BrowseOptionError` `EBADVAL`; spawnImpl call count 0 |
+| S2 | unknown opt | `{foo:1}` | `EBADOPT`, message lists valid keys; spawn 0 |
+| S3 | `maxWidth` on opts | `{maxWidth:640, outDir}` | `ENOTSUP`, message mentions clip; spawn 0 |
+| S4 | `maxWidth` on item | item `{url, maxWidth:640}` | `ENOTSUP`; spawn 0 |
+| S5 | concurrency 0 / 9 / 1.5 | those values | `EBADVAL`; spawn 0 |
+| S6 | screenshot true, no outDir | `{screenshot:true}` | `EBADVAL` outDir; spawn 0 |
+| S7 | `clip:'auto'` no selector | that item | `EBADVAL`; spawn 0 |
+| S8 | outDir outside roots | `outDir: tmp-outside` via `makeRootGuard` | `EROOT` from `assertInside`; spawn 0 |
+| S9 | `type:'gif'` | that opt | `EBADVAL`; spawn 0 |
+| S10 | page-like screenshot arg | `screenshot(Promise.resolve({}))` | `EBADVAL` "not transferable"; spawn 0 |
+| S11 | readText unknown opt | `{guess:true}` | `EBADOPT`; fetchImpl call count 0 |
+| S12 | readText bad fallback | `{fallback:'maybe'}` | `EBADVAL` |
+| S13 | sandbox timeout too tight | `timeoutMs: 2000` (script+slack cannot fit) | throws `EBADVAL` naming 4000 ms minimum; spawn 0 |
+
+### 7.2 `compileCaptureManyScript` (pure)
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| C1 | pool cap | 5 items, concurrency 2 | source contains `const CONCURRENCY = 2` and `Promise.all` workers, not 5 `openTab` at top level without a queue |
+| C2 | default cap | 5 items, no concurrency | `const CONCURRENCY = 4` |
+| C3 | per-item isolation | any | source contains `catch` inside `runItem` and assigns `items[it.index]`; no `throw` after the catch |
+| C4 | owned-tab cleanup | any | source contains `finally` and `closeOwned` and `closeTab` |
+| C5 | no interception | any | source does **not** match `page.route` / `setViewportSize` / `maxWidth` |
+| C6 | jpeg quality | `type:'jpeg'` | source contains `quality` 90, not 20 |
+| C7 | clip pass-through | item.clip `{x:0,y:0,width:320,height:200}` | source JSON contains that clip and `shotOpts.clip` |
+| C8 | selector → evaluate | item.selector `'main'` | source contains `document.querySelector` and `"main"` |
+| C9 | lease events | any | source emits `event:'lease'` and `event:'unlease'` |
+| C10 | one process | N/A here; see B3 | compiler returns one string, not an array of scripts |
+
+### 7.3 `captureMany` with fake spawn
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| B1 | mixed isolation | stdout: result items[0] ok, items[1] `{error}`, marker `[ok | 12ms]`, exit 0 | envelope `items.length===2`, `items[0].error` absent, `items[1].error` present, `complete===false`, `partial===true` |
+| B2 | one failure does not empty others | same | `items[0]` still has `url`/`name`; not `[]` |
+| B3 | one repl | 5 urls | `spawnImpl` called once; `args[0]==='repl'` |
+| B4 | exit 0 is not success | stdout `[error | 9ms]` without result, exit 0 | `complete===false`, `marker==='error'` |
+| B5 | missing marker | stdout items but no `[ok |`. exit 0 | `complete===false`, `marker===null` |
+| B6 | kill leak | hang:true child; stdout one `lease` for `https://example.com`; abort signal; child.kill | `killed===true`, `leakedUrls` includes that URL, `partial===true`, `complete===false` |
+| B7 | clean unlease | lease then unlease then result+ok marker | `leakedUrls` deepEqual `[]` |
+| B8 | abort before spawn | signal already aborted | throws/returns `ECANCELLED`; spawn 0 (if session checks like `rg-stream.js:64-66`) |
+| B9 | inspect after write | fake stdout path points at a 320x200 PNG the test wrote under outDir | item `width===320`, `height===200`, `scope.geometry.match===true` |
+| B10 | requested vs actual mismatch | clip requested 320x200 but file is 1440x900 PNG | `scope.geometry.match===false`, `actual.width===1440`, item is not thrown away |
+| B11 | inspect failure isolation | items[0] path missing, items[1] valid PNG | items[0].error.code `EBADIMAGE` or ENOENT, items[1] has width/height |
+| B12 | jpeg type actual | file starts `FF D8` with SOF 8x8 | `format==='jpeg'`, width/height 8 |
+| B13 | text truncated | in-script returns 32768 chars (compiler cap) | item.text.length<=32768; items[] still present (not trimmed away by logs) |
+
+### 7.4 `image.js`
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| I1 | PNG IHDR | buffer with sig + IHDR 13 + width 320 height 200 | `{format:'png', width:320, height:200}` |
+| I2 | PNG truncated | 10 bytes | throws `PNG: truncated before IHDR` |
+| I3 | PNG bad sig | JPEG bytes into `readPngIhdr` | throws `bad signature` |
+| I4 | PNG zero dim | width 0 | throws `zero dimension` |
+| I5 | JPEG SOF0 | SOI + SOF0 8x8 | `{format:'jpeg', width:8, height:8}` |
+| I6 | JPEG APP0 then SOF | APP0 skipped | same 8x8, proves length-skip loop ran |
+| I7 | JPEG no SOF | SOI + SOS | throws `no SOF` |
+| I8 | JPEG missing SOI | PNG into `readJpegSof` | throws `missing SOI` |
+| I9 | `readImageSize` dispatch | PNG vs JPEG vs `Buffer.from('x')` | png / jpeg / `neither` |
+| I10 | `inspectCaptureFile` skip | item with `error` already | returned unchanged, readFileSyncImpl not called |
+| I11 | no resize | any successful inspect | output width equals IHDR width; there is no scaled buffer written |
+
+Build PNG/JPEG fixtures in the test with `Buffer.alloc` + `writeUInt32BE` /
+`writeUInt16BE`. Do not commit binary files.
+
+### 7.5 `readText` / `detectJsRequired`
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| R1 | article fetch | fetchImpl returns 200 HTML with `<article><p>` 300 chars | `needsBrowser===false`, `engine==='fetch'`, markdown contains paragraph, spawn 0 |
+| R2 | SSR + #root | `<div id="root">` plus `<article>` 300 chars | `needsBrowser===false` (content wins) |
+| R3 | empty shell | `<div id="root"></div>` + three scripts, no article text | `needsBrowser===true`, `jsReasons` includes `emptyAppShell`, spawn 0 when fallback default |
+| R4 | JS literal | body "Please enable JavaScript" only | `needsBrowser===true`, reasons include `jsRequiredLiteral` |
+| R5 | scriptDominated | 4 script tags, 20 chars visible | `needsBrowser===true`, reasons include `scriptDominated` |
+| R6 | fallback never | R3 HTML, `fallback:'never'` | spawn 0, needsBrowser true, markdown short |
+| R7 | fallback whenRequired | R3 HTML, `fallback:'whenRequired'`; spawn stdout item html with a real article | spawn 1 (one repl), `engine==='browser'`, `needsBrowser===false`, markdown from rendered HTML |
+| R8 | fallback always | R1 HTML (already enough) with `fallback:'always'` | spawn 1 even though fetch succeeded |
+| R9 | mixed array | 2 article URLs + 1 empty-shell URL, `whenRequired` | fetchImpl 3 calls; spawn 1; spawn script contains only the shell URL |
+| R10 | HTTP 500 | status 500 HTML | item.error.code `EHTTP`, `needsBrowser===false`, spawn 0 |
+| R11 | JSON type | content-type `application/json` | `EBADTYPE`, not js-required |
+| R12 | fetch throw | fetchImpl rejects | per-item `EFETCH`; sibling URLs still return (array input) |
+| R13 | wp3 block | inject `detectBlock: () => ({reason:'captcha'})` | `EBLOCK`, spawn 0, not js-required |
+| R14 | charset meta | bytes UTF-8 with `<meta charset="utf-8">` | title/markdown decoded, no U+FFFD in article |
+| R15 | cancel | aborted signal during fetchImpl (AbortSignal passed through) | `ECANCELLED`; does not return a fake article |
+| R16 | single vs array | string in → object out; array in → array out | `Array.isArray` matches input |
+| R17 | no session ENOTSUP | `whenRequired` but session undefined | per-item `ENOTSUP` `browser fallback unavailable` |
+
+### 7.6 Catalog / config
+
+| ID | Branch | Activation | Observable |
+| --- | --- | --- | --- |
+| A1 | splice | `actions.find('capture')` | includes `browse.captureMany` |
+| A2 | check maxWidth | `actions.check('browse.captureMany', {items:[], maxWidth:640})` | `ok===false`, `invalid[0].code==='ENOTSUP'` |
+| A3 | config copy | loadConfig with JSON `browseCaps.concurrency: 2` | `cfg.browseCaps.concurrency===2` |
+| A4 | env wins | JSON 2 + env `CODEMODE_BROWSE_CONCURRENCY=3` | concurrency 3 |
+| A5 | unknown JSON key | `browseCaps.nope: 1` | ignored (same as other unknown keys); concurrency stays default |
+| A6 | GUEST_API_DOC | import TOOL_DEF.description | contains `browse.captureMany` and `browse.readText` and `ENOTSUP` |
+
+## 8. Verifiers
+
+| Command | Observes this phase's change? |
+| --- | --- |
+| `node --test test/browse-image.test.js test/browse-batch.test.js test/browse-readtext.test.js` | **Yes** — IHDR/SOF, ENOTSUP, compiled pool, fake-spawn isolation, leak transcript, fetch-first predicates, fallback spawn count |
+| `npm test` (`scripts/run-tests.mjs` enumerates `test/*.test.js`) | **Yes** — the three new files are picked up automatically. Still subject to the known `search-boundary.test.js` race in the full suite (`000_plan.md`); confirm that file isolated if it is the only red |
+| `node --test test/actions.test.js` (or a new assertion in browse-batch) | **Yes** if A1/A2 are added there |
+| `node --test test/config.test.js` | **Yes** if A3/A4 are added; otherwise human-review the apply() copier |
+| `node bin/codemode.mjs --doctor --browse` | Observes probe fields only if wp2 wired the flag. If it prints `screenshot.maxWidth: ENOTSUP` that is confirmation; if the flag 404s, **human-review** `probe.js` unit export |
+| Live `aside.exe repl` | **Does not observe** in CI. Optional `CODEMODE_LIVE_ASIDE=1` human-review. Success still requires trailing `[ok | Nms]` **and** reading claimed screenshot files (E1/E4) |
+
+Hosted CI on `origin/dev` remains the release gate (`000`). wp4 does not
+push; the parent loop does.
+
+## 9. Risks — what would prove this design wrong
+
+| Claim | Falsifier |
+| --- | --- |
+| Clip is sufficient geometry | A live Aside screenshot with only clip cannot produce the selector crop the caller asked for (evaluate-string rejected; locator box available). Then amend compiler to the working evaluate arity and keep ENOTSUP for maxWidth |
+| `p.evaluate(string)` works | Live probe throws. Switch to `p.evaluate(() => ...)` with selector baked into the function source via `new Function`, still no extra arg |
+| `openTab` returns `{id, page}` | Probe E2 only showed `openTab` is a function. If the shape is a tab id and `page` is global, rewrite the template to that shape in a one-line amend — do not guess in tests |
+| In-script `fs.mkdir` exists | E2: `fs.mkdir` is present. If screenshot path write fails because Aside `screenshot({path})` wants a directory that `fs.mkdir` cannot create outside the session pwd, write to the session pwd and `assertInside`-copy on the host — that would be an amend |
+| Fetch-first readability is "good enough" | A real article whose `<article>` is empty and whose body text is in nested `<div>`s below 200 chars after strip would false-positive js-required. Raise by adding a `<div class="post-content">` picker, not by URL lists |
+| ENOTSUP for resize closes #12 | User rejects the close because 2880px retina shots still need sips. Then a follow-up unit (not this phase) may add a probed backend; this phase must not silently return unscaled pixels as width=maxWidth |
+| Host slack 3000 ms always lets finally run | A hung `openTab` ignores the in-script deadline. Then leakedUrls + partial is the honest envelope; do not extend slack until it becomes a kill-first design |
+| `fitEnvelope` keeps items[] | A 30-item capture with 32KiB text each exceeds `maxResultBytes` 65536 and the result body is trimmed to `''` (`src/execution-output.js:70-73`). Cap per-item text (already 32768) **and** drop `text` before `items` if a future budget trim appears; never drop `error` fields. If this fires in tests, lower default text or default `text:false` when `items.length>4` |
+
+If E5 is ever falsified (a later Aside build where killing the CLI closes
+tabs), the lease transcript is still correct; do not remove it.

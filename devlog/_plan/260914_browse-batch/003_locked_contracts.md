@@ -453,6 +453,20 @@ absolute `pwd` in the payload. The host — which has ordinary filesystem access
 there, post-processes, and writes the result to the caller's path through `assertInside`.
 That keeps the root guard honest: the guest never names a path the host does not check.
 
+**`pwd` is script-reported, so it is not trusted as a read root.** It arrives in stdout the
+script produced, which makes it influenced data rather than a host fact. Three rules close
+that hole:
+
+1. **The host generates every artifact filename.** The script is told the names to use; it
+   never invents one and the host never takes a name from the payload. A payload name is
+   ignored even if present.
+2. **Reads are contained.** The host resolves `realpath(join(pwd, 'artifacts', hostName))`
+   and refuses anything that does not sit under `realpath(pwd)/artifacts`, so a `..` segment
+   or a symlink cannot walk out of the session directory.
+3. **`assertInside` is applied to the FINAL output file**, not merely to `outDir`. Checking
+   the directory alone leaves the join unchecked, which is the same class of bug as
+   validating a prefix instead of a resolved path.
+
 ### #6 — `browse.captureMany(urls, opts)`
 
 A named wrapper over the existing one-session batch, with per-item artifacts:
@@ -484,10 +498,20 @@ A named wrapper over the existing one-session batch, with per-item artifacts:
 1. Host `fetch` (Node >= 18 guarantees it) with a short timeout.
 2. Strip `script`, `style`, `noscript`, `svg`, then extract the densest block and convert
    headings, links, lists and paragraphs to markdown.
-3. **Browser fallback only when the HTML is measurably not the content**, judged by a stated
-   rule rather than a guess: visible text under 200 characters, OR a text-to-markup ratio
-   under 5%, OR a known app-shell marker (`__NEXT_DATA__`, `ng-app`, `id="root"` with an
-   empty body). The decision and its reason are reported as `source: 'fetch' | 'browser'`
-   and `fallbackReason`, so a caller can tell which path answered.
+3. **Browser fallback only when the extracted text is measurably not content.** The rule is a
+   property of the RESULT, not a guess about the framework:
+   - `extracted.length < 200` after the strip-and-extract pass, OR
+   - the page has a non-empty body whose extracted text is empty (an app shell that rendered
+     nothing server-side).
+
+   Framework markers are deliberately NOT a trigger. `__NEXT_DATA__` and `ng-app` live inside
+   `<script>`, which step 2 strips — so on raw HTML they would fire on ordinary
+   server-rendered Next pages that need no browser at all, and after the strip they would
+   never fire. Either way they measure the toolchain rather than the content. A
+   text-to-markup ratio is dropped for the same reason: a chrome-heavy article page is
+   markup-dense and still perfectly readable.
+
+   The decision and its reason are reported as `source: 'fetch' | 'browser'` and
+   `fallbackReason`, so a caller can tell which path answered and why.
 
 A `file:` url is refused up front, matching E7.

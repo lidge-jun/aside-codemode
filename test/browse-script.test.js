@@ -25,13 +25,18 @@ function makePage(targetId) {
   return page;
 }
 
-function runScript(source, { openTab, sleep }) {
+function runScript(source, { openTab, sleep, fs }) {
   const lines = [];
   const ctx = vm.createContext({
     openTab,
     sleep,
     snapshot: async () => ({ tree: 'x', refs: [], diff: '' }),
     console: { log: (s) => lines.push(String(s)) },
+    // The compiled script writes artifacts through the Aside repl fs global and reports
+    // its session pwd, so the fake context has to provide both or the run throws before
+    // it can print a payload.
+    fs: fs || { mkdir: async () => {}, writeFile: async () => {} },
+    pwd: '/fake/session',
     Buffer,
     setTimeout,
     Promise,

@@ -10,16 +10,27 @@
 import { validateJob } from './schema.js';
 import { compile, deadlineMath } from './script.js';
 
-const MARKER = /\[(ok|error) \| (\d+)ms\]\s*$/;
+// The CLI colourises its own trailing marker, so the raw bytes are
+// \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
+// successful run looked like a failure. Whether colour is emitted depends on the terminal,
+// so this has to be stripped rather than assumed absent.
+const ANSI = /\u001b\[[0-9;]*m/g;
+const MARKER = /\[(ok|error) \| (\d+)ms\]/g;
+
+export function stripAnsi(s) {
+  return String(s).replace(ANSI, '');
+}
 
 export function parseMarker(stdout) {
-  const m = MARKER.exec(String(stdout).trimEnd());
-  if (!m) return { marker: null, ms: null };
+  // Take the LAST marker: a run can print more than one line that looks like one.
+  const all = [...stripAnsi(stdout).matchAll(MARKER)];
+  if (all.length === 0) return { marker: null, ms: null };
+  const m = all[all.length - 1];
   return { marker: m[1], ms: Number(m[2]) };
 }
 
 export function parseFinal(stdout) {
-  for (const line of String(stdout).split(/\r?\n/).reverse()) {
+  for (const line of stripAnsi(stdout).split(/\r?\n/).reverse()) {
     const t = line.trim();
     if (!t.startsWith('{')) continue;
     try {

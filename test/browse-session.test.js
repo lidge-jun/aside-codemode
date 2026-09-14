@@ -3,7 +3,7 @@
 // The child is faked; npm test never launches a browser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBrowseSession, parseMarker, parseFinal } from '../src/host/browse/session.js';
+import { createBrowseSession, parseMarker, parseFinal, stripAnsi } from '../src/host/browse/session.js';
 
 const resolveAside = async () => 'C:/fake/aside.exe';
 const job = { urls: ['https://a.test', 'https://b.test'], timeoutMs: 5000 };
@@ -18,6 +18,19 @@ test('the trailing marker is parsed and a missing one is not invented', () => {
   assert.deepEqual(parseMarker('x\n[ok | 12ms]'), { marker: 'ok', ms: 12 });
   assert.deepEqual(parseMarker('x\n[error | 3ms]\n'), { marker: 'error', ms: 3 });
   assert.deepEqual(parseMarker('no marker here'), { marker: null, ms: null });
+});
+
+test('the colourised marker the CLI actually emits is parsed', () => {
+  // Captured verbatim from a real run: the CLI dims its own marker, so the raw bytes carry
+  // ANSI around it. Anchoring to end-of-string made every successful run read as a failure.
+  const real = '\u001b[2m[ok | 395ms]\u001b[0m\n';
+  assert.deepEqual(parseMarker(real), { marker: 'ok', ms: 395 });
+  assert.equal(stripAnsi(real).trim(), '[ok | 395ms]');
+  assert.deepEqual(parseMarker('\u001b[2m[error | 7ms]\u001b[0m'), { marker: 'error', ms: 7 });
+});
+
+test('the last marker wins when a transcript contains more than one', () => {
+  assert.deepEqual(parseMarker('[ok | 1ms]\nmore\n[error | 2ms]'), { marker: 'error', ms: 2 });
 });
 
 test('the final payload is found even behind other stdout noise', () => {

@@ -78,7 +78,18 @@ if (has('--doctor')) {
   // than from its documentation, so a refused option is explainable before it is debugged.
   if (has('--browse')) {
     const { doctorPayload } = await import('./host/browse/probe.js');
-    report.browse = doctorPayload(config, null, null);
+    const { createAsideResolver } = await import('./host/browse/resolve.js');
+    const resolveAside = createAsideResolver(config, process.env);
+    let resolved = null;
+    let asideError = null;
+    try {
+      resolved = await resolveAside();
+    } catch (e) {
+      // Not fatal: the matrix is still worth printing, and the candidate list is the
+      // actionable part for someone whose install put the CLI somewhere else.
+      asideError = { code: e.code, message: e.message, candidates: e.candidates || [] };
+    }
+    report.browse = doctorPayload(config, resolved, asideError);
   }
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
   process.exit(report.ok ? 0 : 1);

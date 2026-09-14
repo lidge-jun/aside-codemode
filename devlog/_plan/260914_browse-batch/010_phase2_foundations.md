@@ -439,6 +439,9 @@ export function compileBrowseScript(job, { innerDeadlineMs }) {
   return `"use strict";
 const JOB = ${payload};
 const opened = [];
+// 003 C5.2: every openTab promise is registered BEFORE it is awaited, so a page
+// that resolves after the inner deadline is still closed instead of leaking.
+const pending = [];
 function elapsed(t0) { return Date.now() - t0; }
 function failItem(url, error, timings, scope) {
   return { url, ok: false, error: String(error && error.message ? error.message : error), timings, scope, path: null, bytes: null };
@@ -453,7 +456,6 @@ async function one(url) {
   };
   const actual = { viewport: null, screenshot: null, pdf: null };
   const scope = { requested, actual };
-  let tab;
   try {
     let t0 = Date.now();
     // E7 (003): openTab RETURNS the page. There is no tab.page and no tab.id;
@@ -471,7 +473,7 @@ async function one(url) {
     if (page && typeof page.viewportSize === 'function') actual.viewport = page.viewportSize();
     if (JOB.snapshot && typeof snapshot === 'function') {
       t0 = Date.now();
-      await snapshot(tab); // E7: snapshot rejects a string id
+      await snapshot(page); // E7: snapshot takes the page; a string id is rejected
       timings.snapshot = elapsed(t0);
     }
     let shotPath = null, shotBytes = null;

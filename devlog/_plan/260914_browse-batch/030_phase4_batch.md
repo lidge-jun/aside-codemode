@@ -774,7 +774,7 @@ export function compileCaptureManyScript({ items, opts, scriptDeadlineMs, outDir
     '  const tabs = owned.splice(0);',
     '  for (const t of tabs) {',
     '    try { await t.page.close(); } catch {}',
-    '    emit({ event: "unlease", tabId: t.id, url: t.url });',
+    '    emit({ event: "unlease", tabId: t.targetId, url: t.url });',
     '  }',
     '}',
     QUERY_CLIP_FN,

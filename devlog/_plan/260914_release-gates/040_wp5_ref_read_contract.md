@@ -90,6 +90,20 @@
 
 ## Verification (C)
 
+## 착수 후 바뀐 결정
+
+- **write set이 `attach.js`까지 넓어졌다.** 040은 `attach-schema.js`만 적었지만, 스키마만 열면 옵션을 받고 아무것도 하지 않는다.
+  attach 템플릿이 `REQ.extract`와 `REQ.snapshotAfter`를 실제로 실행한다. 이 phase가 막으려던 침묵 저하가 바로 그것이다.
+- **지문은 행 해시이고, 문서 정체성은 `snapshotId`가 싣는다.** 040은 지문이 계정·문서·프레임을 포함한다고 적었지만
+  `summarizeTree`의 지문은 `ref|role|name` 행 해시다. 그래서 `snapshotAfter`가 `snapshotId = fingerprint + '@' + url`을 발행하고,
+  `refsFingerprint`는 그 id 형태도 받는다. id를 주면 행과 문서를 함께 대조하므로 트리 모양이 같은 다른 문서의 ref는 거절된다.
+  계정과 프레임까지 한 값으로 묶는 것은 아직 아니다. 프레임은 ref 자체가 `f2e7`로 구분하고, 계정은 관찰 경로 밖이다.
+- **생성 스크립트가 커져서 헬퍼를 조건부로 주입한다.** `REF_READ`, `REF_SPLIT`, `REF_EXTRACT`, `SNAPSHOT_AFTER`는
+  그 기능을 쓰는 job에만 실린다. 호스트는 자기 소스가 30000자를 넘으면 거절하고, 액션 헬퍼만 9.6KB다.
+  20 URL + snapshot + fingerprint + snapshotAfter + actions + screenshot + pdf 조합이 29580으로 들어간다.
+
+## Verification (C)
+
 - `node --test test/browse-ref-read.test.js test/browse-schema.test.js test/browse-attach.test.js` — exit 0.
 - 로컬 fixture에서 mac + mini 프로브: checkbox 토글 후 attach 체이닝으로 상태 읽기.
 - hosted CI 5조합 success at head.

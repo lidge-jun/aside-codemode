@@ -1,7 +1,7 @@
 // Input contract for browse.attach. Kept separate from the browse job schema so the two
 // evolve independently: attach has no urls, no navigation and no artifacts.
 
-import { validateActions } from './schema.js';
+import { validateActions, validateExtract } from './schema.js';
 
 function bad(message) {
   const e = new Error(message);
@@ -18,7 +18,7 @@ export function validateAttach(input = {}) {
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
     'snapshot', 'maxTreeChars',
     'actions', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
-    'refsFingerprint',
+    'refsFingerprint', 'extract', 'snapshotAfter',
   ]);
   for (const k of Object.keys(input)) {
     if (!known.has(k)) throw bad('unknown browse.attach option: ' + k);
@@ -73,5 +73,31 @@ export function validateAttach(input = {}) {
     // report has to be printed before the process is killed.
     actionBudgetMs: num('actionBudgetMs', 1, 90000, 20000),
     refsFingerprint: str('refsFingerprint'),
+    // attach reuses the tab, so it is the one surface where act -> observe -> read by ref
+    // is coherent. The same rules apply: a ref needs the fingerprint of the observation it
+    // came from, and it cannot travel with the steps that would invalidate it.
+    //
+    // Only ref reads. attach has no css extraction engine, and accepting a selector we
+    // silently drop is exactly the failure this layer exists to stop.
+    extract: (() => {
+      const parsed = validateExtract(input.extract, {
+        actions: validateActions(input.actions),
+        refsFingerprint: str('refsFingerprint'),
+      });
+      if (!parsed) return null;
+      for (const [field, spec] of Object.entries(parsed)) {
+        if (!spec || typeof spec !== 'object' || !('ref' in spec)) {
+          throw bad('browse.attach extract reads by ref only; ' + field + ' is a css selector. Use browse.exec for selector extraction');
+        }
+      }
+      return parsed;
+    })(),
+    // Same refusal as the job schema: silently folding a non-boolean to false is how an
+    // option gets accepted and then ignored.
+    snapshotAfter: (() => {
+      if (input.snapshotAfter === undefined) return false;
+      if (typeof input.snapshotAfter !== 'boolean') throw bad('snapshotAfter must be a boolean');
+      return input.snapshotAfter;
+    })(),
   };
 }

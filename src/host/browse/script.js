@@ -83,6 +83,87 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
 
 export const summarizeTree = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
 
+// Reading by ref is role-aware. innerText on a textbox returns "" whether or not it holds a
+// value, and a checkbox's value attribute is the string it would submit, never whether it is
+// checked. Reporting how the value was read lets a caller see which contract it got.
+// Injected only when a job actually reads by ref, like the other helpers: the generated
+// source travels as a command-line argument and the host refuses it over 30000 characters.
+export const REF_READ_SRC = String.raw`var VALUE_ROLES = ['textbox', 'searchbox', 'combobox', 'spinbutton', 'slider', 'checkbox', 'radio'];
+async function readRefField(page, spec, rows, tree) {
+  var row = null;
+  for (var i = 0; i < rows.length; i++) { if (rows[i].ref === spec.ref) { row = rows[i]; break; } }
+  if (!row) return { ok: false, code: 'ENOREF', ref: spec.ref };
+  var line = '';
+  var lines = String(tree || '').split('\n');
+  for (var li = 0; li < lines.length; li++) {
+    if (lines[li].indexOf('[ref=' + spec.ref + ']') >= 0) { line = lines[li]; break; }
+  }
+  var stateful = row.role === 'checkbox' || row.role === 'radio' || row.role === 'switch';
+  var loc = page.locator('aria-ref=' + spec.ref);
+  try {
+    if (spec.attr) return { ok: true, value: await loc.getAttribute(spec.attr), read: 'attribute', role: row.role, ref: spec.ref };
+    if (spec.text === true) return { ok: true, value: await loc.innerText(), read: 'innerText', role: row.role, ref: spec.ref };
+    if (VALUE_ROLES.indexOf(row.role) >= 0) {
+      var res = { ok: true, value: await loc.inputValue(), read: 'inputValue', role: row.role, ref: spec.ref };
+      if (stateful) res.checked = /\[checked\]/.test(line);
+      return res;
+    }
+    return { ok: true, value: await loc.innerText(), read: 'innerText', role: row.role, ref: spec.ref };
+  } catch (e) {
+    return { ok: false, code: 'EREAD', ref: spec.ref, error: String(e && e.message ? e.message : e).slice(0, 200) };
+  }
+}`;
+
+// The read itself, injected with the helper above. The authorisation is the fingerprint of
+// the observation the refs came from: if the tree has been re-minted since, those refs point
+// at rows that no longer exist, and a confident wrong string is worse than a refusal.
+export const REF_SPLIT_SRC = String.raw`selectorSchema = {};
+      for (var ek of Object.keys(JOB.extract)) {
+        var espec = JOB.extract[ek];
+        if (espec && typeof espec === 'object' && !Array.isArray(espec) && 'ref' in espec) refFields.push([ek, espec]);
+        else selectorSchema[ek] = espec;
+      }`;
+
+export const REF_EXTRACT_SRC = String.raw`if (refFields.length) {
+        var nowSnap = null;
+        try { nowSnap = await snapshot(page); } catch (e) { nowSnap = null; }
+        var nowTree = (nowSnap && nowSnap.tree) || '';
+        var nowSum = summarizeTree(nowTree, 'interactive', 200000);
+        // Accept either the bare row fingerprint or the snapshotId a previous call returned.
+        // The id form pins the document too, so refs minted elsewhere cannot be replayed
+        // here just because two trees happen to have the same shape.
+        var wantId = String(JOB.refsFingerprint || '');
+        var atPos = wantId.indexOf('|');
+        var wantFp = atPos > 0 ? wantId.slice(0, atPos) : wantId;
+        var wantUrl = atPos > 0 ? wantId.slice(atPos + 1) : null;
+        var fresh = wantFp === nowSum.fingerprint && (wantUrl === null || wantUrl === finalUrl);
+        out.refsFingerprintNow = nowSum.fingerprint;
+        out.snapshotIdNow = nowSum.fingerprint + '|' + finalUrl;
+        for (var rf = 0; rf < refFields.length; rf++) {
+          var fname = refFields[rf][0];
+          var fspec = refFields[rf][1];
+          if (!fresh) {
+            out.data.data[fname] = { ok: false, code: 'ESTALEREF', guard: 'fingerprint', ref: fspec.ref };
+            out.data.missing.push(fname);
+            continue;
+          }
+          var read = await readRefField(page, fspec, nowSum.refs, nowTree);
+          out.data.data[fname] = read;
+          if (!read.ok) out.data.missing.push(fname);
+        }
+      }`;
+
+// The observation the steps left behind. Its fingerprint is the only thing that makes a
+// follow-up ref read on this tab legal, so it is reported rather than assumed. Injected only
+// when asked for, because the generated source is capped at 30000 characters on the wire.
+export const SNAPSHOT_AFTER_SRC = String.raw`try {
+        var sa = summarizeTree(((await snapshot(page)) || {}).tree || '', 'interactive', 200000);
+        // The id a following call passes back as refsFingerprint: the rows AND the document.
+        out.snapshotAfter = { snapshotId: sa.fingerprint + '|' + finalUrl, fingerprint: sa.fingerprint, refCount: sa.refCount, url: finalUrl };
+      } catch (e) {
+        out.snapshotAfter = { ok: false, code: 'ESNAPSHOT', error: String(e && e.message ? e.message : e).slice(0, 200) };
+      }`;
+
 // JSON.stringify does not escape U+2028 / U+2029, and both are raw line terminators inside
 // a script source. Legal since ES2019 in V8, unverified on the Aside REPL parser, so they
 // are escaped rather than trusted.
@@ -140,6 +221,7 @@ export function compile(job, plan = null) {
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
+    snapshotAfter: job.snapshotAfter === true,
     detect: job.detect === false ? null : detectionPatterns(),
   };
   // Function replacers, not string ones. String.prototype.replace interprets $&, $` and
@@ -151,11 +233,21 @@ export function compile(job, plan = null) {
   // command-line ARGUMENT, and Windows caps a command line at 32,767 characters: with both
   // helpers always injected the script reached 34,881 and every browse job on Windows died
   // with spawn ENAMETOOLONG. Found by probing the Windows host, not by a unit test.
-  const needsTree = Boolean(payload.snapshot) || Boolean(payload.refsFingerprint);
+  // A ref read and snapshotAfter both summarise the tree to get a fingerprint, so they pull
+  // the helper in too. Leaving them out made the read fail with a ReferenceError that the
+  // catch dressed up as a snapshot error.
+  const hasRefExtract = Boolean(payload.extract) && Object.keys(payload.extract)
+    .some((k) => payload.extract[k] && typeof payload.extract[k] === 'object' && 'ref' in payload.extract[k]);
+  const needsTree = Boolean(payload.snapshot) || Boolean(payload.refsFingerprint)
+    || Boolean(payload.snapshotAfter) || hasRefExtract;
   const needsActions = Boolean(payload.actions && payload.actions.length);
   const src = TEMPLATE
     .replace('__JOB__', () => jsonForScript(payload))
     .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
+    .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripForWire(REF_SPLIT_SRC) : ''))
+    .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripForWire(REF_EXTRACT_SRC) : ''))
+    .replace('/*__SNAPSHOT_AFTER__*/', () => (payload.snapshotAfter ? stripForWire(SNAPSHOT_AFTER_SRC) : ''))
     .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripForWire(ACTION_STEP_SRC) : ''));
   return stripForWire(src);
 }
@@ -236,6 +328,7 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
   }
   return null;
 }
+/*__REF_READ__*/
 async function one(item) {
   if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
   if (item.skip) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
@@ -430,9 +523,17 @@ async function one(item) {
       if (ran.urlAfter) { finalUrl = ran.urlAfter; out.finalUrl = ran.urlAfter; }
       if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = 'EACTION'; }
     }
+    // The observation this call leaves behind. Its id is what makes a follow-up ref read
+    // legal, and a caller can ask for it without running any actions at all.
+    /*__SNAPSHOT_AFTER__*/
     if (JOB.extract) {
-      // ONE evaluate for the whole schema: the point of #10 is to avoid shipping a tree.
-      out.data = await page.evaluate((schema) => {
+      // A ref names a row in one observation; a css selector means the same thing on any
+      // document. They are read by different machinery, so a job that mixes them is split
+      // here — and a job that has no refs never pays for the split.
+      var refFields = [];
+      var selectorSchema = JOB.extract;
+      /*__REF_SPLIT__*/
+      out.data = Object.keys(selectorSchema).length === 0 ? { data: {}, missing: [] } : await page.evaluate((schema) => {
         // textContent includes the text inside <script>, which is how extracting 'body' on
         // Threads returned 530KB of server bootstrap JSON and still reported success.
         // innerText is the rendered, visible text; scripts and styles are stripped either way.
@@ -476,7 +577,8 @@ async function one(item) {
           if (v === null || (Array.isArray(v) && v.length === 0)) missing.push(field);
         }
         return { data, missing };
-      }, JOB.extract);
+      }, selectorSchema);
+      /*__REF_EXTRACT__*/
     }
     if (JOB.snapshot) {
       out.snapshotBytes = tree.length;

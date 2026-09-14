@@ -179,7 +179,21 @@ test('the generated script fits the Windows command line, which is how it travel
     snapshot: compile(validateJob({ urls: urls(1), snapshot: 'interactive' })),
     actions: compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] })),
     both: compile(validateJob({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })),
+    // The host refuses its own source over 30000 (session.js), which bites before the
+    // Windows ceiling does. These two are the fullest jobs that can legally exist: a ref
+    // read cannot share a call with actions, so no single job carries both helpers.
+    acting: compile(validateJob({
+      urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', snapshotAfter: true,
+      actions: [{ ref: 'e1', click: true }],
+    })),
+    reading: compile(validateJob({
+      urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', extract: { a: { ref: 'e1' } },
+    })),
   };
+  for (const name of ['acting', 'reading']) {
+    assert.ok(cases[name].length < 30000,
+      name + ' is ' + cases[name].length + ' chars and the host refuses its own source over 30000');
+  }
   for (const [name, src] of Object.entries(cases)) {
     assert.ok(src.length < LIMIT - 2000, name + ' is ' + src.length + ' chars, too close to the ' + LIMIT + ' ceiling');
     assert.doesNotThrow(() => new AsyncFn('openTab,snapshot,closeTab,sleep,pwd,console', src), name + ' must still parse');

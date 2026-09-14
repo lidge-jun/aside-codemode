@@ -62,7 +62,46 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'actionBudgetMs']);
+
+// A ref names a row in one specific observation. Reading by ref is therefore only meaningful
+// against the fingerprint of that observation, and only in a call that does not also mutate
+// the page — a successful action guarantees the fingerprint will not match any more, so the
+// combination could never return anything but a refusal. The way to read after acting is a
+// second call on the same tab: browse.attach with the fingerprint snapshotAfter returned.
+// e12 addresses a row in the top-level document; f2e7 addresses row 7 inside frame 2.
+const REF_SHAPE = /^(f\d+)?e\d+$/;
+export function validateExtract(rawExtract, { actions = null, refsFingerprint = null } = {}) {
+  if (rawExtract === undefined) return null;
+  if (!rawExtract || typeof rawExtract !== 'object' || Array.isArray(rawExtract)) {
+    throw new BrowseOptionError('extract must be an object mapping field names to selectors', 'EBADVAL');
+  }
+  for (const [field, spec] of Object.entries(rawExtract)) {
+    if (spec && typeof spec === 'object' && !Array.isArray(spec) && 'ref' in spec) {
+      if (typeof spec.ref !== 'string' || !REF_SHAPE.test(spec.ref)) {
+        throw new BrowseOptionError(`extract.${field}.ref must look like e12 or f2e7`, 'EBADVAL');
+      }
+      if (!refsFingerprint) {
+        throw new BrowseOptionError(
+          `extract.${field} reads by ref, which requires refsFingerprint: the snapshotId or fingerprint of the observation that produced it. browse.attach returns one through snapshotAfter`,
+          'EBADVAL',
+        );
+      }
+      if (actions && actions.length) {
+        throw new BrowseOptionError(
+          `extract.${field} reads by ref and cannot share a call with actions: any successful step invalidates the fingerprint it was authorised against. Act first, then read with browse.attach using the fingerprint snapshotAfter returns`,
+          'EBADVAL',
+        );
+      }
+      continue;
+    }
+    const s = typeof spec === 'string' ? { selector: spec } : spec;
+    if (!s || typeof s !== 'object' || typeof s.selector !== 'string' || !s.selector) {
+      throw new BrowseOptionError(`extract.${field} needs a css selector string, { selector, attr?, all?, trim? } or { ref, attr?, text? }`, 'EBADVAL');
+    }
+  }
+  return rawExtract;
+}
 
 // The accessibility tree is already fetched for EVERY page, because block detection reads
 // it. Until now only its length survived. These modes decide how much of it comes back:
@@ -229,20 +268,6 @@ export function validateJob(raw, browseCaps = {}) {
     throw new BrowseOptionError('waitSelector must be a string', 'EBADVAL');
   }
 
-  let extract = null;
-  if (raw.extract !== undefined) {
-    if (!raw.extract || typeof raw.extract !== 'object' || Array.isArray(raw.extract)) {
-      throw new BrowseOptionError('extract must be an object mapping field names to selectors', 'EBADVAL');
-    }
-    for (const [field, spec] of Object.entries(raw.extract)) {
-      const s = typeof spec === 'string' ? { selector: spec } : spec;
-      if (!s || typeof s !== 'object' || typeof s.selector !== 'string' || !s.selector) {
-        throw new BrowseOptionError(`extract.${field} needs a css selector string or { selector, attr?, all?, trim? }`, 'EBADVAL');
-      }
-    }
-    extract = raw.extract;
-  }
-
   let screenshot = null;
   if (raw.screenshot !== undefined) {
     if (!raw.screenshot || typeof raw.screenshot !== 'object') throw new BrowseOptionError('screenshot must be an object', 'EBADVAL');
@@ -275,6 +300,18 @@ export function validateJob(raw, browseCaps = {}) {
     );
   }
 
+  // snapshot.fingerprint from the read that produced the refs. Without it the staleness
+  // guard can only compare urls, which does not see a same-url renumbering.
+  const refsFingerprint = typeof raw.refsFingerprint === 'string' && raw.refsFingerprint.length ? raw.refsFingerprint : null;
+  if (raw.snapshotAfter !== undefined && typeof raw.snapshotAfter !== 'boolean') {
+    throw new BrowseOptionError('snapshotAfter must be a boolean', 'EBADVAL');
+  }
+  const snapshotAfter = raw.snapshotAfter === true;
+  // Parsed AFTER actions and the fingerprint, because a ref read is only legal in relation
+  // to both: it needs the observation that minted the ref, and it cannot share a call with
+  // the steps that would invalidate it.
+  const extract = validateExtract(raw.extract, { actions, refsFingerprint });
+
   return Object.freeze({
     urls,
     timeoutMs,
@@ -285,9 +322,10 @@ export function validateJob(raw, browseCaps = {}) {
     actions,
     stopOnError: raw.stopOnError !== false,
     allowStaleRefs: raw.allowStaleRefs === true,
-    // snapshot.fingerprint from the read that produced the refs. Without it the staleness
-    // guard can only compare urls, which does not see a same-url renumbering.
-    refsFingerprint: typeof raw.refsFingerprint === 'string' && raw.refsFingerprint.length ? raw.refsFingerprint : null,
+    refsFingerprint,
+    // Ask for the observation the actions left behind. Its fingerprint is what makes a
+    // follow-up ref read on the same tab legal.
+    snapshotAfter,
     actionBudgetMs: raw.actionBudgetMs === undefined ? null : requirePositiveInt('actionBudgetMs', raw.actionBudgetMs),
     // Concurrent owned tabs. The pool bounds workers, not tabs: a close that throws leaves
     // the tab open and the worker opens another, so the ceiling has to be counted.

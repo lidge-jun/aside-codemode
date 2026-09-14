@@ -30,6 +30,7 @@ import { validateAttach } from './attach-schema.js';
 import { TREE_SUMMARY_SRC, jsonForScript, stripForWire } from './script.js';
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
+import { REF_READ_SRC } from './script.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
 const REQ = __REQ__;
@@ -150,6 +151,46 @@ try {
         row.urlBeforeActions = ran.urlBefore;
         if (ran.urlAfter) row.hrefAfterActions = ran.urlAfter;
       }
+      // attach is the surface where act -> observe -> read by ref is coherent, because the
+      // tab is the same one. snapshotAfter returns the fingerprint that authorises the next
+      // call's ref read; without it the caller would have to guess.
+      if (REQ.snapshotAfter) {
+        try {
+          const sa = summarizeTree(((await snapshot(page)) || {}).tree || "", "interactive", 200000);
+          const saUrl = row.hrefAfterActions || row.href || null;
+          row.snapshotAfter = { snapshotId: sa.fingerprint + "|" + saUrl, fingerprint: sa.fingerprint, refCount: sa.refCount, url: saUrl };
+        } catch (e) {
+          row.snapshotAfter = { ok: false, code: "ESNAPSHOT", error: String((e && e.message) || e) };
+        }
+      }
+      if (REQ.extract) {
+        // The authorisation is the fingerprint of the observation the refs came from.
+        const nowTree = ((await snapshot(page)) || {}).tree || "";
+        const nowSum = summarizeTree(nowTree, "interactive", 200000);
+        const nowUrl = row.hrefAfterActions || row.href || null;
+        const wantId = String(REQ.refsFingerprint || "");
+        const atPos = wantId.indexOf("|");
+        const wantFp = atPos > 0 ? wantId.slice(0, atPos) : wantId;
+        const wantUrl = atPos > 0 ? wantId.slice(atPos + 1) : null;
+        const fresh = wantFp === nowSum.fingerprint && (wantUrl === null || wantUrl === nowUrl);
+        row.refsFingerprintNow = nowSum.fingerprint;
+        row.snapshotIdNow = nowSum.fingerprint + "|" + nowUrl;
+        const data = {};
+        const missing = [];
+        for (const field of Object.keys(REQ.extract)) {
+          const spec = REQ.extract[field];
+          if (!spec || typeof spec !== "object" || !("ref" in spec)) continue;
+          if (!fresh) {
+            data[field] = { ok: false, code: "ESTALEREF", guard: "fingerprint", ref: spec.ref };
+            missing.push(field);
+            continue;
+          }
+          const read = await readRefField(page, spec, nowSum.refs, nowTree);
+          data[field] = read;
+          if (!read.ok) missing.push(field);
+        }
+        row.data = { data: data, missing: missing };
+      }
       out.rows.push(row);
       // A run whose every action failed is not ok. exec already refuses that; attach was
       // carrying actionsOk and never consulting it.
@@ -166,7 +207,10 @@ export function compileAttach(req) {
   // Function replacer: see the note in script.js compile(). A $& in a fill value or a
   // selector would otherwise be substituted into the generated source after escaping.
   // Same Windows command-line ceiling as compile(): ship only what the request reaches.
-  const head = (req.snapshot || req.refsFingerprint ? TREE_SUMMARY_SRC + '\n' : '')
+  const hasRefExtract = Boolean(req.extract) && Object.keys(req.extract)
+    .some((k) => req.extract[k] && typeof req.extract[k] === 'object' && 'ref' in req.extract[k]);
+  const head = (req.snapshot || req.refsFingerprint || req.snapshotAfter || hasRefExtract ? TREE_SUMMARY_SRC + '\n' : '')
+    + (hasRefExtract ? REF_READ_SRC + '\n' : '')
     + (req.actions && req.actions.length ? ACTION_STEP_SRC + '\n' : '');
   return stripForWire(head + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req)));
 }
@@ -255,6 +299,10 @@ export function createAttach({ config = {}, session }) {
         snapshotError: page.snapshotError ?? null,
         actions: page.actions ?? null,
         actionsOk: page.actionsOk ?? null,
+        snapshotAfter: page.snapshotAfter ?? null,
+        data: page.data ?? null,
+        refsFingerprintNow: page.refsFingerprintNow ?? null,
+        snapshotIdNow: page.snapshotIdNow ?? null,
         refGuard: page.refGuard ?? null,
         navigatedDuringActions: page.navigatedDuringActions ?? null,
         hrefAfterActions: page.hrefAfterActions ?? null,

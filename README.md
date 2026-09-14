@@ -198,3 +198,5 @@ Current Aside CLI exec does not spawn `mcp.servers`. Register may still merge th
 ```
 
 macOS: `"command"` is an absolute node path; args point at this clone. Success today is still AGENTS + `codemode --code`.
+
+License: MIT (see LICENSE).

@@ -197,3 +197,5 @@ npm test   # node --test "test/*.test.js" — 의존성 없음
 ```
 
 macOS의 `"command"`는 절대 node 경로입니다. args는 이 클론을 가리킵니다. 오늘 성공은 여전히 AGENTS + `codemode --code`입니다.
+
+라이선스: MIT (LICENSE 참고).

@@ -12,6 +12,12 @@ Depends on WP1–WP3 so CI runs the new tests. No production runtime logic excep
 - Stop: c-4 local proof. Remote CI is residual until the user pushes.
 - Escalation: license family change to Apache is NEEDS_HUMAN.
 
+## WP4 P revalidation (2026-09-14)
+
+Previous D (WP3): companion bench at `4bf813a`; 226/226; `--self-check` equality=true, `notOperator51x`. Direction unchanged — SPDX MIT + Actions + pack, no runtime algorithm edits.
+
+Live: no `LICENSE`, no `.github/workflows/`, `package.json` `files[]` is 7 entries without LICENSE, `license` is already `"MIT"`. `npm pack --dry-run` exit 0, 36 files, no LICENSE (verifier reads `package.json` + packed names). README last lines are the MCP macOS notes, not the required MIT footer. `test/license-pack.test.js` does not exist (`node --test` cannot observe it yet). `npm-cli.js` resolves next to nvm node. Execute 040 as written (D8/D9). Do not add `eval/` to `files[]`.
+
 ## IN / OUT
 
 IN: NEW `LICENSE`, MODIFY `package.json` `files`, NEW `.github/workflows/ci.yml`, MODIFY `README.md` and `README.ko.md` (required license footer; not optional).  

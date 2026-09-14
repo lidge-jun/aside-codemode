@@ -20,6 +20,7 @@
     "templates/",
     "codemode.config.example.json",
     "README.md",
-    "README.ko.md"
+    "README.ko.md",
+    "LICENSE"
   ]
 }

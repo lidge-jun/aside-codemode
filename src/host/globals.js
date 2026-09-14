@@ -17,7 +17,7 @@ export function createHostGlobals(config, assertInside, signal) {
     edit_file: hostFs.edit_file,
     apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
     actions: createActions(),
-    browse: createBrowse({ config, signal }),
+    browse: createBrowse({ config, signal, assertInside }),
     // wp2 ships the namespace frozen and empty so the guest surface is stable before
     // wp5 fills it in. An absent root would make `report` a ReferenceError instead.
     report: Object.freeze({}),

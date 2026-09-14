@@ -16,7 +16,7 @@ export const A4_INCHES = { paperWidth: 210 / 25.4, paperHeight: 297 / 25.4 };
 
 export const UNSUPPORTED = Object.freeze({
   route: 'page.route does not exist on this surface and page.on("request") delivers no events, so request interception cannot be implemented or faked',
-  maxWidth: 'screenshot maxWidth is accepted and silently ignored; use clip, or post-process on the host',
+  maxWidth: 'screenshot maxWidth is accepted and silently ignored; use clip, which is honoured exactly. Host-side resize is deliberately not implemented (image.js RESIZE_UNSUPPORTED)',
   viewport: 'the viewport is not settable; viewportSize() returns the fixed size',
   format: 'pdf format is accepted and silently yields US Letter; pass paperWidth/paperHeight in INCHES instead',
   fileUrl: 'file:// navigation is refused by Aside (Cannot navigate to a file URL without local file access)',

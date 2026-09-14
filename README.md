@@ -55,6 +55,8 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
 | `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
 | `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+| `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
+| `browse.readText(url)` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. Reports `source` and `fallbackReason` so you know which path answered |
 
 **Browsing is opt-in and honest about what Aside cannot do.** `page.route`, screenshot
 `maxWidth`, `pdf({format:'A4'})`, `file://` URLs and `networkidle` all throw `ENOTSUP` before

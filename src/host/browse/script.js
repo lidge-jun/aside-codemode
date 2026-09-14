@@ -109,6 +109,13 @@ async function one(item) {
       const buf = await page.screenshot(JOB.screenshot);
       out.capture.requested.screenshot = JOB.screenshot;
       out.capture.actual.bytes = buf ? buf.length : 0;
+      // The host supplies the filename. The script never invents one, so a payload can
+      // never steer the host into reading a path it did not choose.
+      if (item.artifactName) {
+        await fs.mkdir('./artifacts', { recursive: true });
+        await fs.writeFile('./artifacts/' + item.artifactName, buf);
+        out.artifactName = item.artifactName;
+      }
       t.screenshot = lap();
     }
     if (JOB.pdf) {
@@ -149,5 +156,5 @@ const timer = (typeof sleep === 'function' ? sleep(JOB.innerMs) : new Promise((r
 try { await Promise.race([main(), timer]); }
 finally {
   const leakedUrls = await cleanup();
-  console.log(JSON.stringify({ type: 'final', items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
+  console.log(JSON.stringify({ type: 'final', pwd: String(pwd), items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
 }`;

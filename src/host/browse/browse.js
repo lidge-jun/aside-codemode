@@ -5,8 +5,10 @@ import { createBrowseSession } from './session.js';
 import { createAsideResolver } from './resolve.js';
 import { createAsideSpawner } from './spawn.js';
 import { createBreaker } from './policy.js';
+import { createCaptureMany } from './capture.js';
+import { createReadText } from './read-text.js';
 
-export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env } = {}) {
+export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
   const caps = config.browseCaps || {};
   // Injectable for tests; a real install gets the portable resolver and spawner so the
   // namespace works on a machine nobody developed on.
@@ -19,6 +21,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     cooldownMs: Number.isSafeInteger(caps.breakerCooldownMs) ? caps.breakerCooldownMs : 30000,
   });
   const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker });
+  const captureManyImpl = createCaptureMany({ session, assertInside });
 
   async function probe() {
     let resolved = null;
@@ -36,7 +39,19 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     return session.run(job, { browseCaps: caps, signal });
   }
 
-  return Object.freeze({ probe, exec });
+  async function captureMany(urls, opts = {}) {
+    if (caps.enabled !== true) {
+      const e = new Error('browse is opt-in: set browseCaps.enabled = true in codemode config');
+      e.code = 'EDISABLED';
+      throw e;
+    }
+    return captureManyImpl(urls, { ...opts, browseCaps: caps });
+  }
+
+  // fetch-first: no browser unless the fetched HTML measurably is not the content.
+  const readTextImpl = createReadText({ browse: caps.enabled === true ? { exec } : null });
+
+  return Object.freeze({ probe, exec, captureMany, readText: (url, o) => readTextImpl(url, o) });
 }
 
 export { CAPABILITY_MATRIX };

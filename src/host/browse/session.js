@@ -86,7 +86,13 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
           waitSelector: job.waitSelector,
         })
       : null;
-    const source = compile(job, plan);
+    // Host-generated artifact names ride in the plan; the script never invents one.
+    const names = Array.isArray(opts.artifactNames) ? opts.artifactNames : null;
+    const planWithNames = names
+      ? (plan || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
+          .map((p, i) => ({ ...p, artifactName: names[i] }))
+      : plan;
+    const source = compile(job, planWithNames);
     const bin = await resolveAside();
     const startedAt = now();
 
@@ -105,10 +111,11 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
         ok: false,
         items: job.urls.map((url) => ({ url, ok: false, code: killed ? 'EHOSTKILL' : 'ENOMARKER' })),
         timings: { steps: [], totalMs },
-        partial: [killed ? 'host-kill' : 'no-marker'],
-        leakedUrls: job.urls.slice(),
-        raw: { stdout, marker },
-      };
+      partial: [killed ? 'host-kill' : 'no-marker'],
+      leakedUrls: job.urls.slice(),
+      raw: { stdout, marker },
+      pwd: null,
+    };
     }
 
     const items = final && Array.isArray(final.items) ? final.items : [];
@@ -129,6 +136,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       leakedUrls,
       raw: { stdout, marker },
       breaker: breaker ? breaker.snapshot() : undefined,
+      pwd: final && typeof final.pwd === 'string' ? final.pwd : null,
     };
   }
 

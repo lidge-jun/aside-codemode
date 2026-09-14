@@ -436,3 +436,58 @@ createBreaker({ failures = 3, cooldownMs = 30000, now = Date.now })
 Per-domain timeouts come from `browseCaps.domainTimeouts` and are clamped to the C2 inner cap
 of 25000, which sits below Aside's measured ~30s internal screenshot timeout — a per-domain
 timeout at or above that ceiling would never fire first and would be decorative.
+
+## C10 — wp4 spec: batch capture, host image handling, fetch-first read
+
+Closes #6, #12, #8.
+
+### How bytes get out of the REPL (the decision this phase turns on)
+
+A screenshot is a Buffer inside Aside. It cannot ride the JSON payload without base64
+inflating every image by a third, and the repl filesystem refuses to write outside the
+session and project roots (`Path escapes Project and session roots`), so the script cannot
+write straight into the caller's directory.
+
+So the script writes into `./artifacts/` under its OWN session directory and reports its
+absolute `pwd` in the payload. The host — which has ordinary filesystem access — reads from
+there, post-processes, and writes the result to the caller's path through `assertInside`.
+That keeps the root guard honest: the guest never names a path the host does not check.
+
+### #6 — `browse.captureMany(urls, opts)`
+
+A named wrapper over the existing one-session batch, with per-item artifacts:
+
+- one `session.run` for N urls; concurrency from `browseCaps.concurrency`
+- each item carries `artifact: { path, bytes, mime, width, height }` after the host copy
+- one failure never empties the rest (already proven in wp3 tests)
+- `outDir` is resolved with `assertInside`; a path outside the configured roots is refused
+
+### #12 — host-side image handling, honestly scoped
+
+`src/host/browse/image.js` gains real readers and an explicit refusal:
+
+- `pngDimensions(buf)` from the IHDR at byte 16/20, `jpegDimensions(buf)` by walking SOF
+  markers. Both are zero-dependency and exact.
+- `verifyCapture(buf, requested)` returns `{ width, height, matched }` so a caller learns the
+  real pixels instead of trusting the request. `maxWidth` was measured to be ignored, so this
+  is the only way to know what was actually captured.
+- **Resize is `ENOTSUP`, deliberately.** Re-sampling a bitmap in pure JS with no dependency
+  would be slow and would produce worse output than the browser already can. The supported
+  geometry control is `clip` at capture time, which was measured to be honoured exactly
+  (320x200 requested, 320x200 returned). JPEG encoding is Aside's, via `type` and `quality`.
+  Claiming a resize we cannot do well is the silent-degradation failure this layer refuses.
+
+### #8 — `web.readText(url)`
+
+`src/host/browse/read-text.js`, fetch-first:
+
+1. Host `fetch` (Node >= 18 guarantees it) with a short timeout.
+2. Strip `script`, `style`, `noscript`, `svg`, then extract the densest block and convert
+   headings, links, lists and paragraphs to markdown.
+3. **Browser fallback only when the HTML is measurably not the content**, judged by a stated
+   rule rather than a guess: visible text under 200 characters, OR a text-to-markup ratio
+   under 5%, OR a known app-shell marker (`__NEXT_DATA__`, `ng-app`, `id="root"` with an
+   empty body). The decision and its reason are reported as `source: 'fetch' | 'browser'`
+   and `fallbackReason`, so a caller can tell which path answered.
+
+A `file:` url is refused up front, matching E7.

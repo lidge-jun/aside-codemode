@@ -132,6 +132,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // A page that arrived but did not render is a DIFFERENT outcome from a clean read,
     // and the caller must not have to infer it from the item bodies.
     if (items.some((i) => i.contentVerified === false || i.code === 'EUNRENDERED')) partial.push('content-unverified');
+    // An action that failed is a different outcome from a page that did not render, and
+    // the caller must not have to walk items[] to find out that the page was half-driven.
+    if (items.some((i) => i.actionsOk === false || i.code === 'EACTION')) partial.push('action-failed');
+    if (items.some((i) => i.navigatedDuringActions === true)) partial.push('navigated-during-actions');
     // Feed the outcomes back so the NEXT call sees a domain that keeps failing.
     if (breaker) breaker.record(items);
     const steps = aggregateSteps(items);

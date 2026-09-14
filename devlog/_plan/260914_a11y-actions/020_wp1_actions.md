@@ -41,9 +41,11 @@ Rules baked in:
 
 ## MODIFY src/host/browse/schema.js
 
-`actions` joins JOB_KEYS. `validateActions(raw)` enforces: array, <= 50 steps,
-exactly one target key, exactly one verb key, string/int types, and a per-step
-`timeoutMs`. Unknown keys are refused by name, as the rest of this schema does.
+`actions`, `stopOnError`, `allowStaleRefs`, `refsFingerprint` and `actionBudgetMs`
+join JOB_KEYS. `validateActions(raw)` enforces: array, <= 20 steps (A2, because a
+measured click cost 2,143ms), exactly one target key, exactly one verb key,
+string/int types, an affirmative value for value-less verbs, and an optional
+per-step `timeoutMs`. Unknown keys are refused by name.
 
 ## MODIFY src/host/browse/script.js
 
@@ -67,4 +69,3 @@ Schema refusals; generated-source injection; an AsyncFunction run of the real
 step function against a fake page recording the calls; ENOTSUP on a throwing verb;
 deadline truncation; stopOnError both ways; and an injection case whose selector
 carries a quote, a backslash and a newline.
-

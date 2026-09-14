@@ -18,6 +18,7 @@ export function validateAttach(input = {}) {
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
     'snapshot', 'maxTreeChars',
     'actions', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
+    'refsFingerprint',
   ]);
   for (const k of Object.keys(input)) {
     if (!known.has(k)) throw bad('unknown browse.attach option: ' + k);
@@ -68,6 +69,9 @@ export function validateAttach(input = {}) {
     actions: validateActions(input.actions),
     stopOnError: input.stopOnError !== false,
     allowStaleRefs: input.allowStaleRefs === true,
-    actionBudgetMs: num('actionBudgetMs', 1, 120000, 20000),
+    // Capped so the host deadline can always outlast it; the REPL cap is 120000ms and the
+    // report has to be printed before the process is killed.
+    actionBudgetMs: num('actionBudgetMs', 1, 90000, 20000),
+    refsFingerprint: str('refsFingerprint'),
   };
 }

@@ -47,6 +47,18 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
   }
   var body = kept.join('\n');
   var cap = capChars > 0 ? capChars : 20000;
+  // A fingerprint of the ref rows, not of the text. This is what makes staleness
+  // detectable when the url did NOT change: a modal, a client-side tab switch or an SPA
+  // re-render renumbers refs while location.href stays put, and a url comparison sees
+  // nothing. Cheap FNV-1a over ref|role|name so it can be recomputed before acting.
+  var fp = 2166136261;
+  for (var fi = 0; fi < refs.length; fi++) {
+    var sig = refs[fi].ref + '|' + refs[fi].role + '|' + refs[fi].name + ';';
+    for (var ci = 0; ci < sig.length; ci++) {
+      fp ^= sig.charCodeAt(ci);
+      fp = (fp + ((fp << 1) + (fp << 4) + (fp << 7) + (fp << 8) + (fp << 24))) >>> 0;
+    }
+  }
   return {
     mode: mode,
     chars: body.length,
@@ -54,7 +66,8 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     tree: body.slice(0, cap),
     refCount: refs.length,
     refs: refs.slice(0, 500),
-    refsTruncated: refs.length > 500
+    refsTruncated: refs.length > 500,
+    fingerprint: 'r' + refs.length + '-' + fp.toString(36)
   };
 }`;
 
@@ -74,6 +87,8 @@ export function compile(job, plan = null) {
     actions: job.actions || null,
     stopOnError: job.stopOnError !== false,
     allowStaleRefs: job.allowStaleRefs === true,
+    refsFingerprint: job.refsFingerprint || null,
+    actionBudgetMs: job.actionBudgetMs || null,
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
@@ -82,10 +97,15 @@ export function compile(job, plan = null) {
     extract: job.extract || null,
     detect: job.detect === false ? null : detectionPatterns(),
   };
+  // Function replacers, not string ones. String.prototype.replace interprets $&, $` and
+  // $' in the REPLACEMENT, so a selector or a fill value carrying $& was substituted after
+  // JSON.stringify had already escaped it: fill:'a$&b' typed "a__JOB__b" into the page, and
+  // $' grew a 20KB script to 34KB and made the REPL fail to parse. A function replacer
+  // disables that substitution entirely. This bug predates the action layer.
   return TEMPLATE
-    .replace('__JOB__', JSON.stringify(payload))
-    .replace('/*__TREE_SUMMARY__*/', TREE_SUMMARY_SRC)
-    .replace('/*__ACTION_STEPS__*/', ACTION_STEP_SRC);
+    .replace('__JOB__', () => JSON.stringify(payload))
+    .replace('/*__TREE_SUMMARY__*/', () => TREE_SUMMARY_SRC)
+    .replace('/*__ACTION_STEPS__*/', () => ACTION_STEP_SRC);
 }
 
 // Kept as one string so a test can evaluate it with fake globals instead of grepping it.
@@ -94,7 +114,18 @@ const JOB = __JOB__;
 /*__TREE_SUMMARY__*/
 /*__ACTION_STEPS__*/
 const SCRIPT_STARTED_AT = Date.now();
-const ACTION_DEADLINE_AT = SCRIPT_STARTED_AT + JOB.innerMs;
+// The action loop must finish EARLY enough that the item still gets pushed. Sharing the
+// instant of the global inner timer meant a step in flight when that timer fired took the
+// whole item with it: the click had already happened and the result was items: [] with
+// partial:['inner-deadline'], so a real side effect on a live page left no record.
+const ACTION_RESERVE_MS = Math.max(1500, Math.min(4000, Math.floor(JOB.innerMs / 5)));
+const ACTION_HARD_STOP_AT = SCRIPT_STARTED_AT + JOB.innerMs - ACTION_RESERVE_MS;
+function actionDeadlineNow() {
+  // Per item, at the moment its actions start: an earlier item's navigation must not be
+  // billed to this one's step list. Still clamped by the hard stop.
+  var want = Date.now() + (JOB.actionBudgetMs || JOB.innerMs);
+  return Math.min(want, ACTION_HARD_STOP_AT);
+}
 const opened = [];
 const pending = [];
 const items = [];
@@ -233,7 +264,9 @@ async function one(item) {
     if (JOB.actions && JOB.actions.length) {
       const urlBeforeActions = finalUrl;
       const ran = await runActions(page, JOB.actions, {
-        deadlineAt: ACTION_DEADLINE_AT,
+        deadlineAt: actionDeadlineNow(),
+        refsFingerprint: JOB.refsFingerprint,
+        fingerprintOf: function (p) { return snapshot(p).then(function (s) { return summarizeTree((s && s.tree) || '', 'interactive', 200000).fingerprint; }); },
         urlAtSnapshot: urlBeforeActions,
         allowStaleRefs: JOB.allowStaleRefs,
         stopOnError: JOB.stopOnError
@@ -243,6 +276,11 @@ async function one(item) {
       out.actionsOk = ran.ok;
       out.urlBeforeActions = urlBeforeActions;
       out.navigatedDuringActions = ran.navigated;
+      out.refGuard = ran.refGuard;
+      // finalUrl below becomes the post-action url while contentVerified above describes
+      // the page we measured before acting. Stamp the top level too, not only the nested
+      // render object, so the pair is never read as being about one document.
+      out.contentVerifiedStage = 'pre-actions';
       if (ran.urlAfter) { finalUrl = ran.urlAfter; out.finalUrl = ran.urlAfter; }
       if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = 'EACTION'; }
     }

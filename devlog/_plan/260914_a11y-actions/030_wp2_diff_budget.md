@@ -21,8 +21,9 @@ it. Implemented with `locator(ref).innerText()` / `.getAttribute()`, both measur
 
 A killed CLI leaks its tabs permanently and no later session can close them. The
 9-course parallel run already tripped Aside's own "10 tabs are open" warning, and
-ref actions make longer runs normal. So: count tabs the script owns, refuse to open
-past `browseCaps.maxTabs` (default 8) with `code:'ETABBUDGET'` on the skipped urls,
-and report `tabsOpened` / `tabsClosed` on every run so a leak is visible in the result
-instead of only in Aside's console.
-
+ref actions make longer runs normal. Per A3 the budget counts **currently owned**
+tabs, not cumulative ones: `browse.exec` already accepts more urls than maxTabs and
+closes each tab as it finishes, so a cumulative counter would turn a working 20-url
+batch into 8 results and 12 refusals. Report `tabsOpened`, `tabsClosed` and
+`tabsPeak` on every run, and raise `ETABBUDGET` only when the pool genuinely cannot
+release one.

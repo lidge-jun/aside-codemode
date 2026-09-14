@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { runActions, ACTION_STEP_SRC } from '../src/host/browse/actions-run.js';
 import { validateActions, validateJob, MAX_ACTION_STEPS } from '../src/host/browse/schema.js';
 import { compile } from '../src/host/browse/script.js';
-import { compileAttach } from '../src/host/browse/attach.js';
+import { compileAttach, createAttach } from '../src/host/browse/attach.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
 import { CAPABILITY_MATRIX } from '../src/host/browse/probe.js';
 
@@ -19,11 +19,13 @@ function fakePage(opts = {}) {
   let idx = 0;
   const missing = new Set(opts.missing || []);
   const throws = opts.throws || {};
+  const slow = opts.slow || {};
   const locator = (target) => new Proxy({}, {
     get(_t, name) {
       if (missing.has(name)) return undefined;
       return async (...args) => {
         calls.push({ on: 'locator', target, name, args });
+        if (slow[name]) await new Promise((r) => setTimeout(r, slow[name]));
         if (throws[name]) throw new Error(throws[name]);
         if (name === 'click' && opts.clickNavigates) idx = Math.min(idx + 1, urls.length - 1);
         return undefined;
@@ -188,3 +190,155 @@ test('the capability matrix stops implying this surface cannot type', () => {
   assert.match(CAPABILITY_MATRIX.locator.refs, /f1e1/);
 });
 
+// ---------------------------------------------------------------------------
+// Regressions from the independent audit of cca7797. Every one of these was
+// reproducible against the shipped code and none were covered by the tests above.
+// ---------------------------------------------------------------------------
+
+test('a dollar sequence in a target or value survives compilation intact', () => {
+  // String.prototype.replace substitutes $&, $` and $' in the REPLACEMENT, after
+  // JSON.stringify has already escaped the data. fill:'a$&b' typed a__JOB__b into the
+  // page: parsed fine, silently wrong. A function replacer disables that.
+  const payloads = ['a$&b', "x$'y", 'p$`q', '$$$&$`', 'tail$'];
+  for (const value of payloads) {
+    const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', fill: value }] }));
+    const start = src.indexOf('const JOB = ');
+    const job = JSON.parse(src.slice(start + 12, src.indexOf(';\n', start)));
+    assert.equal(job.actions[0].value, value, 'the value must reach the page unchanged: ' + value);
+    assert.equal(src.includes('__JOB__'), false, 'the placeholder must not survive');
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    assert.doesNotThrow(() => new AsyncFunction('openTab,snapshot,closeTab,sleep,pwd,console', src), value);
+  }
+});
+
+test('the same dollar sequences survive through compileAttach', () => {
+  const src = compileAttach(validateAttach({ urlIncludes: 'x', actions: [{ selector: "a$'b", click: true }] }));
+  assert.ok(src.includes("a$'b"), 'the selector reaches the script as written');
+  assert.equal(src.includes('__REQ__'), false);
+});
+
+test('a fingerprint catches a renumbering that never changed the url', async () => {
+  // The url-only guard cannot see this, and this is the dangerous case: the ref still
+  // resolves and now names a different element, so Aside does not complain either.
+  const page = fakePage({ urls: ['https://app.test/#dash'] });
+  const r = await runActions(page, steps([{ ref: 'e7', click: true }]), {
+    urlAtSnapshot: 'https://app.test/#dash',
+    refsFingerprint: 'r12-abc',
+    fingerprintOf: async () => 'r12-zzz',
+  });
+  assert.equal(r.steps[0].ok, false);
+  assert.equal(r.steps[0].code, 'EREFSTALE');
+  assert.match(r.steps[0].error, /renumbered/);
+  assert.equal(r.steps[0].refGuard, 'fingerprint');
+  assert.equal(page.calls.filter((c) => c.on === 'locator').length, 0, 'nothing was clicked');
+});
+
+test('a matching fingerprint lets the step through and is only checked once', async () => {
+  let calls = 0;
+  const page = fakePage({ urls: ['https://app.test/#dash'] });
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }, { ref: 'e2', hover: true }]), {
+    urlAtSnapshot: 'https://app.test/#dash',
+    refsFingerprint: 'r12-abc',
+    fingerprintOf: async () => { calls += 1; return 'r12-abc'; },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(calls, 1, 're-snapshotting per step would cost more than the actions');
+});
+
+test('the guard names its own strength instead of implying a guarantee', async () => {
+  const weak = await runActions(fakePage(), steps([{ ref: 'e1', click: true }]), { urlAtSnapshot: 'https://a.test/one' });
+  assert.equal(weak.refGuard, 'url-only');
+  assert.equal(weak.steps[0].refGuard, 'url-only');
+  const strong = await runActions(fakePage(), steps([{ ref: 'e1', click: true }]), {
+    urlAtSnapshot: 'https://a.test/one', refsFingerprint: 'f', fingerprintOf: async () => 'f',
+  });
+  assert.equal(strong.refGuard, 'fingerprint');
+});
+
+test('an unreadable page fails the ref step closed, it does not disable the guard', async () => {
+  const page = fakePage();
+  page.evaluate = async () => { throw new Error('Execution context was destroyed'); };
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }]), { urlAtSnapshot: 'https://a.test/one' });
+  assert.equal(r.steps[0].ok, false);
+  assert.equal(r.steps[0].code, 'EREFUNKNOWN');
+  assert.equal(page.calls.filter((c) => c.on === 'locator').length, 0);
+});
+
+test('a step that overruns is cut off instead of running past the budget', async () => {
+  const page = fakePage({ slow: { click: 400 } });
+  const t0 = Date.now();
+  const r = await runActions(page, steps([{ ref: 'e1', click: true, timeoutMs: 60 }]), {});
+  assert.equal(r.steps[0].ok, false);
+  assert.equal(r.steps[0].code, 'ESTEPTIMEOUT');
+  assert.ok(Date.now() - t0 < 350, 'the deadline used to be checked only BETWEEN steps');
+});
+
+test('running out of budget reports EDEADLINE on every unreached step, not ESKIP', async () => {
+  const page = fakePage({ slow: { click: 80 } });
+  const r = await runActions(page, steps([
+    { ref: 'e1', click: true }, { ref: 'e2', click: true }, { ref: 'e3', click: true },
+  ]), { deadlineAt: Date.now() + 40 });
+  const codes = r.steps.map((s) => s.code);
+  assert.equal(codes.includes('ESKIP'), false, 'no step failed, the clock ran out');
+  assert.ok(codes.every((c) => c === 'EDEADLINE' || c === 'ESTEPTIMEOUT' || c === undefined));
+});
+
+test('a broken page script is not recorded as a missing capability', async () => {
+  // window.gtag is not a function is the PAGE's bug. Labelling it ENOTSUP would poison
+  // the capability knowledge this module exists to keep honest.
+  const page = fakePage();
+  page.evaluate = async (expr) => {
+    if (expr === 'location.href') return 'https://a.test/one';
+    throw new Error('window.gtag is not a function');
+  };
+  const r = await runActions(page, steps([{ scroll: 'bottom' }]), {});
+  assert.equal(r.steps[0].code, 'EACTION', 'the page failed, not the surface');
+});
+
+test('V8 phrasing for a missing method is still ENOTSUP', async () => {
+  const page = fakePage({ throws: { selectOption: "Cannot read properties of undefined (reading 'selectOption')" } });
+  const r = await runActions(page, steps([{ ref: 'e1', selectOption: 'b' }]), {});
+  assert.equal(r.steps[0].code, 'ENOTSUP');
+  const ni = fakePage({ throws: { press: 'locator.press: Not implemented' } });
+  const r2 = await runActions(ni, steps([{ ref: 'e1', press: 'Enter' }]), {});
+  assert.equal(r2.steps[0].code, 'ENOTSUP');
+});
+
+test('a value-less verb demands the affirmative', () => {
+  assert.throws(() => steps([{ ref: 'e1', click: false }]), /takes no value/);
+  assert.throws(() => steps([{ ref: 'e1', click: null }]), /takes no value/);
+  assert.doesNotThrow(() => steps([{ waitFor: '.x' }]), 'waitFor carries its selector, not a flag');
+  assert.equal(steps([{ ref: 'e1', click: true, timeoutMs: 500 }])[0].timeoutMs, 500);
+});
+
+test('the action budget always ends before the script deadline that would drop the item', () => {
+  const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }] }));
+  assert.ok(src.includes('ACTION_HARD_STOP_AT'));
+  assert.ok(src.includes('ACTION_RESERVE_MS'));
+  assert.ok(src.includes('actionDeadlineNow()'), 'per item, not one constant for the batch');
+  const reserve = /ACTION_RESERVE_MS = Math\.max\(1500/.test(src);
+  assert.ok(reserve, 'the reserve must be non-zero or the item is lost with its side effect');
+});
+
+test('attach refuses to call a run ok when its actions failed', async () => {
+  const session = {
+    raw: async () => ({ rows: [{ kind: 'page', tab: { targetId: 'B' }, href: 'https://a/', title: 't',
+      render: { textChars: 9, reasons: [], requiredSelectorsMatched: [], requiredSelectorsMissing: [], sample: 'x', stage: 'pre-actions' },
+      contentVerified: null, actions: [{ i: 0, verb: 'click', ok: false, code: 'EACTION' }], actionsOk: false, refGuard: 'url-only' }] }),
+  };
+  const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
+  const r = await a.attach({ urlIncludes: 'x', actions: [{ ref: 'e1', click: true }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'EACTION');
+  assert.equal(r.refGuard, 'url-only');
+  assert.equal(r.render.stage, 'pre-actions');
+});
+
+test('attach gives the repl longer than the action budget it just granted', async () => {
+  const seen = [];
+  const session = { raw: async (_src, opts) => { seen.push(opts.hostMs); return { rows: [] }; } };
+  const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
+  await a.attach({ urlIncludes: 'x', actionBudgetMs: 60000, actions: [{ ref: 'e1', click: true }] });
+  assert.ok(seen[0] > 60000, 'a 60s budget under a 26.5s host deadline loses the whole report');
+  assert.ok(seen[0] <= 120000, 'and it still has to fit the REPL cap');
+});

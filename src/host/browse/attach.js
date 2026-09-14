@@ -28,6 +28,7 @@
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
 import { TREE_SUMMARY_SRC } from './script.js';
+import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
@@ -111,6 +112,7 @@ try {
         requiredSelectorsMissing: missing,
         reasons: reasons,
         sample: text.slice(0, REQ.sampleChars || 400),
+        stage: "pre-actions",
       };
       row.contentVerified = asked ? reasons.length === 0 : null;
       if (REQ.includeText) row.text = text.slice(0, REQ.maxTextChars || 20000);
@@ -130,17 +132,22 @@ try {
         const ran = await runActions(page, REQ.actions, {
           deadlineAt: Date.now() + (REQ.actionBudgetMs || 20000),
           urlAtSnapshot: row.href || null,
+          refsFingerprint: REQ.refsFingerprint || null,
+          fingerprintOf: function (p) { return snapshot(p).then(function (s) { return summarizeTree((s && s.tree) || "", "interactive", 200000).fingerprint; }); },
           allowStaleRefs: REQ.allowStaleRefs,
           stopOnError: REQ.stopOnError
         });
         row.actions = ran.steps;
         row.actionsOk = ran.ok;
+        row.refGuard = ran.refGuard;
         row.navigatedDuringActions = ran.navigated;
         row.urlBeforeActions = ran.urlBefore;
         if (ran.urlAfter) row.hrefAfterActions = ran.urlAfter;
       }
       out.rows.push(row);
-      out.ok = row.contentVerified !== false;
+      // A run whose every action failed is not ok. exec already refuses that; attach was
+      // carrying actionsOk and never consulting it.
+      out.ok = row.contentVerified !== false && row.actionsOk !== false;
     }
   }
 } catch (e) {
@@ -150,8 +157,10 @@ console.log(JSON.stringify(out));
 `;
 
 export function compileAttach(req) {
+  // Function replacer: see the note in script.js compile(). A $& in a fill value or a
+  // selector would otherwise be substituted into the generated source after escaping.
   return TREE_SUMMARY_SRC + '\n' + ACTION_STEP_SRC + '\n'
-    + ATTACH_TEMPLATE.replace('__REQ__', JSON.stringify(req));
+    + ATTACH_TEMPLATE.replace('__REQ__', () => JSON.stringify(req));
 }
 
 function disabled(name) {
@@ -162,10 +171,18 @@ function disabled(name) {
 
 export function createAttach({ config = {}, session }) {
   const caps = config.browseCaps || {};
-  const hostMs = () => (Number.isSafeInteger(caps.timeoutMs) ? caps.timeoutMs : 25000) + 1500;
+  // The host deadline has to outlast whatever the step list is allowed to take. A 20s
+  // action budget under a fixed 26.5s host deadline left ~6.5s for a snapshot and seven
+  // evaluate round trips against a measured 2143ms per click, and anything above 26.5s
+  // guaranteed the REPL was killed before it could print its report - on the user's own tab.
+  const hostMs = (req) => {
+    const base = (Number.isSafeInteger(caps.timeoutMs) ? caps.timeoutMs : 25000) + 1500;
+    const needed = (req && req.actionBudgetMs ? req.actionBudgetMs : 0) + 8000;
+    return Math.min(Math.max(base, needed), ASIDE_REPL_CAP_MS);
+  };
 
   async function callRepl(req) {
-    const res = await session.raw(compileAttach(req), { hostMs: hostMs() });
+    const res = await session.raw(compileAttach(req), { hostMs: hostMs(req) });
     if (res && res.error) {
       const e = new Error(res.error);
       e.code = 'EREPL';
@@ -207,8 +224,10 @@ export function createAttach({ config = {}, session }) {
         };
       }
       return {
-        ok: page.contentVerified !== false,
-        code: page.contentVerified === false ? 'EUNRENDERED' : null,
+        ok: page.contentVerified !== false && page.actionsOk !== false,
+        code: page.contentVerified === false
+          ? 'EUNRENDERED'
+          : (page.actionsOk === false ? 'EACTION' : null),
         tab: page.tab,
         selectedBy: page.selectedBy,
         attachedVia: page.attachedVia,
@@ -228,6 +247,7 @@ export function createAttach({ config = {}, session }) {
         snapshotError: page.snapshotError ?? null,
         actions: page.actions ?? null,
         actionsOk: page.actionsOk ?? null,
+        refGuard: page.refGuard ?? null,
         navigatedDuringActions: page.navigatedDuringActions ?? null,
         hrefAfterActions: page.hrefAfterActions ?? null,
         note: 'attached to an existing tab; it was not closed',

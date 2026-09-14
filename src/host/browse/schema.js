@@ -61,7 +61,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'actionBudgetMs']);
 
 // The accessibility tree is already fetched for EVERY page, because block detection reads
 // it. Until now only its length survived. These modes decide how much of it comes back:
@@ -124,8 +124,8 @@ export function validateActions(raw) {
     }
     const keys = Object.keys(step);
     for (const k of keys) {
-      if (k !== 'ref' && k !== 'selector' && !(k in ACTION_VERBS)) {
-        throw new BrowseOptionError(`unknown ${where} key "${k}"; valid: ref, selector, ${Object.keys(ACTION_VERBS).join(', ')}`, 'EBADOPT');
+      if (k !== 'ref' && k !== 'selector' && k !== 'timeoutMs' && !(k in ACTION_VERBS)) {
+        throw new BrowseOptionError(`unknown ${where} key "${k}"; valid: ref, selector, timeoutMs, ${Object.keys(ACTION_VERBS).join(', ')}`, 'EBADOPT');
       }
     }
     const verbs = keys.filter((k) => k in ACTION_VERBS);
@@ -172,9 +172,18 @@ export function validateActions(raw) {
       value = step[verb];
       const okScroll = value === 'top' || value === 'bottom' || (Number.isSafeInteger(value) && value >= 0);
       if (!okScroll) throw new BrowseOptionError(`${where}.scroll must be 'top', 'bottom' or a non-negative integer`, 'EBADVAL');
+    } else if (spec.value === 'none' && spec.target !== 'selector') {
+      // A value-less verb took any value at all, so { click: false } and { click: null }
+      // both validated and then clicked. Require the affirmative.
+      if (step[verb] !== true) {
+        throw new BrowseOptionError(`${where}.${verb} takes no value; write ${verb}: true`, 'EBADVAL');
+      }
     }
 
-    return Object.freeze({ verb, target, targetKind, value, via: spec.via });
+    const timeoutMs = step.timeoutMs === undefined
+      ? null
+      : requirePositiveInt(`${where}.timeoutMs`, step.timeoutMs);
+    return Object.freeze({ verb, target, targetKind, value, via: spec.via, timeoutMs });
   });
 }
 
@@ -264,6 +273,10 @@ export function validateJob(raw, browseCaps = {}) {
     actions: validateActions(raw.actions),
     stopOnError: raw.stopOnError !== false,
     allowStaleRefs: raw.allowStaleRefs === true,
+    // snapshot.fingerprint from the read that produced the refs. Without it the staleness
+    // guard can only compare urls, which does not see a same-url renumbering.
+    refsFingerprint: typeof raw.refsFingerprint === 'string' && raw.refsFingerprint.length ? raw.refsFingerprint : null,
+    actionBudgetMs: raw.actionBudgetMs === undefined ? null : requirePositiveInt('actionBudgetMs', raw.actionBudgetMs),
     screenshot,
     pdf,
     concurrency,

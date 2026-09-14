@@ -3,7 +3,7 @@
 // CI runner: no real Aside is required and no host path is assumed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { asideCandidates, createAsideResolver, AsideNotFoundError } from '../src/host/browse/resolve.js';
+import { asideCandidates, createAsideResolver, AsideNotFoundError, verifyAside } from '../src/host/browse/resolve.js';
 
 test('macOS candidates use POSIX separators even when built from Windows', () => {
   const c = asideCandidates({}, { HOME: '/Users/someone' }, 'darwin');
@@ -11,7 +11,38 @@ test('macOS candidates use POSIX separators even when built from Windows', () =>
     assert.ok(!p.includes('\\'), `candidate must not contain a backslash: ${p}`);
     assert.ok(p.startsWith('/'), `candidate must be absolute POSIX: ${p}`);
   }
-  assert.ok(c.includes('/Users/someone/.aside/bin/aside'));
+  assert.equal(c[0], '/Users/someone/.local/bin/aside', 'the real macOS CLI location must be tried first');
+});
+
+test('the macOS app bundle binary is never a candidate', () => {
+  // Measured on a real mac: /Applications/Aside.app/Contents/MacOS/aside EXISTS and is the
+  // GUI launcher. Resolving to it printed "opening in existing browser session" and never
+  // emitted a marker, so every browse call failed with ENOMARKER while the file was plainly
+  // there. An existence check cannot tell it apart from the CLI.
+  const c = asideCandidates({}, { HOME: '/Users/someone' }, 'darwin');
+  for (const p of c) {
+    assert.ok(!p.includes('Aside.app'), `the GUI bundle must not be a candidate: ${p}`);
+  }
+});
+
+test('a candidate that does not answer --version is skipped, not accepted', async () => {
+  const tried = [];
+  const resolve = createAsideResolver({}, { HOME: '/Users/someone' }, {
+    platform: 'darwin',
+    exists: () => true,
+    verify: async (bin) => { tried.push(bin); return bin === '/opt/homebrew/bin/aside' ? '1.26.906.1630' : null; },
+  });
+  assert.equal(await resolve(), '/opt/homebrew/bin/aside');
+  assert.ok(tried.length > 1, 'the first existing candidate must be rejected by the version proof');
+});
+
+test('verifyAside only accepts output that looks like a version', async () => {
+  const okImpl = (bin, args, opts, cb) => cb(null, '1.26.906.1630\n');
+  const guiImpl = (bin, args, opts, cb) => cb(null, 'opening in existing browser session\n');
+  const failImpl = (bin, args, opts, cb) => cb(new Error('spawn failed'), '');
+  assert.equal(await verifyAside('/x', { execFileImpl: okImpl }), '1.26.906.1630');
+  assert.equal(await verifyAside('/x', { execFileImpl: guiImpl }), null, 'GUI chatter is not a version');
+  assert.equal(await verifyAside('/x', { execFileImpl: failImpl }), null);
 });
 
 test('Windows candidates try the junction first and fall back to a version directory', () => {

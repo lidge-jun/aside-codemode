@@ -10,8 +10,22 @@
 // versions\\<v> folder. So `current` is tried first and the newest versions\\* directory is
 // the fallback. Resolving only through `current` would fail on a fresh install.
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+
+// Existence is not identity. Prove a candidate answers --version like a CLI, because the
+// macOS app bundle contains a binary with the same name that silently launches the GUI.
+export function verifyAside(bin, { execFileImpl = execFile, timeoutMs = 8000 } = {}) {
+  return new Promise((resolve) => {
+    try {
+      execFileImpl(bin, ['--version'], { timeout: timeoutMs }, (err, stdout) => {
+        const text = String(stdout || '').trim();
+        resolve(!err && /^\d+\.\d+/.test(text) ? text : null);
+      });
+    } catch (_) { resolve(null); }
+  });
+}
 
 export class AsideNotFoundError extends Error {
   constructor(message, candidates) {
@@ -53,19 +67,23 @@ export function asideCandidates(config = {}, env = process.env, platform = proce
       out.push(...newestVersionBin(cliRoot, 'aside.exe'));
     }
   } else {
-    // Not verified on macOS from here; listed so a miss is actionable rather than silent.
-    out.push('/usr/local/bin/aside');
+    // Order matters, and it was measured. On a real mac the CLI lives in ~/.local/bin.
+    //
+    // /Applications/Aside.app/Contents/MacOS/aside is deliberately NOT a candidate: that
+    // binary is the GUI launcher, not the CLI. Resolving to it on macmini printed
+    // "기존 브라우저 세션에서 여는 중입니다." and exited without ever emitting a marker, so
+    // every browse call failed with ENOMARKER while the file plainly existed. An existence
+    // check cannot tell those two binaries apart, which is why verifyAside below proves a
+    // candidate with --version the way resolveRg proves ripgrep.
+    if (home) out.push(join(home, '.local', 'bin', 'aside'));
     out.push('/opt/homebrew/bin/aside');
-    out.push('/Applications/Aside.app/Contents/MacOS/aside');
-    if (home) {
-      out.push(join(home, 'Applications', 'Aside.app', 'Contents', 'MacOS', 'aside'));
-      out.push(join(home, '.aside', 'bin', 'aside'));
-    }
+    out.push('/usr/local/bin/aside');
+    if (home) out.push(join(home, '.aside', 'bin', 'aside'));
   }
   return [...new Set(out.filter(Boolean))];
 }
 
-export function createAsideResolver(config = {}, env = process.env, { platform = process.platform, exists = existsSync } = {}) {
+export function createAsideResolver(config = {}, env = process.env, { platform = process.platform, exists = existsSync, verify = null } = {}) {
   let cached = null;
   return async function resolveAside() {
     if (cached) return cached;
@@ -80,7 +98,14 @@ export function createAsideResolver(config = {}, env = process.env, { platform =
     }
 
     for (const c of candidates) {
-      if (exists(c)) { cached = c; return cached; }
+      if (!exists(c)) continue;
+      // When a verifier is supplied, a candidate must PROVE it is the CLI.
+      if (verify) {
+        const v = await verify(c);
+        if (!v) continue;
+      }
+      cached = c;
+      return cached;
     }
     throw new AsideNotFoundError(
       'could not find the Aside CLI. Set browse.asidePath in the codemode config or CODEMODE_ASIDE.',

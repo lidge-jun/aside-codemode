@@ -78,8 +78,8 @@ if (has('--doctor')) {
   // than from its documentation, so a refused option is explainable before it is debugged.
   if (has('--browse')) {
     const { doctorPayload } = await import('./host/browse/probe.js');
-    const { createAsideResolver } = await import('./host/browse/resolve.js');
-    const resolveAside = createAsideResolver(config, process.env);
+    const { createAsideResolver, verifyAside } = await import('./host/browse/resolve.js');
+    const resolveAside = createAsideResolver(config, process.env, { verify: (bin) => verifyAside(bin) });
     let resolved = null;
     let asideError = null;
     try {

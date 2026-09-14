@@ -2,7 +2,7 @@
 // inspectable and provable; the batch/report features land in later work-phases.
 import { CAPABILITY_MATRIX, doctorPayload } from './probe.js';
 import { createBrowseSession } from './session.js';
-import { createAsideResolver } from './resolve.js';
+import { createAsideResolver, verifyAside } from './resolve.js';
 import { createAsideSpawner } from './spawn.js';
 import { createBreaker } from './policy.js';
 import { createCaptureMany } from './capture.js';
@@ -18,7 +18,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const caps = config.browseCaps || {};
   // Injectable for tests; a real install gets the portable resolver and spawner so the
   // namespace works on a machine nobody developed on.
-  const resolver = resolveAside || createAsideResolver(config, env);
+  const resolver = resolveAside || createAsideResolver(config, env, { verify: (bin) => verifyAside(bin) });
   const spawner = spawnAside || createAsideSpawner();
   // One breaker per host-globals instance: state has to outlive a single call to be worth
   // anything, and it must never cross into the guest.

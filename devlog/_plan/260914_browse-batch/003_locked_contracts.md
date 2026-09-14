@@ -368,9 +368,14 @@ Static capability text is not that. So:
 - `session.run` aggregates into `timings.byStep` with total and max per step, so the slowest
   stage is visible without reading every item.
 - `--doctor --browse` prints the matrix as today. With `CODEMODE_ASIDE_LIVE=1` it additionally
-  runs ONE real page and prints the measured step timings. Without the flag it says
-  `liveProbe: 'skipped (set CODEMODE_ASIDE_LIVE=1)'` rather than printing zeros, because a
-  fabricated zero would read as a fast page.
+  runs ONE real page — `https://example.com` by default, overridable with
+  `CODEMODE_ASIDE_LIVE_URL` — and that probe MUST actually perform all three measured steps:
+  navigate, snapshot and screenshot. It reports `liveProbe: { url, navigate, waitFor, snapshot,
+  screenshot, totalMs }` in milliseconds, plus `slowest` naming the largest step. A probe that
+  skipped snapshot or screenshot would print a bottleneck report with nothing in it, which is
+  the same overclaim as printing the static matrix.
+- Without the flag it says `liveProbe: 'skipped (set CODEMODE_ASIDE_LIVE=1)'` rather than
+  printing zeros, because a fabricated zero reads as a fast page.
 - CI never sets that flag, so no CI job launches a browser.
 
 ### #17 — block detection
@@ -386,6 +391,27 @@ Detection is on observable page state, never on a retry that eventually gives up
 A detected item returns immediately with `ok: false`, `code: 'EBLOCKED'`, `blockKind`, and
 `alternate` naming the route that could work (`api`, `fetch-first`, `authenticated-exec`).
 It must NOT retry: retrying a login wall spends the budget and still fails.
+
+**When detection happens, exactly.** This is the part that decides whether #17 works or is
+theatre. Immediately after `await openTab(url)` resolves and after the wait step, and BEFORE
+any screenshot, pdf or extraction, the script performs one probe read:
+
+```js
+const finalUrl = await page.url();     // a method, not a field
+const title = await page.title();      // a method, not a field
+const tree = (await snapshot(page)).tree || '';   // snapshot takes the page object
+const verdict = detect({ requestedUrl: item.url, finalUrl, title, tree });
+if (verdict) { items.push({ url: item.url, ok: false, code: 'EBLOCKED', blockKind: verdict.kind, alternate: verdict.alternate, timings: t }); return; }
+```
+
+That tree is then reused for the snapshot step rather than fetched twice. Detecting after the
+capture would mean paying for the screenshot of a login wall and then reporting it as a
+successful capture, which is the silent-degradation class this whole layer exists to prevent.
+
+The login-wall password signal is a **string match on the snapshot tree text**
+(`/password|비밀번호/i` plus a textbox marker), NOT a role API: no accessibility role query was
+ever measured on this surface, and inventing one would be exactly the unmeasured-API failure
+the round-1 audit caught.
 
 ### #21 — per-domain circuit breaker
 

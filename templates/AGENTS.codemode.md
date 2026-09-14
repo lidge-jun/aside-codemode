@@ -32,8 +32,25 @@ Do not guess arguments and do not grep the skills tree for them. Ask the sandbox
 making it. `browse.probe()` reports what the installed Aside build will actually do,
 including why an option is refused.
 
+## Two different browsers
+
+`browse.exec` opens its OWN tab in a fresh Aside session. It reuses the account's
+cookies, so a logged-in page works, but it does not see the tab the user is looking at.
+
+`browse.tabs()` lists the user's real open tabs and `browse.attach({ urlIncludes })`
+reads one of them — their session, their current screen, their scroll position. It never
+opens or closes a tab. Attach by `targetId` or `urlIncludes`; the `id` field carries a
+`tab:` prefix that `attachBrowserTab` rejects, and attach strips it for you. Over ssh
+there is usually no focused window, so selecting "the active tab" returns `ENOACTIVE` —
+name the tab instead.
+
+`ok` is not `contentVerified`. A page can load, return its real title, and still hand
+you bootstrap JSON instead of content. Pass `minTextChars` or `requireSelector` when the
+answer depends on what the page actually rendered; without them `contentVerified` is
+`null`, meaning nobody checked, not `true`.
+
 Code is an async function body. Use `await` for tool operations and `return` for
-the answer. Available tools: `browse.probe|exec|captureMany|readText|searchMany|downloadMedia|watch|prefetch`,
+the answer. Available tools: `browse.probe|exec|tabs|attach|captureMany|readText|searchMany|downloadMedia|watch|prefetch`,
 `report.build`, `api.batch`, `recipes.run`, `search.files|content|count`,
 `read_file({path, offset?, limit?})` (1-indexed lines),
 `write_file({file_path, content})` (create-only),

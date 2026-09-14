@@ -9,7 +9,16 @@ import { loadConfig } from '../src/config.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'codemode.mjs');
-const doctor = (args) => JSON.parse(execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8' }));
+// Point the spawned CLI at a config directory that does not exist. Without this the test
+// reads the developer's real ~/.config/codemode/config.json, so enabling browsing on your
+// own machine (register-aside.mjs --browse) turned "browse defaults to off" red locally
+// while CI stayed green. A test whose verdict depends on the machine it runs on is worse
+// than no test.
+const hermetic = {
+  encoding: 'utf8',
+  env: { ...process.env, XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') },
+};
+const doctor = (args) => JSON.parse(execFileSync(process.execPath, [cli, ...args], hermetic));
 
 test('plain --doctor does not carry a browse section', () => {
   assert.equal(doctor(['--doctor']).browse, undefined);
@@ -53,6 +62,6 @@ test('the guest sees a frozen browse namespace and a placeholder report namespac
 
 test('browse.exec refuses while it is disabled instead of half-working', () => {
   const code = "try { await browse.exec({ urls: ['https://a.test'] }); return 'NO THROW'; } catch (e) { return e.code; }";
-  const out = JSON.parse(execFileSync(process.execPath, [cli, '--code', code], { encoding: 'utf8' }));
+  const out = JSON.parse(execFileSync(process.execPath, [cli, '--code', code], hermetic));
   assert.equal(out.result, 'EDISABLED');
 });

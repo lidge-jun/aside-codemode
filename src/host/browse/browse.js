@@ -11,8 +11,10 @@ import { createCache } from './cache.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
 import { createWatch, createRecipes, createPrefetch } from './watch.js';
+import { createAttach } from './attach.js';
 import os from 'node:os';
 import path from 'node:path';
+import { listAccountRoots } from '../../register.js';
 
 export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
   const caps = config.browseCaps || {};
@@ -28,7 +30,10 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   });
   const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker });
   const captureManyImpl = createCaptureMany({ session, assertInside });
-  const accountRoot = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside', 'u', '0');
+  // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
+  // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
+  const asideHome = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside');
+  const accountRoot = resolveAccountRoot(asideHome);
   const cache = createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined });
 
   async function probe() {
@@ -63,10 +68,13 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const prefetchImpl = createPrefetch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
+  const attachImpl = createAttach({ config, session });
 
   return Object.freeze({
     probe,
     exec,
+    tabs: () => attachImpl.tabs(),
+    attach: (o) => attachImpl.attach(o),
     captureMany,
     readText: (url, o) => readTextImpl(url, o),
     downloadMedia: (urls, o) => downloadMediaImpl(urls, o),
@@ -80,3 +88,13 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 }
 
 export { CAPABILITY_MATRIX };
+
+// Exported for the test; a broken accounts.json must never take browsing down with it.
+export function resolveAccountRoot(asideHome) {
+  try {
+    const { roots } = listAccountRoots({ asideHome });
+    const primary = roots.find((r) => r.current) || roots[0];
+    if (primary && primary.root) return primary.root;
+  } catch { /* fall through to the historical default */ }
+  return path.join(asideHome, 'u', '0');
+}

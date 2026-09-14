@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { validateJob } from './schema.js';
 import { compile, deadlineMath } from './script.js';
+import { attachDiff } from './diff.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -288,6 +289,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // Only an item that names a jobId we never issued is an extra. Items with no jobId at
     // all are either the position-matched path or the unreconciled one.
     const extra = items.filter((it) => it && it.jobId && !requested.some((r) => r.jobId === it.jobId));
+    // The comparison the caller asked for. It runs here rather than in the generated script
+    // because it needs no browser and the script's wire budget is already tight.
+    if (job.snapshotAfter === 'diff') for (const it of reconciled) attachDiff(it);
     const orphans = unreconciled ? items.slice() : [];
     if (reconciled.some((i) => i.status === 'unreturned')) partial.push('unreturned');
     if (unreconciled) partial.push('unreconciled');

@@ -303,10 +303,22 @@ export function validateJob(raw, browseCaps = {}) {
   // snapshot.fingerprint from the read that produced the refs. Without it the staleness
   // guard can only compare urls, which does not see a same-url renumbering.
   const refsFingerprint = typeof raw.refsFingerprint === 'string' && raw.refsFingerprint.length ? raw.refsFingerprint : null;
-  if (raw.snapshotAfter !== undefined && typeof raw.snapshotAfter !== 'boolean') {
-    throw new BrowseOptionError('snapshotAfter must be a boolean', 'EBADVAL');
+  // true returns the observation's id. 'diff' also says what changed since arrival, which
+  // costs a second tree parse and a helper on the wire, so it is asked for by name.
+  if (raw.snapshotAfter !== undefined && raw.snapshotAfter !== true && raw.snapshotAfter !== false && raw.snapshotAfter !== 'diff') {
+    throw new BrowseOptionError("snapshotAfter must be true, false or 'diff'", 'EBADVAL');
   }
-  const snapshotAfter = raw.snapshotAfter === true;
+  const snapshotAfter = raw.snapshotAfter === 'diff' ? 'diff' : raw.snapshotAfter === true;
+  // A diff needs both sides, and both sides have to be the same kind of thing. The before
+  // side is the arrival snapshot, so a mode that ships no tree ('bytes') leaves nothing to
+  // compare against and would report the whole page as new.
+  const snapMode = normalizeSnapshot(raw.snapshot);
+  if (snapshotAfter === 'diff' && (snapMode === false || snapMode === 'bytes')) {
+    throw new BrowseOptionError(
+      "snapshotAfter: 'diff' compares against the observation this call arrived at, so it needs snapshot: 'tree' or 'interactive'",
+      'EBADVAL',
+    );
+  }
   // Parsed AFTER actions and the fingerprint, because a ref read is only legal in relation
   // to both: it needs the observation that minted the ref, and it cannot share a call with
   // the steps that would invalidate it.

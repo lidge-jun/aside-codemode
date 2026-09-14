@@ -157,9 +157,18 @@ export const REF_EXTRACT_SRC = String.raw`if (refFields.length) {
 // follow-up ref read on this tab legal, so it is reported rather than assumed. Injected only
 // when asked for, because the generated source is capped at 30000 characters on the wire.
 export const SNAPSHOT_AFTER_SRC = String.raw`try {
-        var sa = summarizeTree(((await snapshot(page)) || {}).tree || '', 'interactive', 200000);
+        var afterTree = ((await snapshot(page)) || {}).tree || '';
+        var sa = summarizeTree(afterTree, 'interactive', 200000);
         // The id a following call passes back as refsFingerprint: the rows AND the document.
         out.snapshotAfter = { snapshotId: sa.fingerprint + '|' + finalUrl, fingerprint: sa.fingerprint, refCount: sa.refCount, url: finalUrl };
+        if (JOB.snapshotAfter === 'diff') {
+          // The comparison runs on the host: it needs no browser, and the wire budget here
+          // is 30000 characters with the action helper alone taking 9.6KB. The before side
+          // is the arrival snapshot the result already carries, so this side is summarised
+          // the same way — comparing a raw tree against a filtered one reports the filter
+          // as a change.
+          out.snapshotAfter.tree = summarizeTree(afterTree, JOB.snapshot, JOB.maxTreeChars || 20000).tree;
+        }
       } catch (e) {
         out.snapshotAfter = { ok: false, code: 'ESNAPSHOT', error: String(e && e.message ? e.message : e).slice(0, 200) };
       }`;
@@ -221,7 +230,7 @@ export function compile(job, plan = null) {
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
-    snapshotAfter: job.snapshotAfter === true,
+    snapshotAfter: job.snapshotAfter === 'diff' ? 'diff' : job.snapshotAfter === true,
     detect: job.detect === false ? null : detectionPatterns(),
   };
   // Function replacers, not string ones. String.prototype.replace interprets $&, $` and

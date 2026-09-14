@@ -129,12 +129,21 @@ and you can say in one sentence what a finished item looks like. A first look at
 page, a single click, a fresh visual judgement, or anything that needs an account or an
 approval stays native — batching those trades a correct answer for a faster wrong one.
 
-When the work does qualify, the cost of doing it by hand is real. Six independent pages read
-and closed, measured over ten alternating pairs on one machine: 8420 ms median one tab at a
-time, 4441 ms median through the batch helper holding two, no failures on either path. That is
-one workload on one machine, and the numbers behind it are in
-[eval/out/independent-reads.jsonl](eval/out/independent-reads.jsonl) rather than summarised out
-of reach.
+When the work does qualify, the cost of doing it by hand is real — but how much depends
+entirely on what there is to batch, and the four workloads measured here batch different
+things. Thirty alternating pairs each, cold and warm, on one machine, with no failed runs:
+
+| work | by hand | batched | what the saving is |
+|---|---|---|---|
+| one known click | 1249 ms | 1244 ms | nothing; it is a tie |
+| find something on a new page | 3257 ms, 3 calls | 1249 ms, 1 call | two fewer page loads |
+| read six independent pages | 8413 ms | 4429 ms | two tabs at once |
+| count matches in six files | 399 ms, 6 calls | 82 ms, 1 call | five fewer processes |
+
+Do not collapse those into one number. A single click gains nothing from batching, and the
+62% on the middle row is the price of opening two more `aside repl` sessions rather than a
+cleverer way to explore: recovering from a wrong selector costs 6 ms. Raw runs are in
+[eval/out](eval/out) rather than summarised out of reach.
 
 A batch result is not a boolean. `completed` means every requested item came back and no tab
 was left open; `partial`, `indeterminate` and `needs_input` are answers too, and each one has

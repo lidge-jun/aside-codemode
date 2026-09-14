@@ -33,7 +33,24 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent']);
+
+// The accessibility tree is already fetched for EVERY page, because block detection reads
+// it. Until now only its length survived. These modes decide how much of it comes back:
+//   bytes       - length only, the historical behaviour
+//   tree        - the whole tree, refs and child frames included
+//   interactive - only the rows you can act on, which is what a ref click needs
+export const SNAPSHOT_MODES = Object.freeze(['bytes', 'tree', 'interactive']);
+
+export function normalizeSnapshot(value) {
+  if (value === undefined || value === null || value === false) return false;
+  if (value === true) return 'bytes';
+  if (typeof value === 'string' && SNAPSHOT_MODES.includes(value)) return value;
+  throw new BrowseOptionError(
+    'snapshot must be true, false, or one of ' + SNAPSHOT_MODES.join(' | '),
+    'EBADOPT',
+  );
+}
 const SHOT_KEYS = Object.freeze(['clip', 'type', 'quality', 'fullPage']);
 const PDF_KEYS = Object.freeze(['paperWidth', 'paperHeight', 'printBackground']);
 
@@ -137,7 +154,8 @@ export function validateJob(raw, browseCaps = {}) {
     timeoutMs,
     waitUntil,
     waitSelector: raw.waitSelector ?? null,
-    snapshot: raw.snapshot === true,
+    snapshot: normalizeSnapshot(raw.snapshot),
+    maxTreeChars: raw.maxTreeChars === undefined ? 20000 : requirePositiveInt('maxTreeChars', raw.maxTreeChars),
     screenshot,
     pdf,
     concurrency,

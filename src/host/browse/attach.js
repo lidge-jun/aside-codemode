@@ -27,6 +27,7 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
+import { TREE_SUMMARY_SRC } from './script.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
 const REQ = __REQ__;
@@ -112,6 +113,16 @@ try {
       };
       row.contentVerified = asked ? reasons.length === 0 : null;
       if (REQ.includeText) row.text = text.slice(0, REQ.maxTextChars || 20000);
+      if (REQ.snapshot) {
+        try {
+          const snap = await snapshot(page);
+          const tree = (snap && snap.tree) || "";
+          row.snapshotBytes = tree.length;
+          if (REQ.snapshot !== "bytes") {
+            row.snapshot = summarizeTree(tree, REQ.snapshot, REQ.maxTreeChars || 20000);
+          }
+        } catch (e) { row.snapshotError = String((e && e.message) || e); }
+      }
       out.rows.push(row);
       out.ok = row.contentVerified !== false;
     }
@@ -123,7 +134,7 @@ console.log(JSON.stringify(out));
 `;
 
 export function compileAttach(req) {
-  return ATTACH_TEMPLATE.replace('__REQ__', JSON.stringify(req));
+  return TREE_SUMMARY_SRC + '\n' + ATTACH_TEMPLATE.replace('__REQ__', JSON.stringify(req));
 }
 
 function disabled(name) {
@@ -195,9 +206,11 @@ export function createAttach({ config = {}, session }) {
         render: page.render || null,
         contentVerified: page.contentVerified ?? null,
         text: page.text,
+        snapshotBytes: page.snapshotBytes ?? null,
+        snapshot: page.snapshot ?? null,
+        snapshotError: page.snapshotError ?? null,
         note: 'attached to an existing tab; it was not closed',
       };
     },
   };
 }
-

@@ -14,6 +14,7 @@ export function validateAttach(input = {}) {
   const known = new Set([
     'targetId', 'urlIncludes', 'titleIncludes',
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
+    'snapshot', 'maxTreeChars',
   ]);
   for (const k of Object.keys(input)) {
     if (!known.has(k)) throw bad('unknown browse.attach option: ' + k);
@@ -42,6 +43,13 @@ export function validateAttach(input = {}) {
   if (selectors.length > 1) {
     throw bad('pick one of targetId, urlIncludes, titleIncludes (got ' + selectors.join(', ') + ')');
   }
+  let snapshot = false;
+  if (input.snapshot !== undefined) {
+    if (input.snapshot === true) snapshot = 'tree';
+    else if (input.snapshot === false) snapshot = false;
+    else if (input.snapshot === 'tree' || input.snapshot === 'interactive' || input.snapshot === 'bytes') snapshot = input.snapshot;
+    else throw bad('snapshot must be true, false, or one of bytes | tree | interactive');
+  }
   return {
     mode: 'attach',
     targetId: str('targetId'),
@@ -52,6 +60,7 @@ export function validateAttach(input = {}) {
     includeText: input.includeText === true,
     maxTextChars: num('maxTextChars', 1, 5000000, 20000),
     sampleChars: num('sampleChars', 1, 20000, 400),
+    snapshot,
+    maxTreeChars: num('maxTreeChars', 1, 5000000, 20000),
   };
 }
-

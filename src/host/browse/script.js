@@ -20,6 +20,45 @@ export function deadlineMath(requestedMs, browseCaps = {}) {
   return { innerMs, hostMs: innerMs + SLACK_MS };
 }
 
+// ONE source of truth for tree summarising: this text is injected into the REPL script and
+// is also evaluated here, so a test exercises the real code instead of grepping a template.
+// Aside's snapshot rows look like:  - link "과제 및 평가" [ref=e21]
+// and a child frame arrives as its own row with an f-prefixed ref, which is why exposing
+// the tree also solves iframe discovery.
+export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, capChars) {
+  var ROW_REF = /\[ref=([^\]]+)\]/;
+  var ROW_ROLE = /^[\s-]*([a-zA-Z][a-zA-Z0-9_-]*)/;
+  var ROW_NAME = /"([^"]*)"/;
+  var ACTIONABLE = /^[\s-]*(link|button|textbox|searchbox|checkbox|radio|combobox|listbox|option|menuitem|menuitemcheckbox|menuitemradio|tab|switch|slider|spinbutton|treeitem|iframe)\b/;
+  var lines = String(tree == null ? '' : tree).split('\n');
+  var kept = [];
+  var refs = [];
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    var m = ROW_REF.exec(line);
+    if (m) {
+      var rr = ROW_ROLE.exec(line);
+      var nn = ROW_NAME.exec(line);
+      refs.push({ ref: m[1], role: rr ? rr[1] : null, name: nn ? nn[1] : null, actionable: ACTIONABLE.test(line) });
+    }
+    if (mode === 'tree') { kept.push(line); }
+    else if (m && ACTIONABLE.test(line)) { kept.push(line.replace(/^\s+/, '')); }
+  }
+  var body = kept.join('\n');
+  var cap = capChars > 0 ? capChars : 20000;
+  return {
+    mode: mode,
+    chars: body.length,
+    truncated: body.length > cap,
+    tree: body.slice(0, cap),
+    refCount: refs.length,
+    refs: refs.slice(0, 500),
+    refsTruncated: refs.length > 500
+  };
+}`;
+
+export const summarizeTree = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
+
 export function compile(job, plan = null) {
   const items = plan && plan.length
     ? plan
@@ -30,6 +69,7 @@ export function compile(job, plan = null) {
     concurrency: job.concurrency,
     waitUntil: job.waitUntil,
     snapshot: job.snapshot,
+    maxTreeChars: job.maxTreeChars || 20000,
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
@@ -38,12 +78,15 @@ export function compile(job, plan = null) {
     extract: job.extract || null,
     detect: job.detect === false ? null : detectionPatterns(),
   };
-  return TEMPLATE.replace('__JOB__', JSON.stringify(payload));
+  return TEMPLATE
+    .replace('__JOB__', JSON.stringify(payload))
+    .replace('/*__TREE_SUMMARY__*/', TREE_SUMMARY_SRC);
 }
 
 // Kept as one string so a test can evaluate it with fake globals instead of grepping it.
 const TEMPLATE = `"use strict";
 const JOB = __JOB__;
+/*__TREE_SUMMARY__*/
 const opened = [];
 const pending = [];
 const items = [];
@@ -223,7 +266,16 @@ async function one(item) {
         return { data, missing };
       }, JOB.extract);
     }
-    if (JOB.snapshot) { out.snapshotBytes = tree.length; t.snapshot = lap(); }
+    if (JOB.snapshot) {
+      out.snapshotBytes = tree.length;
+      if (JOB.snapshot !== 'bytes') {
+        // The tree above is the real Aside accessibility snapshot and it already contains
+        // the child frames, which is why a frame arrives as its own [ref=fNN] row. Shipping
+        // it was refused on token grounds; 'interactive' answers that instead of silence.
+        out.snapshot = summarizeTree(tree, JOB.snapshot, JOB.maxTreeChars || 20000);
+      }
+      t.snapshot = lap();
+    }
     if (JOB.screenshot) {
       const buf = await page.screenshot(JOB.screenshot);
       out.capture.requested.screenshot = JOB.screenshot;

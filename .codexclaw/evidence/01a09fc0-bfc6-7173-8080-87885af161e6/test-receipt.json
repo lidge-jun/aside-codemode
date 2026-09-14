@@ -1,0 +1,14 @@
+{
+  "kind": "test",
+  "sourceIdentity": {
+    "kind": "resolved",
+    "commitSha": "444b9636492bf19ceab7963a5185e6f71d8b534c",
+    "dirty": false,
+    "capturedAt": "2026-09-14T20:07:12.776Z"
+  },
+  "command": "node --test test/eval-paired-run.test.js test/eval-report.test.js test/readme-51x.test.js test/register.test.js test/install-manifest.test.js test/install-paths.test.js test/helper-bundle.test.js test/helper-contract.test.js",
+  "exitCode": 0,
+  "createdAt": "2026-09-14T20:07:12.798Z",
+  "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
+  "checkEpoch": "c-20260914200707-7fff01"
+}

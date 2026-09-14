@@ -9,7 +9,8 @@
 **F1 capture 인덱스 조인 — 재현.** `src/host/browse/capture.js:65-71`이 `res.items[i]`를 `names[i]`에 묶는다.
 `src/host/browse/script.js:498-502`의 워커 풀은 `queue.shift()`로 돌고 `items.push`는 완료 시점이라 순서가 입력과 다르다.
 기본 concurrency는 4다. 반례: `urls=[A,B]`에서 B가 먼저 끝나면 B의 결과에 A의 파일명이 붙는다.
-`urls=[A,A]`면 URL로도 교환을 감지할 수 없다. 호스트가 이미 `artifactName`을 plan에 넣는데(capture.js:20) 조인에 쓰지 않는다.
+`urls=[A,A]`면 URL로도 교환을 감지할 수 없다. 호스트는 이미 이름을 발급해 plan에 주입한다
+(`capture.js:56`이 `artifactNames: names`로 넘기고 `session.js:107`이 `artifactName: names[i]`로 심는다)。 조인에 쓰지 않을 뿐이다.
 커버: `test/browse-capture.test.js`(현재 조인 케이스 없음).
 
 **F2 session 전체 성공 판정 — 재현.** `src/host/browse/session.js:171-183`의
@@ -21,11 +22,12 @@
 
 **F3 timeout과 실제 취소 — 재현.** `actions-run.js:36-49`의 `__withTimeout`은 `Promise.race`이고 native promise를 abort하지 않는다.
 기록은 `ok:false` + `ESTEPTIMEOUT`/`EDEADLINE`뿐이라 클릭이 커밋됐는지 알 수 없다.
-`spawn.js:40`은 host 시간이 끝나면 SIGKILL만 하고 `{stdout,stderr,exitCode,killed}`를 돌려준다.
+`spawn.js:40-63`은 host 시간이 끝나면 `killTree` 또는 SIGKILL로 중단하고 `{stdout,stderr,exitCode,killed}`를 돌려준다(반환은 63행).
 같은 step 자동 재시도 루프는 없다(브레이커는 skip이지 retry가 아니다). 즉 "재시도 금지"는 유지되고, 빠진 것은 상태 기록이다.
 커버: `test/browse-actions.test.js` + 신규 `test/browse-effect-state.test.js`.
 
-**F4 탭 회계 — 부분완화.** `00992f8`의 intent 카운터(`script.js:258-271`)는 open reject와 close throw를 반영한다.
+**F4 탭 회계 — 부분완화.** `00992f8`의 intent 카운터는 open 경로(`script.js:258-271`)에서 요청 시점에 세고 reject를 환불한다.
+close 쪽은 `script.js:494`의 `markClosed`이고, throw한 close는 카운터를 올리지 못한 채 빠진다.
 남은 구멍 둘: (1) `script.js:494`의 `withCap(page.close(), 1500)`은 hang일 때 throw하지 않고 `__capped__`로 resolve하므로
 `markClosed`가 실행되어 닫히지 않은 탭이 닫힌 것으로 세어진다. (2) `script.js:511-515`에서 pending open의 `allSettled`가 cap되면
 이미 열린 탭의 close 루프 전체가 스킵되고, cap된 in-flight open은 `opened[]`에 없어 `leakedUrls`에도 안 실린다.
@@ -69,7 +71,8 @@ browse는 카탈로그(`actions-schema.js`)와 런타임(`schema.js`, `attach-sc
 
 ## 설계 입력 (architect A1–A4, 채택 여부는 010이 기록)
 
-- **A1** 식별자는 호스트가 발행한다. `session.js:92`의 plan 조립이 이미 `artifactName`/`pdfName`을 만든다.
+- **A1** 식별자는 호스트가 발행한다. plan 조립은 `session.js:104-114`이고 거기서 이미 `artifactName`/`pdfName`을 심는다
+  (92행은 `validateJob` 호출이다).
   `runId` 1회, 요청마다 `jobId`, 효과마다 `operationId`. 스크립트는 받은 id를 메아리만 한다.
   근거: host-kill 경로(`session.js:138`)는 final 없이 `urls`로 가짜 item을 만들므로 id가 스크립트 전용이면 그 경로가 공백이 된다.
 - **A2** 요청-반환 대조는 `session.js`에 두고 키는 `jobId`다. URL 키는 중복 URL에서 붕괴한다.

@@ -22,7 +22,9 @@ Aside code-mode의 배치 실행 계층을 "정답·출처·부작용 상태를 
 - Loop archetype: verifier-defined. 각 work-phase는 먼저 실패하는 테스트를 만들고 그것을 통과시킨다.
 - Write scope: `src/**`, `test/**`, `templates/**`, `scripts/**`, `README*.md`, `devlog/_plan/260914_release-gates/**`.
 - Out of scope: `main` 병합, 태그, npm publish, macmini 배포, 사용자 금고/실제 계정 로그인/캡차 실해결,
-  Aside 앱 설정 변경, `skills/builtin` 덮어쓰기, 다른 리포.
+  Aside 앱 환경설정 변경, `skills/builtin` 덮어쓰기, 다른 리포.
+  예외 하나: wp9 설치기는 `~/.aside/u/<id>/` 아래 **우리 manifest가 소유한 파일과 관리 AGENTS 블록**만 쓴다.
+  범위와 소유 파일 목록은 [080](080_wp9_packaging.md)이 고정한다. 앱 환경설정과 계정 자격은 여전히 범위 밖이다.
 - 증거: 정확한 head의 hosted CI(5조합) + 변경 범위의 개별 테스트 + mac/`ssh mini` 실제 `aside repl` 프로브.
 - 도구·자격 범위: 로컬 git(브랜치 `codex/release-gates`), `gh`(읽기와 브랜치 푸시), `ssh mini`(읽기·프로브),
   `aside repl`(공개 페이지와 로컬 fixture만). 사용자 금고와 실계정 로그인은 사용하지 않는다.
@@ -33,7 +35,7 @@ Aside code-mode의 배치 실행 계층을 "정답·출처·부작용 상태를 
 | WP | Doc | Slice | Depends on |
 |----|-----|-------|------------|
 | wp1 | 000/001 | 재감사와 로드맵 고정 (코드 변경 없음) | - |
-| wp2 | [010](010_wp2_result_contract.md) | 결과 계약 코어: runId/jobId/operationId, 요청 원장, status 5종 | wp1 |
+| wp2 | [010](010_wp2_result_contract.md) | 결과 계약 코어: runId/jobId, 요청 원장, run status와 effects 슬롯 | wp1 |
 | wp3 | [020](020_wp3_capture_provenance.md) | capture 출처-산출물 조인과 부분 완료 표기 | wp2 |
 | wp4 | [030](030_wp4_effect_lifecycle.md) | 부작용 수명: started/confirmed/indeterminate, 탭 hang 회계 | wp2 |
 | wp5 | [040](040_wp5_ref_read_contract.md) | ref 읽기 계약(wp2b)과 attach 체이닝 | wp2 |
@@ -53,7 +55,8 @@ wp5의 읽기 계약이 wp6 diff의 전제이며, 실행 계층이 정직해진 
 - c-3 capture가 역순 완료와 중복 URL에서도 출처와 이미지를 정확히 연결한다 (wp3)
 - c-4 session이 요청 ID와 반환 ID를 대조하고 누락을 partial로 표기한다 (wp2)
 - c-5 timeout 뒤 native 동작이 started/indeterminate로 기록되고 자동 재시도가 없다 (wp4)
-- c-6 탭 예산이 진행 중 open 예약과 close 실패/hang에서도 peak <= maxTabs를 지킨다 (wp4)
+- c-6 탭 예산이 진행 중 open 예약과 close 실패/hang에서도 지켜진다. 카운터의 `peak <= maxTabs`뿐 아니라
+  **스텁이 실제로 보유한 열린 탭 수**와 `leakedUrls`로 단언한다. 카운터만 맞고 탭이 남는 경우를 통과로 세지 않는다 (wp4)
 - c-7 액션 뒤 새 관찰의 ref 읽기는 허용되고 이전 관찰의 ref 재사용만 거절된다 (wp5)
 - c-8 diff가 체크/선택 상태와 주요 본문 변경을 보존하고 navigation에는 reset을 반환한다 (wp6)
 - c-9 readText가 실제 본문을 반환하고 HTTP 오류와 차단을 정상 관측으로 저장하지 않는다 (wp7)

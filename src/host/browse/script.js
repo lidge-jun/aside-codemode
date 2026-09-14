@@ -3,11 +3,11 @@
 // The generated script is the ONLY place tabs are owned, because a killed CLI leaks its
 // tabs permanently and no later session can close them (001 E5). So the script must always
 // finish under its OWN timer: inner deadline first, host deadline second.
-import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS } from './schema.js';
+import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS, SLACK_MS } from './schema.js';
 import { detectionPatterns } from './policy.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 
-export const SLACK_MS = 1500;
+export { SLACK_MS };
 
 // inner < host, always. The host is the patient one; if it fires first the script never
 // ran its cleanup and the tabs are gone for good.
@@ -108,6 +108,13 @@ export function compile(job, plan = null) {
     allowStaleRefs: job.allowStaleRefs === true,
     refsFingerprint: job.refsFingerprint || null,
     actionBudgetMs: job.actionBudgetMs || null,
+    maxTabs: job.maxTabs,
+    slackMs: job.slackMs,
+    // Absolute, computed HOST side. The script's own clock starts after Aside boots and
+    // parses, which is later than the instant the host deadline started at spawn, so a
+    // budget the script re-derives from its own start believes in time it does not have.
+    // Compiling before spawn makes this strictly conservative.
+    hostDeadlineAt: Date.now() + deadlineMath(job.timeoutMs).hostMs,
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
@@ -154,12 +161,35 @@ function actionDeadlineNow() {
 const opened = [];
 const pending = [];
 const items = [];
+// Tabs are counted at INTENT, not at success. owned() is read and tabsRequested
+// incremented in the SAME synchronous run just before openTab; run-to-completion then
+// guarantees a worker resuming from a wait increments before any other worker resumes.
+// NEVER introduce an await between that check and that increment - it is the whole proof.
+let tabsRequested = 0;
+let tabsClosed = 0;
+let tabsPeak = 0;
+function owned() { return tabsRequested - tabsClosed; }
+function napMs(ms) { return (typeof sleep === 'function' ? sleep(ms) : new Promise((r) => setTimeout(r, ms))); }
+function withCap(p, ms) {
+  let t = null;
+  const clear = () => { if (t !== null && typeof clearTimeout === 'function') clearTimeout(t); };
+  return Promise.race([
+    Promise.resolve().then(() => p),
+    new Promise((res) => { t = setTimeout(() => res('__capped__'), ms); }),
+  ]).then((v) => { clear(); return v; }, (e) => { clear(); throw e; });
+}
 // Every step that actually ran, recorded the moment it ran. items[] is only pushed after
 // extract and capture, so a deadline between the two used to erase the evidence that a live
 // page had been clicked. This survives that.
 const actionLog = [];
 let deadlineHit = false;
-function markClosed(rec) { rec.closed = true; }
+// Idempotent: it carries a counter now, so the invariant lives with the counter rather
+// than with every call site remembering to check rec.closed first.
+function markClosed(rec) {
+  if (rec.closed) return;
+  rec.closed = true;
+  tabsClosed += 1;
+}
 const RX = JOB.detect ? {
   captcha: new RegExp(JOB.detect.captcha, 'i'),
   hardBlock: new RegExp(JOB.detect.hardBlock, 'i'),
@@ -187,16 +217,39 @@ async function one(item) {
   let out_render = null;
   let mark = Date.now();
   const lap = () => { const d = Date.now() - mark; mark = Date.now(); return d; };
-  const pr = openTab(item.url);
+  // The single throttle point. Bounded by this item's own deadline rather than a slice
+  // count: a fixed one-second ceiling was an order of magnitude below a measured 2143ms
+  // click, so maxTabs 1 refused nearly the whole batch while most of innerMs remained.
+  const tabWaitUntil = Math.min(ACTION_HARD_STOP_AT, Date.now() + (item.timeoutMs || JOB.innerMs));
+  while (owned() >= JOB.maxTabs && !deadlineHit && Date.now() < tabWaitUntil) {
+    await napMs(50);
+  }
+  if (owned() >= JOB.maxTabs) {
+    items.push({ url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
+    return;
+  }
+  let pr;
+  try {
+    // Increment and call in one synchronous run, inside the try: openTab can throw
+    // synchronously, and an increment outside would leave the count permanently high.
+    tabsRequested += 1;
+    pr = openTab(item.url);
+  } catch (e) {
+    tabsRequested -= 1;
+    items.push({ url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    return;
+  }
   pending.push({ url: item.url, pr });
   let page;
   try {
     page = await pr;
   } catch (e) {
-    // One url that cannot even open must not take the batch down with it.
+    // A request that never became a tab must give its slot back, or the pool wedges.
+    tabsRequested -= 1;
     items.push({ url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
+  if (owned() > tabsPeak) tabsPeak = owned();
   t.navigate = lap();
   const rec = { targetId: page && page.targetId, url: item.url, page, closed: false };
   opened.push(rec);
@@ -413,7 +466,9 @@ async function one(item) {
   } catch (e) {
     items.push({ url: item.url, ok: false, error: String(e && e.message ? e.message : e), timings: t });
   } finally {
-    try { await page.close(); markClosed(rec); } catch (_) {}
+    // A close that HANGS used to cost this worker for the rest of the run, with its queued
+    // urls silently never attempted. Capped so the worker returns to the pool.
+    try { await withCap(page.close(), 1500); markClosed(rec); } catch (_) {}
   }
 }
 async function main() {
@@ -426,14 +481,29 @@ async function main() {
   await Promise.all(workers);
 }
 async function cleanup() {
-  const settled = await Promise.allSettled(pending.map((x) => x.pr));
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i];
-    if (s.status !== 'fulfilled' || !s.value) continue;
-    const page = s.value;
-    let rec = opened.find((o) => o.page === page);
-    if (!rec) { rec = { targetId: page.targetId, url: pending[i].url, page, closed: false }; opened.push(rec); }
-    if (!rec.closed) { try { await page.close(); markClosed(rec); } catch (_) {} }
+  // ONE budget, started here, covering the pending await as well as the closes. That await
+  // is unbounded and comes FIRST, so a tab that never finishes opening used to block
+  // cleanup past the host deadline and lose the final payload - the exact failure this
+  // budget exists to prevent. 400ms is held back for stringify and the stdout write.
+  const budget = Math.max(250, JOB.hostDeadlineAt - Date.now() - 400);
+  const deadline = Date.now() + budget;
+  const left = () => Math.max(1, deadline - Date.now());
+  const settled = await withCap(Promise.allSettled(pending.map((x) => x.pr)), left());
+  if (settled !== '__capped__') {
+    const closes = [];
+    for (let i = 0; i < settled.length; i++) {
+      const s = settled[i];
+      if (s.status !== 'fulfilled' || !s.value) continue;
+      const page = s.value;
+      let rec = opened.find((o) => o.page === page);
+      if (!rec) { rec = { targetId: page.targetId, url: pending[i].url, page, closed: false }; opened.push(rec); }
+      if (rec.closed) continue;
+      const r = rec;
+      closes.push(Promise.resolve().then(() => page.close()).then(() => markClosed(r), () => {}));
+    }
+    // Concurrently, under the SAME budget. One timeout per tab multiplied out to sixteen
+    // seconds against 1500ms of host slack and lost the payload it was added to save.
+    await withCap(Promise.allSettled(closes), left());
   }
   return opened.filter((o) => !o.closed).map((o) => o.url);
 }
@@ -441,5 +511,8 @@ const timer = (typeof sleep === 'function' ? sleep(JOB.innerMs) : new Promise((r
 try { await Promise.race([main(), timer]); }
 finally {
   const leakedUrls = await cleanup();
-  console.log(JSON.stringify({ type: 'final', pwd: String(pwd), items, actionLog, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
+  // Counters are as of THIS instant. A close that resolves after the cleanup budget still
+  // runs markClosed, so a late close can drift them by one; that is stated, not hidden.
+  const tabs = { requested: tabsRequested, closed: tabsClosed, peak: tabsPeak, max: JOB.maxTabs, leaked: leakedUrls.length, asOfPrint: true };
+  console.log(JSON.stringify({ type: 'final', pwd: String(pwd), items, actionLog, tabs, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
 }`;

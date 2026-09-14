@@ -44,8 +44,8 @@ function __withTimeout(promise, ms, label) {
     }, ms);
   });
   return Promise.race([promise, guard]).then(
-    function (v) { if (timer) clearTimeout(timer); return v; },
-    function (e) { if (timer) clearTimeout(timer); throw e; }
+    function (v) { if (timer !== null && typeof clearTimeout === 'function') clearTimeout(timer); return v; },
+    function (e) { if (timer !== null && typeof clearTimeout === 'function') clearTimeout(timer); throw e; }
   );
 }
 // Steps that cannot change the tree. Everything else marks it dirty, including the page
@@ -126,7 +126,6 @@ async function runActions(page, steps, ctx) {
   var probeMs = cfg.guardTimeoutMs || 5000;
   // The tree is clean until something that could change it has run.
   var dirty = false;
-  var verifiedClean = false;
   var guardAt = null;
   function budgetLeft() { return deadlineAt - Date.now(); }
   function readUrl() {
@@ -136,8 +135,6 @@ async function runActions(page, steps, ctx) {
   async function guardRefStep(rec) {
     if (canFingerprint) {
       rec.refGuard = 'fingerprint';
-      // Only pay for a snapshot when something could actually have moved.
-      if (verifiedClean && !dirty) return true;
       var got = null;
       try {
         got = await __withTimeout(Promise.resolve().then(function () { return cfg.fingerprintOf(page); }),
@@ -159,7 +156,6 @@ async function runActions(page, steps, ctx) {
           + ' stable refs is invisible to it, so do not use it to click anything destructive';
         return false;
       }
-      verifiedClean = true;
       dirty = false;
       guardAt = Date.now();
       return true;

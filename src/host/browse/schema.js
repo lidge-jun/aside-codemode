@@ -12,6 +12,7 @@
 
 export const ASIDE_REPL_CAP_MS = 120000;
 export const DEFAULT_INNER_CAP_MS = 25000;
+export const SLACK_MS = 1500;
 export const A4_INCHES = { paperWidth: 210 / 25.4, paperHeight: 297 / 25.4 };
 
 export const UNSUPPORTED = Object.freeze({
@@ -288,6 +289,10 @@ export function validateJob(raw, browseCaps = {}) {
     // guard can only compare urls, which does not see a same-url renumbering.
     refsFingerprint: typeof raw.refsFingerprint === 'string' && raw.refsFingerprint.length ? raw.refsFingerprint : null,
     actionBudgetMs: raw.actionBudgetMs === undefined ? null : requirePositiveInt('actionBudgetMs', raw.actionBudgetMs),
+    // Concurrent owned tabs. The pool bounds workers, not tabs: a close that throws leaves
+    // the tab open and the worker opens another, so the ceiling has to be counted.
+    maxTabs: Number.isSafeInteger(browseCaps.maxTabs) && browseCaps.maxTabs > 0 ? browseCaps.maxTabs : 8,
+    slackMs: SLACK_MS,
     screenshot,
     pdf,
     concurrency,

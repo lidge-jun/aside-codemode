@@ -511,7 +511,70 @@ A named wrapper over the existing one-session batch, with per-item artifacts:
    text-to-markup ratio is dropped for the same reason: a chrome-heavy article page is
    markup-dense and still perfectly readable.
 
-   The decision and its reason are reported as `source: 'fetch' | 'browser'` and
-   `fallbackReason`, so a caller can tell which path answered and why.
+  The decision and its reason are reported as `source: 'fetch' | 'browser'` and
+  `fallbackReason`, so a caller can tell which path answered and why.
+
+## C11 — wp5 spec: adapters, extraction, snapshot cache, waits, reports
+
+Closes #18, #10, #14, #11, #22.
+
+### #18 — `api.batch`, only where an API actually exists
+
+The issue names YouTube, iTunes, Play and Slack. Two of those have no honest public path,
+and pretending otherwise would ship a stub that fails at the first real call:
+
+| Adapter | Path | Status |
+| --- | --- | --- |
+| youtube | `https://www.youtube.com/oembed?url=...&format=json` | public, no key |
+| itunes | `https://itunes.apple.com/search?term=...` | public, no key |
+| play | none without scraping or a Play Developer key | **ENOTSUP**, with the reason |
+| slack | every useful endpoint needs a bot token | **ENOTSUP**, points at authenticated exec |
+
+`api.batch([{ adapter, ... }])` runs them in parallel with per-item isolation, same envelope
+shape as browse. An unknown adapter name is `EBADOPT` with the valid list.
+
+### #10 — `browse.extract(url, schema)`
+
+Schema is `{ field: selectorSpec }` where a spec is `'css'` or
+`{ selector, attr?, all?, trim? }`. The compiled script runs ONE `page.evaluate` that walks
+the schema and returns typed JSON. No snapshot tree is emitted, which is the token saving
+the issue is actually about. A missing field is `null` plus a `missing[]` list, never a
+silent empty string — a caller has to be able to tell absent from empty.
+
+### #14 — snapshot cache and compact mode
+
+Measured: `snapshot(page)` returns `{tree, refs, diff}`; a repeat call gave a 20-char diff
+against a 289-char tree. So the win is real but only on revisit.
+
+- `src/host/browse/snapshot-cache.js`: file-backed under `os.tmpdir()/codemode-browse-cache`,
+  keyed by a hash of url + viewport + roles + schema version, with a TTL.
+- Compact mode filters tree lines to requested roles before returning.
+- On a hit the caller gets `{ cached: true, diff }`; on a miss the full tree.
+- It is a cooperating-process cache, NOT a security boundary — same standing as the file
+  locks in `src/host/file-lock.js`.
+
+### #11 — wait strategy only, blocking refused in writing
+
+Per-domain waits already land through `browseCaps.domainTimeouts` and `waitSelector`. wp5
+adds `browseCaps.domainWaits = { host: selector }` so a known site waits for the element
+that matters instead of a generic load state.
+
+Resource blocking stays refused and the refusal is recorded in the code, not just the plan:
+`page.route` does not exist and `page.on('request')` delivered zero events across a full
+navigation. There is no interception surface to wrap, so a blocking option throws `ENOTSUP`
+naming that measurement.
+
+### #22 — `report.build`, verified against the real page box
+
+`file://` is refused by Aside, so the assembled HTML is served over loopback:
+
+1. `src/host/report/html.js` assembles a paged HTML document from items and artifacts.
+2. `src/host/report/serve.js` binds a `node:http` server on `127.0.0.1:0` (ephemeral port),
+   serving exactly one document and the images it references, then closes.
+3. The browse session navigates to that URL and calls `page.pdf({ paperWidth, paperHeight })`
+   in INCHES — never `format`, which was measured to yield US Letter.
+4. `pagebox.verifyPageBox` reads the real MediaBox. A mismatch fails the item.
+
+A file that exists is not a report of the requested size; the check is the deliverable.
 
 A `file:` url is refused up front, matching E7.

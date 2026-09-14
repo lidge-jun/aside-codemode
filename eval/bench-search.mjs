@@ -197,7 +197,6 @@ try {
     afterMeta = { argv: after.argv, code: after.code };
     const equal = JSON.stringify(sortKeys(base.rows)) === JSON.stringify(sortKeys(after.rows));
     if (!equal) equality = false;
-    matchCount = after.rows.length;
     runs.push({ baselineMs: base.baselineMs, afterMs: after.afterMs, equal, matchCount: after.rows.length });
   }
 } finally {

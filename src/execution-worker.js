@@ -47,13 +47,13 @@ function syncRpc(name, args) {
   if (message.error) throw Object.assign(new Error(message.error.error), message.error);
   return message.value;
 }
-const injected = { search: {}, fs: {}, actions: {}, browse: {}, report: {}, api: {} };
+const injected = { search: {}, fs: {}, actions: {}, browse: {}, report: {}, api: {}, recipes: {} };
 for (const name of manifest) {
   const [root, method] = name.split('.');
   if (method) injected[root][method] = (...args) => root === 'actions' ? syncRpc(name, args) : rpc(name, args);
   else injected[root] = (...args) => rpc(name, args);
 }
-for (const key of ['search', 'fs', 'actions', 'browse', 'report', 'api']) Object.freeze(injected[key]);
+for (const key of ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes']) Object.freeze(injected[key]);
 const logs = [];
 let logBytes = 2;
 let logsTruncated = false;

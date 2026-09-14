@@ -145,5 +145,26 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     };
   }
 
-  return Object.freeze({ run, innerCapMs: (caps) => deadlineMath(undefined, caps || {}).innerMs });
+  // Escape hatch for the Aside service globals (youtube.search, googleSearch.search) which
+  // are not page operations and do not fit the url-batch job shape. Still one spawn, still
+  // marker-judged, still never trusting the exit code.
+  async function raw(replSource, opts = {}) {
+    const effective = opts.signal || signal;
+    if (effective && effective.aborted) { const e = new Error('browse cancelled'); e.code = 'ECANCELLED'; throw e; }
+    const bin = await resolveAside();
+    const child = await spawnAside(bin, ['repl', replSource], { hostMs: opts.hostMs || 30000, signal: effective });
+    const stdout = String(child && child.stdout !== undefined ? child.stdout : '');
+    const { marker } = parseMarker(stdout);
+    const final = parseFinal(stdout);
+    if (marker !== 'ok') {
+      // Return the WHOLE transcript, not its tail. Slicing to the last 500 characters
+      // captured a stack-trace tail and hid the actual message, which turned a detectable
+      // bot challenge into a generic upstream failure.
+      const text = stripAnsi(stdout).trim();
+      return { error: text || 'the run produced no marker', rows: [] };
+    }
+    return { rows: (final && final.rows) || [], raw: { stdout, marker } };
+  }
+
+  return Object.freeze({ run, raw, innerCapMs: (caps) => deadlineMath(undefined, caps || {}).innerMs });
 }

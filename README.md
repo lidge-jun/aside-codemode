@@ -60,6 +60,11 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |
 | `api.batch(requests)` | Parallel API-first lookups. `youtube` and `itunes` are public no-key endpoints; `play` and `slack` refuse with `ENOTSUP` and the reason, because neither has an honest public path |
 | `report.build({ items, outFile })` | Assembles a paged HTML report, prints it over an ephemeral loopback origin (`file://` is refused by Aside), and **verifies the real MediaBox**. `pdf({format:'A4'})` was measured to yield US Letter, so the size is proven rather than requested |
+| `browse.searchMany(queries, { engine })` | N queries in parallel, URL-deduped, date-filtered. `youtube` works; `google` is callable but answers with a bot challenge, so it returns `EBLOCKED` with the URL to open rather than an empty result set; `duckduckgo` is the no-key default and gets the same challenge detection |
+| `browse.downloadMedia(urls, { outDir })` | Original images by direct fetch. The **magic bytes gate the write**, so a block page claiming `image/png` is refused instead of landing on disk as a `.png` |
+| `browse.watch(urls)` | Per-URL text hash. An unchanged URL returns `changed:false` with no body; first sight is `first:true` so it is never mistaken for a change |
+| `recipes.list / describe / run` | Site recipes as **data** (`{ url, waitSelector, extract }`), executed with no model turn. A `.js` recipe is refused: host-loaded code would bypass the guest sandbox |
+| `browse.prefetch(urls)` | Best-effort cache warm-up. Failures are reported, never thrown — a warm-up that breaks the real run is worse than a cold cache |
 
 **Browsing is opt-in and honest about what Aside cannot do.** `page.route`, screenshot
 `maxWidth`, `pdf({format:'A4'})`, `file://` URLs and `networkidle` all throw `ENOTSUP` before

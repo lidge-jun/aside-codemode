@@ -7,6 +7,12 @@ import { createAsideSpawner } from './spawn.js';
 import { createBreaker } from './policy.js';
 import { createCaptureMany } from './capture.js';
 import { createReadText } from './read-text.js';
+import { createCache } from './cache.js';
+import { createDownloadMedia } from './media.js';
+import { createSearchMany } from './search.js';
+import { createWatch, createRecipes, createPrefetch } from './watch.js';
+import os from 'node:os';
+import path from 'node:path';
 
 export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
   const caps = config.browseCaps || {};
@@ -22,6 +28,8 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   });
   const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker });
   const captureManyImpl = createCaptureMany({ session, assertInside });
+  const accountRoot = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside', 'u', '0');
+  const cache = createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined });
 
   async function probe() {
     let resolved = null;
@@ -50,8 +58,25 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   // fetch-first: no browser unless the fetched HTML measurably is not the content.
   const readTextImpl = createReadText({ browse: caps.enabled === true ? { exec } : null });
+  const downloadMediaImpl = createDownloadMedia({ assertInside });
+  const searchManyImpl = createSearchMany({ session, cache, accountRoot });
+  const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
+  const prefetchImpl = createPrefetch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
+  const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
 
-  return Object.freeze({ probe, exec, captureMany, readText: (url, o) => readTextImpl(url, o) });
+  return Object.freeze({
+    probe,
+    exec,
+    captureMany,
+    readText: (url, o) => readTextImpl(url, o),
+    downloadMedia: (urls, o) => downloadMediaImpl(urls, o),
+    searchMany: (queries, o) => searchManyImpl(queries, o),
+    watch: (urls, o) => watchImpl(urls, o),
+    prefetch: (urls, o) => prefetchImpl(urls, o),
+    // recipesImpl is exposed as its OWN root, not browse.recipes: hostMethods walks one
+    // level only, so a nested object would silently never register.
+    _recipes: recipesImpl,
+  });
 }
 
 export { CAPABILITY_MATRIX };

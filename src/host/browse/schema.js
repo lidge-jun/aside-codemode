@@ -62,7 +62,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -309,6 +309,11 @@ export function validateJob(raw, browseCaps = {}) {
     throw new BrowseOptionError("snapshotAfter must be true, false or 'diff'", 'EBADVAL');
   }
   const snapshotAfter = raw.snapshotAfter === 'diff' ? 'diff' : raw.snapshotAfter === true;
+  // The rendered body, asked for by name. Without it the only text a batch returns is the
+  // 160-character sample the render check keeps, and a summary is not an article.
+  if (raw.fullText !== undefined && typeof raw.fullText !== 'boolean') {
+    throw new BrowseOptionError('fullText must be a boolean', 'EBADVAL');
+  }
   // A diff needs both sides, and both sides have to be the same kind of thing. The before
   // side is the arrival snapshot, so a mode that ships no tree ('bytes') leaves nothing to
   // compare against and would report the whole page as new.
@@ -338,6 +343,8 @@ export function validateJob(raw, browseCaps = {}) {
     // Ask for the observation the actions left behind. Its fingerprint is what makes a
     // follow-up ref read on the same tab legal.
     snapshotAfter,
+    fullText: raw.fullText === true,
+    maxTextChars: raw.maxTextChars === undefined ? 200000 : requirePositiveInt('maxTextChars', raw.maxTextChars),
     actionBudgetMs: raw.actionBudgetMs === undefined ? null : requirePositiveInt('actionBudgetMs', raw.actionBudgetMs),
     // Concurrent owned tabs. The pool bounds workers, not tabs: a close that throws leaves
     // the tab open and the worker opens another, so the ceiling has to be counted.

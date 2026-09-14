@@ -103,7 +103,9 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
   }
 
   async function one(query, engine, since) {
-    const keyParts = { namespace: 'search', subject: query, engine, accountRoot };
+    // since belongs in the key. Without it a search filtered to the last week answered a
+    // later unfiltered search from the same entry, and the rows it had dropped stayed dropped.
+    const keyParts = { namespace: 'search', subject: query, engine, accountRoot, since: since || null };
     if (cache) {
       const hit = await cache.get(keyParts);
       if (hit.hit) return { query, engine, ok: true, cached: true, ...hit.value };

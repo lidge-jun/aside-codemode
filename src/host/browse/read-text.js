@@ -8,6 +8,9 @@
 // chrome-heavy article page is markup-dense and still perfectly readable.
 
 export const MIN_USEFUL_CHARS = 200;
+// A login wall renders perfectly and answers nothing we asked for. policy.detect is the one
+// place that names those pages, so readText asks it rather than growing its own guess.
+import { detect } from './policy.js';
 // An app shell is markup-heavy and text-poor. A genuinely short page is BOTH text-poor and
 // markup-poor, and must not be sent to a browser: example.com extracts 167 useful characters
 // from a handful of elements and is complete content. Testing only the character count
@@ -74,7 +77,7 @@ export function needsBrowser(html, extracted) {
   return { needed: false, reason: null };
 }
 
-export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000 } = {}) {
+export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, cache = null, accountRoot = '' } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   return async function readText(url, opts = {}) {
     if (typeof url !== 'string' || !url) {
@@ -96,12 +99,26 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000 } =
     let html = '';
     let status = null;
     let fetchError = null;
+    let fetched = null;
+    // A warm entry is only worth reusing if it was a real observation. Failures are not
+    // cached at all, so a hit is always something we were willing to call an answer.
+    const cacheKeyParts = { namespace: 'readText', subject: url, accountRoot, locale: opts.locale || null };
+    if (cache && opts.fresh !== true) {
+      const hit = await cache.get(cacheKeyParts);
+      // Reuse only a complete, successful observation, and only one at least as long as this
+      // caller asked for. minChars is not in the key, so a short answer stored for a caller
+      // that accepted anything must not become the answer for one that did not.
+      const warm = hit.hit ? hit.value : null;
+      if (warm && warm.ok === true && (warm.chars || 0) >= (opts.minChars || 0)) {
+        return { ...warm, url, cached: true };
+      }
+    }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), opts.timeoutMs || timeoutMs);
     try {
-      const res = await doFetch(url, { signal: ac.signal, redirect: 'follow' });
-      status = res.status;
-      html = await res.text();
+      fetched = await doFetch(url, { signal: ac.signal, redirect: 'follow' });
+      status = fetched.status;
+      html = await fetched.text();
     } catch (e) {
       fetchError = String(e && e.message ? e.message : e);
     } finally {
@@ -109,27 +126,53 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000 } =
     }
 
     const markdown = fetchError ? '' : toMarkdown(html);
+    // An http status that says "not today" is not a page. Storing it as one is how a 503
+    // became a page's new content and a 403 became an empty article.
+    const httpBad = status === 401 || status === 403 || status === 429 || (status !== null && status >= 500);
+    if (httpBad) {
+      return {
+        url, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
+        blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : 'auth'),
+        fallbackReason: 'http-' + status,
+      };
+    }
+    // A sign-in page loads perfectly and says nothing we asked for. policy.detect names it,
+    // and the final url is the one the redirect landed on, not the one we asked for.
+    const finalUrl = (fetched && fetched.url) || url;
+    const wall = fetchError ? null : detect({ requestedUrl: url, finalUrl, tree: markdown });
+    if (wall && wall.kind === 'login-wall') {
+      return {
+        url, finalUrl, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
+        blockKind: 'login-wall', fallbackReason: 'login-wall',
+      };
+    }
     const verdict = fetchError
       ? { needed: true, reason: `fetch failed: ${fetchError}` }
       : needsBrowser(html, markdown);
 
     if (!verdict.needed) {
-      return { url, source: 'fetch', status, markdown, chars: markdown.length, fallbackReason: null };
+      const out = { url, source: 'fetch', status, markdown, chars: markdown.length, ok: true, fallbackReason: null };
+      if (cache) await cache.put(cacheKeyParts, out);
+      return out;
     }
     if (!browse) {
-      return { url, source: 'fetch', status, markdown, chars: markdown.length, fallbackReason: verdict.reason, degraded: true };
+      return { url, source: 'fetch', status, markdown, chars: markdown.length, ok: false, fallbackReason: verdict.reason, degraded: true };
     }
-    const res = await browse.exec({ urls: [url], snapshot: true, timeoutMs: opts.timeoutMs || timeoutMs });
+    // fullText asks the page for its rendered body. Without it the only text the batch
+    // returns is a 160-character sample, and promoting a summary to "the article" is the
+    // silent degradation this whole layer exists to stop.
+    const res = await browse.exec({ urls: [url], snapshot: true, fullText: true, timeoutMs: opts.timeoutMs || timeoutMs });
     const item = (res.items || [])[0] || {};
-    return {
-      url,
-      source: 'browser',
-      status,
-      markdown: item.ok ? (item.text || markdown) : markdown,
-      chars: markdown.length,
-      fallbackReason: verdict.reason,
-      browserOk: Boolean(item.ok),
-      blockKind: item.blockKind || null,
-    };
+    const body = item.ok ? String(item.text || '') : '';
+    const enough = body.length >= Math.max(1, opts.minChars || 1);
+    const out = enough
+      ? { url, source: 'browser', status, markdown: body, chars: body.length,
+          fallbackReason: verdict.reason, browserOk: true, ok: true, blockKind: item.blockKind || null }
+      : { url, source: 'browser', status, markdown, chars: markdown.length,
+          fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, degraded: true,
+          degradedReason: item.ok ? 'the browser returned no text' : 'the browser could not read the page',
+          blockKind: item.blockKind || null };
+    if (cache && out.ok) await cache.put(cacheKeyParts, out);
+    return out;
   };
 }

@@ -12,7 +12,17 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
     const items = await Promise.all(urls.map(async (url) => {
       const keyParts = { namespace: 'watch', subject: url, accountRoot, locale: opts.locale || null };
       try {
-        const read = await readText(url, { timeoutMs: opts.timeoutMs });
+        // A watch that reads through the cache watches the cache. readText keeps entries for
+        // fifteen minutes, which is long enough to report "unchanged" across a change and
+        // then across the change back.
+        const read = await readText(url, { timeoutMs: opts.timeoutMs, locale: opts.locale, fresh: true });
+        // A 503, a rate limit or a login wall is not this page's new content. Writing it to
+        // the baseline made the outage look like a change and the recovery look like another.
+        if (read.ok === false || read.degraded === true) {
+          return { url, ok: false, changed: null, code: 'EOBSERVE',
+            blockKind: read.blockKind || null, status: read.status ?? null,
+            reason: read.degradedReason || read.fallbackReason || null };
+        }
         const text = read.markdown || '';
         const hash = textHash(text);
         const prev = cache ? await cache.get(keyParts) : { hit: false };
@@ -69,9 +79,15 @@ export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
   return async function prefetch(urls, opts = {}) {
     if (!Array.isArray(urls) || urls.length === 0) throw Object.assign(new Error('prefetch requires a non-empty array of urls'), { code: 'EBADVAL' });
     const settled = await Promise.allSettled(urls.map(async (url) => {
-      const read = await readText(url, { timeoutMs: opts.timeoutMs });
-      if (cache) await cache.put({ namespace: 'readText', subject: url, accountRoot, locale: opts.locale || null }, { markdown: read.markdown, source: read.source });
-      return { url, ok: true, chars: (read.markdown || '').length, source: read.source };
+      const read = await readText(url, { timeoutMs: opts.timeoutMs, locale: opts.locale });
+      // readText owns this entry now. The second, thinner write that used to live here
+      // replaced a full observation with { markdown, source }, and the next reader got an
+      // answer with no status, no chars and no ok.
+      return read.ok === false
+        ? { url, ok: false, chars: 0, source: read.source,
+            blockKind: read.blockKind || null,
+            reason: read.degradedReason || read.fallbackReason || null }
+        : { url, ok: true, chars: (read.markdown || '').length, source: read.source };
     }));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));
     return { items, warmed: items.filter((i) => i.ok).length, ok: true, note: 'prefetch is best-effort: failures are reported, never thrown' };

@@ -229,3 +229,17 @@ attach `refsFingerprint`, captureMany/readText `timeoutMs`, watch `locale`를 �
 
 - `node --test test/browse-readtext.test.js test/browse-repetition.test.js test/browse-cache.test.js test/browse-discovery.test.js test/execution-output.test.js test/browse-envelope.test.js` — exit 0.
 - hosted CI 5조합 success at head.
+
+## 착수 후 바뀐 결정
+
+계획을 쓴 뒤 구현하면서 네 가지가 달라졌다. 계획이 틀렸던 자리와, 구현이 계획보다 더 알게 된 자리를 구분해 적는다.
+
+**와이어 예산 때문에 extract 블록을 조건부로 주입한다.** 생성 스크립트는 명령행 인자로 건너가고 호스트가 30000자에서 거절한다. F6~F13을 그대로 넣자 acting 경로가 한도를 넘었다. 그래서 `script.js`에 `EXTRACT_SRC`를 두고 `/*__EXTRACT__*/` 자리에 extract를 쓰는 잡에서만 채운다. 현재 acting u20 실측 27843자. `test/browse-tabs.test.js`의 "fits the Windows command line"이 이 한도를 지킨다.
+
+**discovery 합의(F12)는 옵션 하나씩 묻지 않고 인자 전체를 런타임 검증기에 넘긴다.** 처음 구현은 `validateJob({urls, timeoutMs, [name]: value})`로 옵션을 하나씩 떠봤다. 두 가지가 깨졌다. 하나, `snapshotAfter: 'diff'`는 `snapshot: 'tree'`가 같이 있어야 합법인데 혼자 떠보면 언제나 거절이라 wp6이 실제로 내보낸 조합을 `check`가 거부했다. 둘, 프로브가 항상 job 스키마를 썼기 때문에 `browse.searchMany`의 `engine`·`since`, `browse.tabs`의 `urlIncludes`, `browse.downloadMedia`의 `maxBytes`가 전부 "unknown job option"으로 잘못 거절됐다. 지금은 `RUNTIME_VALIDATED`에 `browse.exec`와 `browse.attach`만 등록하고, 나머지 browse 액션은 자기 인자를 `browse.js` 안에서 파싱하므로 job 스키마로 재단하지 않는다. 거절이 어느 옵션 때문인지는 메시지에서 이름을 긁는 대신 옵션을 하나씩 빼보며 찾는다. `networkidle`처럼 옵션 이름을 되풀이하지 않는 거절 문구가 있기 때문이다.
+
+**readText에 캐시를 붙이면서 watch와 prefetch를 같이 고쳐야 했다.** 계획은 F7/F8을 캐시 키 문제로만 봤는데, 캐시를 붙이자 두 가지가 따라왔다. watch가 `readText`를 통해 읽으므로 15분 TTL 안에서는 바뀐 페이지도 "안 바뀜"으로 보고한다 — watch는 이제 `fresh: true`로 읽는다. 그리고 prefetch가 같은 키에 `{markdown, source}`만 따로 써 넣고 있어서, readText가 그 항목을 돌려주면 `ok`도 `chars`도 없는 답이 나왔다 — prefetch의 두 번째 쓰기를 없애고 readText가 자기 항목을 소유한다. hit 재사용은 `ok === true`이고 `chars`가 호출자의 `minChars` 이상일 때로 제한했다. `minChars`는 키에 없으므로 재사용 시점에 재어야 한다.
+
+**compactTree 정규식은 대시를 받되 대괄호 접두도 계속 받는다.** 계획의 `/^\s*-\s*(...)/`는 대시를 필수로 만들고 기존의 `[...]` 접두 지원을 버린다. 둘 다 조용히 빈 트리를 만드는 실패라서, 실제 형식은 `/^\s*-?\s*(?:\[[^\]]*\]\s*)?([a-z][a-z-]*)/i`로 둘 다 받는다.
+
+테스트 파일도 계획의 MODIFY 목록과 다르다. `browse-readtext`·`browse-repetition`·`browse-cache`를 고치는 대신 `test/browse-observation.test.js`(관측 품질·캐시·watch·prefetch), `test/browse-discovery.test.js`(카탈로그와 런타임 합의), `test/execution-output.test.js`(구조 보존 축소)를 새로 만들었다. 기존 파일은 자기 주제가 따로 있어서, 여기에 얹으면 무엇이 무엇을 지키는지 읽히지 않는다.

@@ -6,6 +6,59 @@
 // in the tool doc and still have no way to learn the job shape. Measured on a real Aside
 // run 2026-09-14: the agent searched the skills tree for 'browse.exec' and got zero rows.
 
+import { validateJob } from './schema.js';
+import { validateAttach } from './attach-schema.js';
+
+// Discovery answers with the RUNTIME validator rather than a second opinion. The two used to
+// disagree in both directions: check refused a snapshot the job accepted, and accepted a
+// waitUntil the job refused with ENOTSUP.
+//
+// Only these two paths own a whole-object validator. Every other browse action parses its
+// arguments inside browse.js, and putting one of those through the job schema reported each
+// of its real options - engine, since, urlIncludes, maxBytes - as an unknown job option.
+const RUNTIME_VALIDATED = Object.freeze({
+  'browse.exec': (args) => validateJob({ timeoutMs: 8000, ...args }),
+  'browse.attach': (args) => validateAttach(args),
+});
+
+const VALUE_CODES = Object.freeze(['EBADVAL', 'ENOTSUP', 'EBADOPT', 'EINVAL']);
+
+// The whole argument object goes in at once. One option at a time could not see a rule that
+// spans two of them, so snapshotAfter: 'diff' came back invalid standing right next to the
+// snapshot: 'tree' that makes it legal.
+export function checkBrowseArgs(path, args = {}) {
+  const run = RUNTIME_VALIDATED[path];
+  if (!run) return [];
+  try {
+    run(args);
+    return [];
+  } catch (e) {
+    if (!e || !VALUE_CODES.includes(e.code)) return [];
+    const why = String(e.message).slice(0, 200);
+    const name = blame(run, args, e.message);
+    return [{ ...(name === null ? {} : { name }), why, code: e.code }];
+  }
+}
+
+// Which option does the caller have to change? Reading the name out of the message only works
+// when the message repeats it, and several do not: networkidle is refused by describing what
+// it would do instead. So the option is found by taking one away at a time and seeing which
+// removal makes the refusal go. A required option cannot be blamed this way, because removing
+// it raises a different refusal rather than none.
+function blame(run, args, message) {
+  for (const key of Object.keys(args)) {
+    const rest = { ...args };
+    delete rest[key];
+    try {
+      run(rest);
+      return key;
+    } catch (e) {
+      if (e && e.message !== message) continue;
+    }
+  }
+  return Object.keys(args).find((k) => message.includes(k)) || null;
+}
+
 export const BROWSE_ACTIONS = [
   {
     path: 'browse.probe',
@@ -30,12 +83,15 @@ export const BROWSE_ACTIONS = [
       allowStaleRefs: { type: 'boolean', required: false, description: 'Default false. Lets a ref step run without validation, at the cost of possibly hitting a renumbered element.' },
       refsFingerprint: { type: 'string', required: false, description: "snapshot.fingerprint from the read that produced the refs. Without it a ref step can only be checked against the url, which does not see a same-url renumbering; each step reports which guard it got in refGuard, plus guardAgeMs, the window between the check and the verb. snapshot.fingerprintStructure is also accepted for pages whose accessible names carry a clock, but it compares ref and role ONLY - a reordered list is invisible to it." },
       actionBudgetMs: { type: 'number', required: false, description: 'Deadline for the step list, per item. Part of timeoutMs is reserved so the result still survives; timeoutMs under 4000 with actions is refused up front.' },
+      snapshotAfter: { type: 'boolean|string', required: false, description: "true returns the observation the call leaves behind, as snapshotId plus fingerprint; 'diff' also compares it against the observation the call arrived at and needs snapshot: 'tree' or 'interactive'. A refused comparison returns reset instead of a diff." },
+      fullText: { type: 'boolean', required: false, description: "The page's rendered body on item.text, capped by maxTextChars. Without it the only text a run returns is the 160-character render sample." },
+      maxTextChars: { type: 'number', required: false, description: 'Cap for fullText, default 200000.' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality?, fullPage? }. maxWidth is ENOTSUP.' },
       pdf: { type: 'object', required: false, description: '{ paperWidth, paperHeight } in INCHES. format is ENOTSUP.' },
       extract: { type: 'object', required: false, description: "{ field: 'css' } or { field: { selector, attr?, all? } }" },
       concurrency: { type: 'number', required: false, description: 'Tabs in flight inside the one session' },
       detect: { type: 'boolean', required: false, description: 'Block detection, default true. Set false for your own generated pages.' },
-      requireSelector: { type: 'array', required: false, description: 'Css selectors that MUST exist for the content to count as read. A string is accepted.' },
+      requireSelector: { type: 'array|string', required: false, description: 'Css selectors that MUST exist for the content to count as read. A string is accepted.' },
       minTextChars: { type: 'number', required: false, description: 'Minimum visible (innerText) characters for the content to count as read' },
       requireContent: { type: 'boolean', required: false, description: 'Fail the item when a render check fails, instead of only warning' },
     },
@@ -56,7 +112,7 @@ export const BROWSE_ACTIONS = [
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
       titleIncludes: { type: 'string', required: false, description: 'Substring match against the tab title' },
-      requireSelector: { type: 'array', required: false, description: 'Css selectors that MUST exist for the read to count. A string is accepted.' },
+      requireSelector: { type: 'array|string', required: false, description: 'Css selectors that MUST exist for the read to count. A string is accepted.' },
       minTextChars: { type: 'number', required: false, description: 'Minimum visible (innerText) characters for the read to count' },
       includeText: { type: 'boolean', required: false, description: 'Return the full visible text, not only a sample' },
       maxTextChars: { type: 'number', required: false, description: 'Cap on the returned text, default 20000' },
@@ -84,9 +140,15 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.readText',
     description: 'Fetch-first page read: html to markdown with no browser unless the page rendered nothing.',
-    signature: "browse.readText(url, { timeoutMs? }) => Promise<{source,markdown,chars,fallbackReason}>",
-    inputs: { url: { type: 'string', required: true, description: 'http(s) url' } },
-    notes: "source is 'fetch' or 'browser'; fallbackReason says why a browser was needed.",
+    signature: "browse.readText(url, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,markdown,chars,blockKind,fallbackReason}>",
+    inputs: {
+      url: { type: 'string', required: true, description: 'http(s) url' },
+      timeoutMs: { type: 'number', required: false, description: 'Deadline for the fetch and, if one is needed, the browser read' },
+      minChars: { type: 'number', required: false, description: 'Shortest body that counts as a read. A warm entry below it is re-read rather than returned.' },
+      fresh: { type: 'boolean', required: false, description: 'Skip the cache and read the page now. watch always sets this.' },
+      locale: { type: 'string', required: false, description: 'Separates cache entries for pages that answer differently per locale' },
+    },
+    notes: "source is 'fetch' or 'browser'; fallbackReason says why a browser was needed. ok is false for an http refusal (blockKind auth | rate-limited | upstream), for a login wall (blockKind login-wall), and for a browser fallback that came back empty (degraded, with degradedReason). Only an ok read is cached.",
   },
   {
     path: 'browse.searchMany',
@@ -108,14 +170,14 @@ export const BROWSE_ACTIONS = [
       outDir: { type: 'string', required: true, description: 'Directory inside the configured roots' },
       maxBytes: { type: 'number', required: false, description: 'Per-image cap, default 8 MiB' },
     },
-    notes: 'The magic bytes gate the write: a page claiming image/png is refused as ENOTIMAGE and nothing is saved.',
+    notes: 'The magic bytes gate the write: a page claiming image/png is refused as ENOTIMAGE and nothing is saved. maxBytes stops the download at the cap instead of measuring what already arrived, so a declared or actual oversize body is ETOOBIG without being held in memory.',
   },
   {
     path: 'browse.watch',
     description: 'Hash each url and return a diff only for the ones that changed.',
     signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{items,changed}>',
     inputs: { urls: { type: 'array', required: true, description: 'Array of urls to watch' } },
-    notes: 'An unchanged url returns changed:false with no body. First sight is first:true so it is not mistaken for a change.',
+    notes: "An unchanged url returns changed:false with no body. First sight is first:true so it is not mistaken for a change. Every round reads the page itself rather than the shared cache, and a url that could not be observed returns code EOBSERVE with changed:null, leaving the baseline alone so the outage is not recorded as the page's new content.",
   },
   {
     path: 'browse.prefetch',

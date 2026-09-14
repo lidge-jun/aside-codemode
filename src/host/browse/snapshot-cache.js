@@ -39,7 +39,10 @@ export function compactTree(tree, roles) {
   return String(tree || '')
     .split('\n')
     .filter((line) => {
-      const m = /^\s*(?:\[[^\]]*\]\s*)?([a-z][a-z-]*)/i.exec(line);
+      // Aside writes '  - heading "Example" [ref=e1]'. Matching the role without the dash
+      // made every real row fail the filter and returned an empty tree. The bracket prefix
+      // stays accepted: dropping it would trade one silently empty tree for another.
+      const m = /^\s*-?\s*(?:\[[^\]]*\]\s*)?([a-z][a-z-]*)/i.exec(line);
       return m ? wanted.includes(m[1].toLowerCase()) : false;
     })
     .join('\n');

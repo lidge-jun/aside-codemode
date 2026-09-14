@@ -62,7 +62,8 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   }
 
   // fetch-first: no browser unless the fetched HTML measurably is not the content.
-  const readTextImpl = createReadText({ browse: caps.enabled === true ? { exec } : null });
+  // The cache has to be handed in, or prefetch warms an entry nothing ever reads.
+  const readTextImpl = createReadText({ browse: caps.enabled === true ? { exec } : null, cache, accountRoot });
   const downloadMediaImpl = createDownloadMedia({ assertInside });
   const searchManyImpl = createSearchMany({ session, cache, accountRoot });
   const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });

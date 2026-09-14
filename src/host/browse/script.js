@@ -88,6 +88,63 @@ export const summarizeTree = new Function(TREE_SUMMARY_SRC + '; return summarize
 // checked. Reporting how the value was read lets a caller see which contract it got.
 // Injected only when a job actually reads by ref, like the other helpers: the generated
 // source travels as a command-line argument and the host refuses it over 30000 characters.
+// The css extraction engine. Injected only when a job asks for extract: the evaluate
+// and its helpers are 2.5KB on a wire the host caps at 30000 characters.
+export const EXTRACT_SRC = String.raw`    if (JOB.extract) {
+      // A ref names a row in one observation; a css selector means the same thing on any
+      // document. They are read by different machinery, so a job that mixes them is split
+      // here — and a job that has no refs never pays for the split.
+      var refFields = [];
+      var selectorSchema = JOB.extract;
+      /*__REF_SPLIT__*/
+      out.data = Object.keys(selectorSchema).length === 0 ? { data: {}, missing: [] } : await page.evaluate((schema) => {
+        // textContent includes the text inside <script>, which is how extracting 'body' on
+        // Threads returned 530KB of server bootstrap JSON and still reported success.
+        // innerText is the rendered, visible text; scripts and styles are stripped either way.
+        const readText = (n) => {
+          if (!n) return null;
+          if (typeof n.innerText === 'string' && n.innerText.length) return n.innerText;
+          const clone = n.cloneNode(true);
+          for (const bad of clone.querySelectorAll ? clone.querySelectorAll('script,style,noscript,template') : []) bad.remove();
+          return clone.textContent;
+        };
+        const isVisible = (n) => {
+          if (!n || !n.getBoundingClientRect) return false;
+          const r = n.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) return false;
+          const st = window.getComputedStyle ? window.getComputedStyle(n) : null;
+          return !st || (st.visibility !== 'hidden' && st.display !== 'none');
+        };
+        const pick = (spec) => {
+          const s = typeof spec === 'string' ? { selector: spec } : spec;
+          let nodes = Array.from(document.querySelectorAll(s.selector));
+          if (s.visible) nodes = nodes.filter(isVisible);
+          let vals = nodes.map((n) => {
+            const v = s.attr ? n.getAttribute(s.attr) : readText(n);
+            return v === null || v === undefined ? null : (s.trim === false ? v : String(v).trim());
+          });
+          if (s.filterText) { const re = new RegExp(s.filterText, 'i'); vals = vals.filter((v) => v && re.test(v)); }
+          // A selector like [class*=provider] matches wrappers and children alike, so the
+          // same string comes back many times with blanks between. Dropping empties and
+          // duplicates is what turns that into an answer.
+          vals = vals.filter((v) => v !== null && String(v).length > 0);
+          if (s.unique !== false) vals = [...new Set(vals)];
+          if (s.all) return s.limit ? vals.slice(0, s.limit) : vals;
+          return vals.length ? vals[0] : null;
+        };
+        const data = {}; const missing = [];
+        for (const [field, spec] of Object.entries(schema)) {
+          const v = pick(spec);
+          data[field] = v;
+          // absent must be distinguishable from empty, or a caller cannot tell
+          // "no price on this page" from "the price is an empty string".
+          if (v === null || (Array.isArray(v) && v.length === 0)) missing.push(field);
+        }
+        return { data, missing };
+      }, selectorSchema);
+      /*__REF_EXTRACT__*/
+    }`;
+
 export const REF_READ_SRC = String.raw`var VALUE_ROLES = ['textbox', 'searchbox', 'combobox', 'spinbutton', 'slider', 'checkbox', 'radio'];
 async function readRefField(page, spec, rows, tree) {
   var row = null;
@@ -231,6 +288,8 @@ export function compile(job, plan = null) {
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
     snapshotAfter: job.snapshotAfter === 'diff' ? 'diff' : job.snapshotAfter === true,
+    // Only when asked. Every key here is bytes on a command line the host caps at 30000.
+    ...(job.fullText === true ? { fullText: true, maxTextChars: job.maxTextChars || 200000 } : {}),
     detect: job.detect === false ? null : detectionPatterns(),
   };
   // Function replacers, not string ones. String.prototype.replace interprets $&, $` and
@@ -253,6 +312,7 @@ export function compile(job, plan = null) {
   const src = TEMPLATE
     .replace('__JOB__', () => jsonForScript(payload))
     .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__EXTRACT__*/', () => (payload.extract ? stripForWire(EXTRACT_SRC) : ''))
     .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
     .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripForWire(REF_SPLIT_SRC) : ''))
     .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripForWire(REF_EXTRACT_SRC) : ''))
@@ -451,8 +511,11 @@ async function one(item) {
         requiredSelectorsMissing: unmatched,
         skeletonNodes,
         sample: visibleText.slice(0, 160),
+        // Only when the caller asked. Shipping the whole body by default is how a batch of
+        // twenty pages turns into a megabyte of stdout.
+        full: req.ft ? visibleText.slice(0, req.m || 200000) : null,
       };
-      }, { selectors: JOB.requireSelector || [] });
+      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars });
     } catch (_) { render = null; }
 
     if (render) {
@@ -475,6 +538,9 @@ async function one(item) {
     }
     }
     const out = { jobId: item.jobId, url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
+    // The body rides on the item, not inside the render summary: the render object is the
+    // verdict on whether the page arrived, and the text is what the page said.
+    if (out_render && typeof out_render.full === 'string') { out.text = out_render.full; delete out_render.full; }
     // The render verdict above describes the page we ARRIVED at. If an action navigates,
     // that verdict is about a document we have left, so it is stamped with its stage and
     // the move is reported rather than left for the caller to infer from a changed url.
@@ -535,60 +601,7 @@ async function one(item) {
     // The observation this call leaves behind. Its id is what makes a follow-up ref read
     // legal, and a caller can ask for it without running any actions at all.
     /*__SNAPSHOT_AFTER__*/
-    if (JOB.extract) {
-      // A ref names a row in one observation; a css selector means the same thing on any
-      // document. They are read by different machinery, so a job that mixes them is split
-      // here — and a job that has no refs never pays for the split.
-      var refFields = [];
-      var selectorSchema = JOB.extract;
-      /*__REF_SPLIT__*/
-      out.data = Object.keys(selectorSchema).length === 0 ? { data: {}, missing: [] } : await page.evaluate((schema) => {
-        // textContent includes the text inside <script>, which is how extracting 'body' on
-        // Threads returned 530KB of server bootstrap JSON and still reported success.
-        // innerText is the rendered, visible text; scripts and styles are stripped either way.
-        const readText = (n) => {
-          if (!n) return null;
-          if (typeof n.innerText === 'string' && n.innerText.length) return n.innerText;
-          const clone = n.cloneNode(true);
-          for (const bad of clone.querySelectorAll ? clone.querySelectorAll('script,style,noscript,template') : []) bad.remove();
-          return clone.textContent;
-        };
-        const isVisible = (n) => {
-          if (!n || !n.getBoundingClientRect) return false;
-          const r = n.getBoundingClientRect();
-          if (r.width === 0 && r.height === 0) return false;
-          const st = window.getComputedStyle ? window.getComputedStyle(n) : null;
-          return !st || (st.visibility !== 'hidden' && st.display !== 'none');
-        };
-        const pick = (spec) => {
-          const s = typeof spec === 'string' ? { selector: spec } : spec;
-          let nodes = Array.from(document.querySelectorAll(s.selector));
-          if (s.visible) nodes = nodes.filter(isVisible);
-          let vals = nodes.map((n) => {
-            const v = s.attr ? n.getAttribute(s.attr) : readText(n);
-            return v === null || v === undefined ? null : (s.trim === false ? v : String(v).trim());
-          });
-          if (s.filterText) { const re = new RegExp(s.filterText, 'i'); vals = vals.filter((v) => v && re.test(v)); }
-          // A selector like [class*=provider] matches wrappers and children alike, so the
-          // same string comes back many times with blanks between. Dropping empties and
-          // duplicates is what turns that into an answer.
-          vals = vals.filter((v) => v !== null && String(v).length > 0);
-          if (s.unique !== false) vals = [...new Set(vals)];
-          if (s.all) return s.limit ? vals.slice(0, s.limit) : vals;
-          return vals.length ? vals[0] : null;
-        };
-        const data = {}; const missing = [];
-        for (const [field, spec] of Object.entries(schema)) {
-          const v = pick(spec);
-          data[field] = v;
-          // absent must be distinguishable from empty, or a caller cannot tell
-          // "no price on this page" from "the price is an empty string".
-          if (v === null || (Array.isArray(v) && v.length === 0)) missing.push(field);
-        }
-        return { data, missing };
-      }, selectorSchema);
-      /*__REF_EXTRACT__*/
-    }
+    /*__EXTRACT__*/
     if (JOB.snapshot) {
       out.snapshotBytes = tree.length;
       if (JOB.snapshot !== 'bytes') {

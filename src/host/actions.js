@@ -7,7 +7,7 @@
 // (measured 2026-09-13). Value rules come from the same module, so `check` and a
 // real call agree on what is acceptable.
 import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../search-schema.js';
-import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS } from './browse/actions-schema.js';
+import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS, checkBrowseArgs } from './browse/actions-schema.js';
 
 const REGISTRY = [
   ...SEARCH_ACTIONS,
@@ -189,9 +189,12 @@ export function createActions() {
       // typeErrors so the existing shape is unchanged for type mismatches.
       const invalid = [];
       const isSearch = rec.path.startsWith('search.');
+      // browse catalogues several options as unions ('boolean|string'). A plain !== check
+      // reads that as one literal type and refuses true for an option the runtime accepts.
+      const accepts = (want, got) => String(want).split('|').map((s) => s.trim()).includes(got);
       for (const [name, spec] of Object.entries(rec.inputs)) {
         if (spec.required && !(name in args)) missing.push(name);
-        else if (name in args && typeOf(args[name]) !== spec.type) {
+        else if (name in args && !accepts(spec.type, typeOf(args[name]))) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
         } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
           // fs.grepFile deliberately keeps the plain check. Its `pattern` is a
@@ -207,6 +210,12 @@ export function createActions() {
       }
       for (const name of Object.keys(args)) {
         if (!(name in rec.inputs)) unknown.push(name);
+      }
+      // The runtime validator IS the answer for browse, and it only answers about a whole
+      // call. Asking it about arguments already reported as missing, unknown or mistyped
+      // would return that same problem a second time in different words.
+      if (missing.length === 0 && unknown.length === 0 && typeErrors.length === 0) {
+        invalid.push(...checkBrowseArgs(rec.path, args));
       }
       return {
         ok: missing.length === 0 && unknown.length === 0 && typeErrors.length === 0 && invalid.length === 0,

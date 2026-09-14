@@ -17,7 +17,7 @@ export const CACHE_DIR = path.join(os.tmpdir(), 'codemode-browse-cache');
 export const SCHEMA_VERSION = 2;
 export const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
-export function cacheKey({ namespace = 'default', subject = '', engine = null, accountRoot = '', locale = null, viewport = null, roles = null, waitSelector = null } = {}) {
+export function cacheKey({ namespace = 'default', subject = '', engine = null, accountRoot = '', locale = null, viewport = null, roles = null, waitSelector = null, since = null } = {}) {
   const parts = [
     'v' + SCHEMA_VERSION,
     'ns:' + String(namespace),
@@ -28,6 +28,9 @@ export function cacheKey({ namespace = 'default', subject = '', engine = null, a
     viewport ? `vp:${viewport.width}x${viewport.height}` : 'vp:default',
     Array.isArray(roles) && roles.length ? 'roles:' + roles.slice().sort().join(',') : 'roles:all',
     waitSelector ? 'wait:' + waitSelector : 'wait:none',
+    // An unknown key is dropped silently, so a filter that is not listed here does not
+    // separate entries however faithfully the caller passes it.
+    'since:' + String(since || 'any'),
   ];
   return createHash('sha256').update(parts.join('\u0000')).digest('hex');
 }

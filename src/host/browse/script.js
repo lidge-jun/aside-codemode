@@ -92,6 +92,22 @@ export function jsonForScript(value) {
     .replace(/\u2029/g, '\\u2029');
 }
 
+// The generated source is handed to the CLI as a command-line ARGUMENT and Windows caps a
+// command line at 32,767 characters. This file is deliberately heavy on comments because
+// every non-obvious line here is a measurement; none of that has to travel. Only whole-line
+// // comments and blank lines are removed, never a trailing comment and never indentation,
+// so nothing inside a string or a template literal can be touched.
+export function stripForWire(src) {
+  const out = [];
+  for (const line of String(src).split('\n')) {
+    const t = line.trim();
+    if (t.length === 0) continue;
+    if (t.startsWith('//')) continue;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 export function compile(job, plan = null) {
   const items = plan && plan.length
     ? plan
@@ -128,10 +144,17 @@ export function compile(job, plan = null) {
   // JSON.stringify had already escaped it: fill:'a$&b' typed "a__JOB__b" into the page, and
   // $' grew a 20KB script to 34KB and made the REPL fail to parse. A function replacer
   // disables that substitution entirely. This bug predates the action layer.
-  return TEMPLATE
+  // Inject only what this job can reach. The generated source is passed to the CLI as a
+  // command-line ARGUMENT, and Windows caps a command line at 32,767 characters: with both
+  // helpers always injected the script reached 34,881 and every browse job on Windows died
+  // with spawn ENAMETOOLONG. Found by probing the Windows host, not by a unit test.
+  const needsTree = Boolean(payload.snapshot) || Boolean(payload.refsFingerprint);
+  const needsActions = Boolean(payload.actions && payload.actions.length);
+  const src = TEMPLATE
     .replace('__JOB__', () => jsonForScript(payload))
-    .replace('/*__TREE_SUMMARY__*/', () => TREE_SUMMARY_SRC)
-    .replace('/*__ACTION_STEPS__*/', () => ACTION_STEP_SRC);
+    .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripForWire(ACTION_STEP_SRC) : ''));
+  return stripForWire(src);
 }
 
 // Kept as one string so a test can evaluate it with fake globals instead of grepping it.

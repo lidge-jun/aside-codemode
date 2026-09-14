@@ -113,6 +113,14 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
           .map((p, i) => ({ ...p, pdfName: pdfNames[i] }))
       : planWithNames;
     const source = compile(job, planFinal);
+    // Windows caps a command line at 32,767 characters and the source travels as an
+    // argument. Refusing here with a named code beats spawn ENAMETOOLONG, which says
+    // nothing about which option made the script too big.
+    if (source.length > 30000) {
+      const e = new Error(`the generated script is ${source.length} characters, over the 30000 wire limit; drop snapshot, actions or some urls`);
+      e.code = 'ESOURCETOOLONG';
+      throw e;
+    }
     const bin = await resolveAside();
     const startedAt = now();
 

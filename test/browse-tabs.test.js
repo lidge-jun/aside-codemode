@@ -123,3 +123,41 @@ test('the provably dead guard branch is gone from the shipped script', () => {
   assert.equal(src.includes('verifiedClean'), false, 'a comment is a weaker guard than absence');
 });
 
+test('the generated script fits the Windows command line, which is how it travels', () => {
+  // Found live, not in a unit test: with both helpers always injected the script reached
+  // 34,881 characters and every browse job on the Windows host died with spawn
+  // ENAMETOOLONG. Windows caps a command line at 32,767.
+  const LIMIT = 32767;
+  const cases = {
+    plain: compile(validateJob({ urls: urls(1) })),
+    twenty: compile(validateJob({ urls: urls(20) })),
+    snapshot: compile(validateJob({ urls: urls(1), snapshot: 'interactive' })),
+    actions: compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] })),
+    both: compile(validateJob({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })),
+  };
+  for (const [name, src] of Object.entries(cases)) {
+    assert.ok(src.length < LIMIT - 2000, name + ' is ' + src.length + ' chars, too close to the ' + LIMIT + ' ceiling');
+    assert.doesNotThrow(() => new AsyncFn('openTab,snapshot,closeTab,sleep,pwd,console', src), name + ' must still parse');
+  }
+});
+
+test('only the helpers the job can reach are shipped', () => {
+  const plain = compile(validateJob({ urls: urls(1) }));
+  assert.equal(plain.includes('function summarizeTree'), false, 'no snapshot asked, no tree code');
+  assert.equal(plain.includes('async function runActions'), false, 'no actions asked, no action code');
+  const acting = compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }));
+  assert.ok(acting.includes('async function runActions'));
+  assert.ok(compile(validateJob({ urls: urls(1), refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })).includes('function summarizeTree'),
+    'a fingerprint guard needs the summariser even without a snapshot option');
+});
+
+test('stripping for the wire removes comments and nothing else', () => {
+  const src = compile(validateJob({ urls: urls(1), snapshot: 'tree' }));
+  for (const line of src.split('\n')) {
+    assert.equal(line.trim().startsWith('//'), false, 'a whole-line comment survived: ' + line);
+    assert.notEqual(line.trim(), '', 'a blank line survived');
+  }
+  assert.ok(src.includes('https://'), 'a // inside a string must not be touched');
+  assert.ok(src.includes('  '), 'indentation is preserved, so template literals are safe');
+});
+

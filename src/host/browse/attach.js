@@ -27,7 +27,7 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
-import { TREE_SUMMARY_SRC, jsonForScript } from './script.js';
+import { TREE_SUMMARY_SRC, jsonForScript, stripForWire } from './script.js';
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 
@@ -165,8 +165,10 @@ console.log(JSON.stringify(out));
 export function compileAttach(req) {
   // Function replacer: see the note in script.js compile(). A $& in a fill value or a
   // selector would otherwise be substituted into the generated source after escaping.
-  return TREE_SUMMARY_SRC + '\n' + ACTION_STEP_SRC + '\n'
-    + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req));
+  // Same Windows command-line ceiling as compile(): ship only what the request reaches.
+  const head = (req.snapshot || req.refsFingerprint ? TREE_SUMMARY_SRC + '\n' : '')
+    + (req.actions && req.actions.length ? ACTION_STEP_SRC + '\n' : '');
+  return stripForWire(head + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req)));
 }
 
 function disabled(name) {

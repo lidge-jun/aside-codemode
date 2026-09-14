@@ -1,6 +1,6 @@
 # make aside 50x faster
 
-On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md).
+On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md). A synthetic companion with exact argv, unrounded times, and match-set equality is in that note; it is not the 55s folder.
 
 Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
 

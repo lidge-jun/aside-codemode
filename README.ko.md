@@ -1,6 +1,6 @@
 # make aside 50x faster
 
-로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md).
+로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md). 그 노트에는 argv·반올림 전 시간·결과 집합 일치까지 적힌 합성 대조가 있습니다. 그 대조는 55초 폴더가 아닙니다.
 
 예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
 

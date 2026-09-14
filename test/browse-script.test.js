@@ -16,6 +16,7 @@ function makePage(targetId) {
     closed: false,
     async url() { return 'https://' + String(targetId).replace(/^https?:\/\//, ''); },
     async title() { return 'Example'; },
+    async evaluate(fn, arg) { return typeof fn === 'function' ? fn(arg) : undefined; },
     async waitForLoadState() {},
     async waitForSelector() {},
     async screenshot() { return Buffer.alloc(10); },

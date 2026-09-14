@@ -1,7 +1,17 @@
 // One-shot CLI: same execute_code semantics as the MCP tool, for hosts whose
 // agent can only run shell commands (aside exec's bash tool).
 // usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N]
+//        node src/cli.js --code-file <path> [--config <file>] [--timeout-ms N]
+//        node src/cli.js --code - < script.js
 //        node src/cli.js --doctor [--config <file>]
+//
+// --code-file and stdin exist because `--code '<js>'` is a quoting trap. Guest code almost
+// always contains quotes of its own, and a url like 'https://x' closes the agent's outer
+// single quote early: bash then waits forever for the quote that never arrives and the tool
+// call HANGS. (PowerShell does not hang; it mangles the argument into a parse error
+// instead.) Both were observed from a real Aside agent on 2026-09-14. Anything with a quote
+// in it should go through --code-file or stdin.
+import { readFileSync } from 'node:fs';
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
@@ -17,6 +27,10 @@ function flag(name) {
 }
 function has(name) {
   return argv.includes(name);
+}
+
+function readStdin() {
+  try { return readFileSync(0, 'utf8'); } catch (_) { return ''; }
 }
 
 // Startup failures used to escape as raw node stack traces (a Windows root in
@@ -122,10 +136,26 @@ if (has('--doctor')) {
   process.exit(report.ok ? 0 : 1);
 }
 
-const code = flag('--code');
-if (!code) {
+// Three ways in, on purpose. --code is convenient for a one-liner; --code-file and stdin
+// are the ones that survive a shell, because guest code carries its own quotes.
+let code = null;
+const codeFile = flag('--code-file');
+if (codeFile) {
+  try {
+    code = readFileSync(codeFile, 'utf8');
+  } catch (e) {
+    fail(`--code-file could not be read: ${e.message}`);
+  }
+} else {
+  const inline = flag('--code');
+  // `--code -` reads the script from stdin, so nothing has to survive quoting at all.
+  code = inline === '-' ? readStdin() : inline;
+}
+if (!code || !code.trim()) {
   console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
-  console.error('       node src/cli.js --doctor [--config <file>] [--cwd <dir>]');
+  console.error('       node src/cli.js --code-file <path>   # safest: no shell quoting');
+  console.error('       node src/cli.js --code - < script.js  # same, via stdin');
+  console.error('       node src/cli.js --doctor [--browse] [--config <file>] [--cwd <dir>]');
   process.exit(2);
 }
 

@@ -7,9 +7,14 @@
 // (measured 2026-09-13). Value rules come from the same module, so `check` and a
 // real call agree on what is acceptable.
 import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
+import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS } from './browse/actions-schema.js';
 
 const REGISTRY = [
   ...SEARCH_ACTIONS,
+  ...BROWSE_ACTIONS,
+  ...REPORT_ACTIONS,
+  ...API_ACTIONS,
+  ...RECIPE_ACTIONS,
   {
     path: 'read_file',
     description: 'Read a file using the Aside read_file shape. offset/limit are 1-indexed lines.',

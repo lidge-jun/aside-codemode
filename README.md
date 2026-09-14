@@ -55,6 +55,14 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
 | `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
 | `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+
+**`ok` is not "I read the page".** `ok` means the run completed; `contentVerified` means the
+content actually rendered. Threads returned `ok: true` with the correct title while the body
+was 530KB of server bootstrap JSON and no posts. Pass `requireSelector` and/or
+`minTextChars` to get a real verdict, and `requireContent: true` to make a failed check fail
+the item. Without them `contentVerified` is `null` — nobody asked, so nothing is claimed.
+`scriptRatio` is reported but never decides the verdict: every bundled SPA ships large inline
+scripts, so judging on it would trade a false success for a false failure.
 | `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
 | `browse.readText(url)` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. Reports `source` and `fallbackReason` so you know which path answered |
 | `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |

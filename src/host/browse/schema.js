@@ -33,7 +33,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent']);
 const SHOT_KEYS = Object.freeze(['clip', 'type', 'quality', 'fullPage']);
 const PDF_KEYS = Object.freeze(['paperWidth', 'paperHeight', 'printBackground']);
 
@@ -147,5 +147,11 @@ export function validateJob(raw, browseCaps = {}) {
     // detector flagged the report itself. Content we generated is not a remote origin,
     // so the caller can turn detection off for it. Defaults on.
     detect: raw.detect !== false,
+    // Rendering checks. requireSelector/minTextChars say what "the content is there" MEANS
+    // for this page; requireContent turns a failed check into a failed item instead of a
+    // warning, for callers who would rather get nothing than get a bootstrap page.
+    requireSelector: raw.requireSelector === undefined ? [] : (Array.isArray(raw.requireSelector) ? raw.requireSelector : [raw.requireSelector]),
+    minTextChars: Number.isSafeInteger(raw.minTextChars) ? raw.minTextChars : null,
+    requireContent: raw.requireContent === true,
   });
 }

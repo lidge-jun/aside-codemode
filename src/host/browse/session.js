@@ -129,6 +129,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (marker === 'error') partial.push('script-error');
     if (leakedUrls.length) partial.push('tab-leak');
     if (items.some((i) => i.code === 'EBLOCKED')) partial.push('blocked');
+    // A page that arrived but did not render is a DIFFERENT outcome from a clean read,
+    // and the caller must not have to infer it from the item bodies.
+    if (items.some((i) => i.contentVerified === false || i.code === 'EUNRENDERED')) partial.push('content-unverified');
     // Feed the outcomes back so the NEXT call sees a domain that keeps failing.
     if (breaker) breaker.record(items);
     const steps = aggregateSteps(items);
@@ -136,6 +139,11 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     return {
       ok: marker === 'ok' && items.length > 0 && items.every((i) => i.ok) && leakedUrls.length === 0,
       items,
+      // Aggregate verdict across the batch: true only when every item proved its content,
+      // false when any item failed a check, null when nothing was checkable.
+      contentVerified: items.length === 0 ? null
+        : (items.some((i) => i.contentVerified === false) ? false
+          : (items.every((i) => i.contentVerified === true) ? true : null)),
       timings: { byStep: steps.byStep, slowest: steps.slowest, totalMs, replMs: ms },
       partial,
       leakedUrls,

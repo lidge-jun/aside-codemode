@@ -6,8 +6,35 @@ For local search and multi-file reads, do not call `rg`, `find`, `grep`, or
 Use this absolute node/CLI pair. Do not look up `node` or `codemode` on PATH.
 Do not invoke `src/cli.js`. The CLI path above is `bin/codemode.mjs`.
 
+## Passing code safely (read this before the first browse call)
+
+`--code '<js>'` is only safe for a short one-liner with NO quotes of its own.
+Guest code normally contains quotes — a url like `'https://example.com'` closes your
+outer single quote early, and the shell then waits for a quote that never arrives, so
+**the command hangs**. Under PowerShell it does not hang; it mangles the argument into
+`Unexpected token '}'`. Both were observed from real agent runs.
+
+So for anything longer than a trivial expression, write the script to a file and use:
+
+`{{NODE}} {{CLI}} --code-file /abs/path/to/script.js`
+
+or pipe it on stdin with `{{NODE}} {{CLI}} --code -`. Neither one has to survive quoting.
+
+## Discovering a call shape
+
+Do not guess arguments and do not grep the skills tree for them. Ask the sandbox:
+
+`{{NODE}} {{CLI}} --code "return actions.find('browse')"`
+`{{NODE}} {{CLI}} --code "return actions.describe('browse.exec')"`
+`{{NODE}} {{CLI}} --code "return actions.check('browse.exec', { urls: ['https://x'] })"`
+
+`describe` returns the full signature and every input; `check` validates a call without
+making it. `browse.probe()` reports what the installed Aside build will actually do,
+including why an option is refused.
+
 Code is an async function body. Use `await` for tool operations and `return` for
-the answer. Available tools: `browse.probe|exec`, `search.files|content|count`,
+the answer. Available tools: `browse.probe|exec|captureMany|readText|searchMany|downloadMedia|watch|prefetch`,
+`report.build`, `api.batch`, `recipes.run`, `search.files|content|count`,
 `read_file({path, offset?, limit?})` (1-indexed lines),
 `write_file({file_path, content})` (create-only),
 `edit_file({path, edits, appendText?})`, and compound `fs.*` helpers.

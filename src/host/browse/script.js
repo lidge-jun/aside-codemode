@@ -30,6 +30,9 @@ export function compile(job, plan = null) {
     concurrency: job.concurrency,
     waitUntil: job.waitUntil,
     snapshot: job.snapshot,
+    requireSelector: job.requireSelector || [],
+    minTextChars: job.minTextChars || null,
+    requireContent: job.requireContent === true,
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
@@ -70,6 +73,7 @@ async function one(item) {
   if (deadlineHit) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
   if (item.skip) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, snapshot: 0, screenshot: 0, pdf: 0 };
+  let out_render = null;
   let mark = Date.now();
   const lap = () => { const d = Date.now() - mark; mark = Date.now(); return d; };
   const pr = openTab(item.url);
@@ -96,7 +100,12 @@ async function one(item) {
     let finalUrl = item.url;
     let title = '';
     let tree = '';
-    try { if (typeof page.url === 'function') finalUrl = await page.url(); } catch (_) {}
+    // page.url() drops the fragment: opening localhost:10100/#providers reported
+    // localhost:10100/ back, so an SPA hash route could not be recorded or reproduced.
+    // location.href inside the page keeps it, so that is the authoritative reading and
+    // page.url() is only the fallback.
+    try { finalUrl = await page.evaluate(() => location.href); } catch (_) {}
+    if (!finalUrl || finalUrl === 'about:blank') { try { if (typeof page.url === 'function') finalUrl = await page.url(); } catch (_) {} }
     try { if (typeof page.title === 'function') title = await page.title(); } catch (_) {}
     try { if (typeof snapshot === 'function') { const snap = await snapshot(page); tree = (snap && snap.tree) || ''; } } catch (_) {}
     t.detect = lap();
@@ -105,19 +114,103 @@ async function one(item) {
       items.push({ url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });
       return;
     }
-    const out = { url: item.url, ok: true, finalUrl, title, timings: t, capture: { requested: {}, actual: {}, matched: true } };
+
+    // Did the page actually RENDER, or did we just arrive at it?
+    //
+    // Threads answered ok:true with the right title while the body was 530KB of server
+    // bootstrap JSON and no post UI. "Navigated successfully" and "read the content" are
+    // different claims and the caller could not tell them apart, so they are separate
+    // fields now and the checks are reported even when nobody asked for them.
+    // Degrade, never fail: a missing evaluate must cost the render VERDICT, not the
+    // capture the caller actually asked for. Same rule as the url/title/tree probe above.
+    let render = null;
+    try {
+      render = await page.evaluate((req) => {
+      const body = document.body;
+      const visibleText = body && typeof body.innerText === 'string' ? body.innerText.trim() : '';
+      const rawLen = body ? (body.textContent || '').length : 0;
+      const scriptLen = Array.from(document.querySelectorAll('script')).reduce((n, s) => n + (s.textContent || '').length, 0);
+      // Share of ALL text that is script payload. Dividing script bytes by body.textContent
+      // gave 201% on a normal dashboard, because head scripts are not inside the body.
+      const totalLen = scriptLen + visibleText.length;
+      const matched = [];
+      const unmatched = [];
+      for (const sel of (req.selectors || [])) {
+        let hit = null;
+        try { hit = document.querySelector(sel); } catch (_) { hit = null; }
+        (hit ? matched : unmatched).push(sel);
+      }
+      const skeletonNodes = document.querySelectorAll('[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i],[aria-busy="true"]').length;
+      return {
+        textChars: visibleText.length,
+        rawChars: rawLen,
+        scriptChars: scriptLen,
+        // How much of the raw text is script payload rather than prose.
+        scriptRatio: totalLen ? Math.round((scriptLen / totalLen) * 100) / 100 : 0,
+        requiredSelectorsMatched: matched,
+        requiredSelectorsMissing: unmatched,
+        skeletonNodes,
+        sample: visibleText.slice(0, 160),
+      };
+      }, { selectors: JOB.requireSelector || [] });
+    } catch (_) { render = null; }
+
+    if (render) {
+    const reasons = [];
+    if (JOB.minTextChars && render.textChars < JOB.minTextChars) reasons.push('only ' + render.textChars + ' visible characters (wanted >= ' + JOB.minTextChars + ')');
+    if (render.requiredSelectorsMissing.length) reasons.push('missing required selectors: ' + render.requiredSelectorsMissing.join(', '));
+    // scriptRatio is REPORTED but is deliberately not a verdict input. Any bundled SPA
+    // ships large inline scripts, so a ratio test fails pages that rendered perfectly well
+    // — it would trade the false success we are fixing for a false failure, which is no
+    // better. The verdict comes from what the caller actually asked for.
+    if (render.skeletonNodes > 0 && render.textChars < 400) reasons.push(render.skeletonNodes + ' loading-skeleton nodes still present and almost no text');
+    render.reasons = reasons;
+    // null means nobody asked and no heuristic fired; true/false is a real verdict.
+    const asked = Boolean((JOB.requireSelector && JOB.requireSelector.length) || JOB.minTextChars);
+    render.contentVerified = reasons.length ? false : (asked ? true : null);
+    out_render = render;
+    if (reasons.length && JOB.requireContent) {
+      items.push({ url: item.url, ok: false, code: 'EUNRENDERED', finalUrl, title, render, timings: t });
+      return;
+    }
+    }
+    const out = { url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
     if (JOB.extract) {
       // ONE evaluate for the whole schema: the point of #10 is to avoid shipping a tree.
       out.data = await page.evaluate((schema) => {
+        // textContent includes the text inside <script>, which is how extracting 'body' on
+        // Threads returned 530KB of server bootstrap JSON and still reported success.
+        // innerText is the rendered, visible text; scripts and styles are stripped either way.
+        const readText = (n) => {
+          if (!n) return null;
+          if (typeof n.innerText === 'string' && n.innerText.length) return n.innerText;
+          const clone = n.cloneNode(true);
+          for (const bad of clone.querySelectorAll ? clone.querySelectorAll('script,style,noscript,template') : []) bad.remove();
+          return clone.textContent;
+        };
+        const isVisible = (n) => {
+          if (!n || !n.getBoundingClientRect) return false;
+          const r = n.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) return false;
+          const st = window.getComputedStyle ? window.getComputedStyle(n) : null;
+          return !st || (st.visibility !== 'hidden' && st.display !== 'none');
+        };
         const pick = (spec) => {
           const s = typeof spec === 'string' ? { selector: spec } : spec;
-          const nodes = s.all ? Array.from(document.querySelectorAll(s.selector)) : [document.querySelector(s.selector)];
-          const read = (n) => {
-            if (!n) return null;
-            const v = s.attr ? n.getAttribute(s.attr) : n.textContent;
+          let nodes = Array.from(document.querySelectorAll(s.selector));
+          if (s.visible) nodes = nodes.filter(isVisible);
+          let vals = nodes.map((n) => {
+            const v = s.attr ? n.getAttribute(s.attr) : readText(n);
             return v === null || v === undefined ? null : (s.trim === false ? v : String(v).trim());
-          };
-          return s.all ? nodes.map(read) : read(nodes[0]);
+          });
+          if (s.filterText) { const re = new RegExp(s.filterText, 'i'); vals = vals.filter((v) => v && re.test(v)); }
+          // A selector like [class*=provider] matches wrappers and children alike, so the
+          // same string comes back many times with blanks between. Dropping empties and
+          // duplicates is what turns that into an answer.
+          vals = vals.filter((v) => v !== null && String(v).length > 0);
+          if (s.unique !== false) vals = [...new Set(vals)];
+          if (s.all) return s.limit ? vals.slice(0, s.limit) : vals;
+          return vals.length ? vals[0] : null;
         };
         const data = {}; const missing = [];
         for (const [field, spec] of Object.entries(schema)) {

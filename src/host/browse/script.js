@@ -6,6 +6,7 @@
 import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS, SLACK_MS } from './schema.js';
 import { detectionPatterns } from './policy.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
+import { helperSource } from './helper-bundle.js';
 
 export { SLACK_MS };
 
@@ -311,6 +312,10 @@ export function compile(job, plan = null) {
   const needsActions = Boolean(payload.actions && payload.actions.length);
   const src = TEMPLATE
     .replace('__JOB__', () => jsonForScript(payload))
+    // Opt-in, and first, so the loop below can call cm the moment the script starts. It is
+    // read from the same file an install copies, which is what lets the envelope's sha256
+    // mean anything.
+    .replace('/*__HELPER__*/', () => (job.helper === true ? stripForWire(helperSource().src) : ''))
     .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
     .replace('/*__EXTRACT__*/', () => (payload.extract ? stripForWire(EXTRACT_SRC) : ''))
     .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
@@ -324,6 +329,7 @@ export function compile(job, plan = null) {
 // Kept as one string so a test can evaluate it with fake globals instead of grepping it.
 const TEMPLATE = `"use strict";
 const JOB = __JOB__;
+/*__HELPER__*/
 /*__TREE_SUMMARY__*/
 /*__ACTION_STEPS__*/
 const SCRIPT_STARTED_AT = Date.now();

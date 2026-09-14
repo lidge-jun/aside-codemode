@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { validateJob } from './schema.js';
 import { compile, deadlineMath } from './script.js';
 import { attachDiff } from './diff.js';
+import { helperStamp } from './helper-bundle.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -193,7 +194,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // argument. Refusing here with a named code beats spawn ENAMETOOLONG, which says
     // nothing about which option made the script too big.
     if (source.length > 30000) {
-      const e = new Error(`the generated script is ${source.length} characters, over the 30000 wire limit; drop snapshot, actions or some urls`);
+      const e = new Error(`the generated script is ${source.length} characters, over the 30000 wire limit; drop helper, snapshot, actions or some urls`);
       e.code = 'ESOURCETOOLONG';
       throw e;
     }
@@ -308,6 +309,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       status,
       ok: status === 'completed',
       requested: requested.length,
+      // Which helper answered, when one was shipped. The body is not echoed; the hash is
+      // what lets an installed copy be checked against the one this run actually ran.
+      helper: job.helper ? helperStamp() : undefined,
       completed: reconciled.filter((i) => i.status === 'completed').length,
       unreturned: reconciled.filter((i) => i.status === 'unreturned').length,
       items: reconciled,

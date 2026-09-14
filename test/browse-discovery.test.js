@@ -23,6 +23,8 @@ for (const [label, opts] of [
   ['an unsupported waitUntil', { waitUntil: 'networkidle' }],
   ['a screenshot option Aside does not expose', { screenshot: { maxWidth: 800 } }],
   ['a snapshotAfter mode', { snapshotAfter: true }],
+  ['the inlined batch helper', { helper: true }],
+  ['a helper flag that is not a boolean', { helper: 'yes' }],
 ]) {
   test('discovery and execution agree on ' + label, () => {
     assert.equal(

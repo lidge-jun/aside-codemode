@@ -62,7 +62,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -314,6 +314,11 @@ export function validateJob(raw, browseCaps = {}) {
   if (raw.fullText !== undefined && typeof raw.fullText !== 'boolean') {
     throw new BrowseOptionError('fullText must be a boolean', 'EBADVAL');
   }
+  // The native batch helper, inlined into the generated script. Opt-in because it is about
+  // 6KB of a 30000-character wire budget, and a job that does not call cm gains nothing.
+  if (raw.helper !== undefined && typeof raw.helper !== 'boolean') {
+    throw new BrowseOptionError('helper must be a boolean', 'EBADVAL');
+  }
   // A diff needs both sides, and both sides have to be the same kind of thing. The before
   // side is the arrival snapshot, so a mode that ships no tree ('bytes') leaves nothing to
   // compare against and would report the whole page as new.
@@ -345,6 +350,7 @@ export function validateJob(raw, browseCaps = {}) {
     snapshotAfter,
     fullText: raw.fullText === true,
     maxTextChars: raw.maxTextChars === undefined ? 200000 : requirePositiveInt('maxTextChars', raw.maxTextChars),
+    helper: raw.helper === true,
     actionBudgetMs: raw.actionBudgetMs === undefined ? null : requirePositiveInt('actionBudgetMs', raw.actionBudgetMs),
     // Concurrent owned tabs. The pool bounds workers, not tabs: a close that throws leaves
     // the tab open and the worker opens another, so the ceiling has to be counted.

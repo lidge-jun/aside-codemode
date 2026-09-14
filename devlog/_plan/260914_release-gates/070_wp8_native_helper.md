@@ -149,3 +149,51 @@ callback(`onItem`)은 원래 전역(`snapshot`, `page.locator`, `cua`, `display`
 - `node --test test/helper-bundle.test.js test/helper-contract.test.js` — exit 0.
 - 프로브 5건 × 2기기 로그를 이 문서 하단에 추가. `typeof`만 확인한 항목은 PASS로 세지 않는다.
 - hosted CI 5조합 success at head.
+
+## 착수 후 바뀐 결정과 실측 (2026-09-15)
+
+계획서를 쓴 뒤 실제로 프로브해보니 세 가지 전제가 틀렸다.
+
+**계정 루트는 REPL에서 읽힌다. 사본은 하나다.** 070은 "fs가 Project와 session 루트 밖을 거절한다"는 관측을 근거로 프로젝트 루트에 두 번째 사본을 두기로 했다. 착수 전 확인 항목대로 실제로 프로브했더니 계정 루트는 절대 경로로도, 세션 디렉터리 기준 상대 경로 `../../codemode/cm.js`로도 양 OS에서 읽힌다.
+
+    mac   READ OK /Users/jun/.aside/u/0/codemode/probe.js
+          READ OK ../../codemode/probe.js
+    mini  READ OK C:/Users/super/.aside/u/0/codemode/probe.js
+          READ OK ../../codemode/probe.js
+          READ FAIL probe.js (세션 디렉터리에서 찾는다)
+
+거절되는 것은 저장소 경로이지 계정 루트가 아니었다. 그래서 설치 위치는 `<accountRoot>/codemode/cm.js` 하나뿐이고, 프로젝트 사본은 만들지 않는다. 080의 manifest도 파일 하나만 소유하면 된다. 스킬이 안내하는 두 줄은 상대 경로를 쓴다 — 홈 경로를 모르는 채로 양 OS에서 같은 문장이 되기 때문이다.
+
+    const src = await fs.readFile('../../codemode/cm.js', 'utf8');
+    (0, eval)(src);
+
+**프로브 전송은 로컬 http가 아니라 data: URL이다.** `test/fixtures/batch/`와 `serve.mjs`를 만들어 띄웠으나 Aside 브라우저가 이 기기의 loopback에 닿지 못한다. curl은 200을 받는 같은 주소에서 탭은 `chrome-error://chromewebdata/`로 떨어진다. `file://`은 데몬이 이유를 밝히며 거절한다: `Cannot navigate to a file URL without local file access.` 반면 `data:text/html` 페이지는 document, title, DOM이 모두 정상이고 `snapshot()`도 트리를 낸다. 그래서 픽스처와 정적 서버는 지웠다 — 쓰는 곳이 없는 파일을 남기면 다음 사람이 그게 경로라고 믿는다. 거절된 열기 사례는 `file://`로 만든다. 이건 우회가 아니라 더 정확한 자극이다: openTab이 실제로 throw하므로 EOPEN과 예약 환불 경로를 그대로 때린다.
+
+**compile()은 동기로 남고 번들 읽기도 동기다.** 070의 `helperSource`는 `readFile` async였다. compile()은 요청 경로에서 동기로 불리고 있어서, 6KB 파일 하나를 캐시해 읽자고 모든 호출자를 async로 바꿀 이유가 없다. `helper-bundle.js`는 `readFileSync` + 모듈 캐시를 쓴다.
+
+결과 계약 단언은 `src/host/browse/result-contract.js`를 새로 만들어 한 함수(`checkResultEnvelope`)로 모았다. `test/helper-contract.test.js`가 실제 `session.run()` 결과(browse/2)와 VM에서 평가한 `cm.run()` 결과(cm/1)를 같은 함수에 통과시킨다. "같은 키를 쓴다"가 문장이 아니라 검사가 되는 지점이 여기다.
+
+## PROBE 결과 (`node scripts/probe-native-helper.mjs`)
+
+helper 1.0.0, sha256 63562408f207…, 6317 bytes — 양쪽이 같은 바이트다.
+
+| 검사 | mac (darwin) | mini (win32) |
+|---|---|---|
+| 1 설치본 로드와 버전 | PASS 1.0.0 | PASS 1.0.0 |
+| 2a 실제 탭 6개, 동시 2개 | PASS peak=2 req=6 closed=6 | PASS peak=2 req=6 closed=6 |
+| 2b 전 항목 반환 | PASS completed 6/6 | PASS completed 6/6 |
+| 2c 값이 자기 jobId에 | PASS j000…j005 마커 일치 | PASS j000…j005 마커 일치 |
+| 2d 남은 탭 없음 | PASS leaked=0 | PASS leaked=0 |
+| 3a 열기 거절 1건 → partial | PASS | PASS |
+| 3b 나머지 5건 보존 | PASS 5/6 | PASS 5/6 |
+| 3c 거절 사유 명시 | PASS EOPEN | PASS EOPEN |
+| 3d 예약 환불 | PASS requested=5 | PASS requested=5 |
+| 4a 마감 뒤 작업은 indeterminate | PASS 4건 중 3건 | PASS 4건 중 3건 |
+| 4b 재시도 없음 | PASS 호출 1 = 완료 1 | PASS 호출 1 = 완료 1 |
+| 4c complete 주장 안 함 | PASS partial | PASS partial |
+| 5a 기존 탭과 배치 공존 | PASS completed 2 | PASS completed 2 |
+| 5b 콜백 안의 snapshot | PASS [228,228] | PASS [228,228] |
+| 5c 기존 탭 생존 | PASS 228 → 228 | PASS 228 → 228 |
+
+설치 경로: mac `/Users/jun/.aside/u/0/codemode/cm.js`, mini `C:\Users\super\.aside\u\0\codemode\cm.js`.
+`typeof`만 본 항목은 없다. 모든 값은 실제 탭에서 읽은 것이다.

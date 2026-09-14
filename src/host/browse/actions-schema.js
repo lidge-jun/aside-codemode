@@ -86,6 +86,7 @@ export const BROWSE_ACTIONS = [
       snapshotAfter: { type: 'boolean|string', required: false, description: "true returns the observation the call leaves behind, as snapshotId plus fingerprint; 'diff' also compares it against the observation the call arrived at and needs snapshot: 'tree' or 'interactive'. A refused comparison returns reset instead of a diff." },
       fullText: { type: 'boolean', required: false, description: "The page's rendered body on item.text, capped by maxTextChars. Without it the only text a run returns is the 160-character render sample." },
       maxTextChars: { type: 'number', required: false, description: 'Cap for fullText, default 200000.' },
+      helper: { type: 'boolean', required: false, description: 'Inline the cm batch helper into the generated script, so the run can call cm.run / cm.mapLimit. Costs about 4500 characters of the 30000 wire budget; the result reports which build answered in helper.{version,sha256}.' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality?, fullPage? }. maxWidth is ENOTSUP.' },
       pdf: { type: 'object', required: false, description: '{ paperWidth, paperHeight } in INCHES. format is ENOTSUP.' },
       extract: { type: 'object', required: false, description: "{ field: 'css' } or { field: { selector, attr?, all? } }" },

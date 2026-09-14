@@ -27,13 +27,39 @@ export function summarize(rows) {
   const runs = rows.filter((r) => r.kind === 'run');
   const byPath = new Map();
   for (const r of runs) {
-    if (!byPath.has(r.path)) byPath.set(r.path, []);
-    byPath.get(r.path).push(r);
+    // cold and warm are different measurements of the same path, not samples of one. Pooling
+    // them would let a slow cold start be averaged away by the warm runs beside it.
+    // A row with no mode is from a campaign that predates the split. Calling it warm would
+    // merge an unknown condition into a known one, so it keeps its own bucket and says so.
+    // The idle gap is part of what cold MEANS. Two campaigns that both say cold but waited
+    // different amounts are two conditions, and pooling them produces a median that describes
+    // neither. warm has no gap, so it stays plain.
+    const mode = r.mode || 'unspecified';
+    const gap = Number.isFinite(r.idleMs) && r.idleMs > 0 ? ' +' + r.idleMs + 'ms idle' : '';
+    const key = r.path + ' / ' + mode + gap;
+    if (!byPath.has(key)) byPath.set(key, []);
+    byPath.get(key).push(r);
   }
   const paths = [...byPath.entries()].map(([id, list]) => {
     const failed = list.filter((r) => !r.ok);
+    const reported = list.map((r) => r.roundTrips);
+    const trips = [...new Set(reported.filter((n) => Number.isFinite(n)))];
+    // A bucket where some rows never said how many calls they made cannot claim a figure for
+    // all of them: the unique set would report the runs that spoke as if they spoke for the rest.
+    const everyRowReported = reported.every((n) => Number.isFinite(n));
     return {
       path: id,
+      pathId: list[0].path,
+      mode: list[0].mode || 'unspecified',
+      // One number only when every run in the bucket agreed. A mixed bucket printing '3,1'
+      // reads like a per-run figure that applies to all of them, and it does not.
+      roundTrips: everyRowReported && trips.length === 1 ? trips[0] : null,
+      roundTripsMixed: trips.length > 1 ? trips.slice().sort((a, b) => a - b) : null,
+      roundTripsPartial: !everyRowReported && trips.length > 0,
+      // Who went first. With an even number of pairs this is balanced by construction; when it
+      // is not, the path that led more often inherited less of the other's warm state.
+      leads: list.filter((r) => r.slot === 0).length,
+      perCallMs: list.map((r) => r.perCallMs).find((v) => Array.isArray(v) && v.length > 1) || null,
       runs: list.length,
       // Every run, successful or not. Rule 2.
       medianMs: median(list.map((r) => r.ms)),
@@ -62,15 +88,26 @@ export function render(summary) {
   const out = [];
   out.push('# ' + (summary.workload || 'eval') + ' — ' + summary.totalRuns + ' runs');
   out.push('');
-  out.push('| path | runs | median ms (all) | median ms (ok only) | error rate | p95 ms |');
-  out.push('|---|---|---|---|---|---|');
+  out.push('| path / mode | calls per run | runs | median ms (all) | median ms (ok only) | error rate | p95 ms |');
+  out.push('|---|---|---|---|---|---|---|');
   for (const p of summary.paths) {
-    out.push('| ' + [p.path, p.runs, p.medianMs ?? '-', p.medianOkMs ?? '-',
+    out.push('| ' + [p.path, p.roundTrips ?? '-', p.runs, p.medianMs ?? '-', p.medianOkMs ?? '-',
       (p.errorRate * 100).toFixed(1) + '%', p.p95Ms ?? 'not computed'].join(' | ') + ' |');
   }
   out.push('');
   for (const p of summary.paths) {
     if (p.p95Note) out.push('- ' + p.path + ': p95 ' + p.p95Note + '.');
+    if (p.roundTripsMixed) out.push('- ' + p.path + ': runs in this bucket used different call counts (' + p.roundTripsMixed.join(', ') + '), so no single figure is printed.');
+    if (p.roundTripsPartial) out.push('- ' + p.path + ': some runs in this bucket did not report a call count, so none is printed for the bucket.');
+  }
+  // Lead counts, always. An imbalance is only visible if it is written down.
+  const leadLine = summary.paths.map((p) => p.path + ' ' + p.leads + '/' + p.runs).join(', ');
+  if (summary.paths.length) {
+    out.push('');
+    out.push('Went first (an even split is what the alternation is for): ' + leadLine + '.');
+  }
+  for (const p of summary.paths) {
+    if (p.perCallMs) out.push('- ' + p.path + ': one run split across its calls: ' + p.perCallMs.join(' + ') + ' ms.');
   }
   out.push('');
   out.push('Every run, in order:');
@@ -79,6 +116,10 @@ export function render(summary) {
     out.push('- ' + p.path + ': ' + p.values.join(', ') + ' ms');
     if (p.failures.length) {
       out.push('  - failed: ' + p.failures.map((f) => 'pair ' + f.pair + ' (' + f.why + ')').join('; '));
+    } else {
+      // Said out loud, so "no failures were recorded" cannot be confused with "failures were
+      // not looked at".
+      out.push('  - failed: none');
     }
   }
   return out.join('\n') + '\n';

@@ -44,7 +44,11 @@ function __withTimeout(promise, ms, label) {
 }
 // Steps that cannot change the tree. Everything else marks it dirty, including the page
 // level navigations, because a ref minted before them means nothing after.
-var __INERT = { sleepMs: 1, waitForLoadState: 1, waitFor: 1, scroll: 1 };
+// Only sleepMs. scroll is how infinite scroll and virtualized lists mount new rows,
+// waitFor succeeds BECAUSE the DOM changed, and waitForLoadState waits for content to
+// arrive. Calling those inert was harmless only by accident today and becomes a hole the
+// moment a read-only ref verb exists.
+var __INERT = { sleepMs: 1 };
 function __applyStep(page, s, stepMs) {
   var loc = (s.target === null || s.target === undefined) ? null : page.locator(s.target);
   switch (s.verb) {
@@ -90,10 +94,17 @@ var __VERB_METHODS = {
 function __classify(err, verb) {
   if (err && err.__code) return err.__code;
   var msg = String((err && err.message) || err);
-  var missing = /is not a function|is not implemented|not implemented|not supported|has no method|Cannot read propert(y|ies) of undefined/i.test(msg);
-  if (!missing) return 'EACTION';
   var names = __VERB_METHODS[verb] || [];
-  for (var i = 0; i < names.length; i++) if (msg.indexOf(names[i]) !== -1) return 'ENOTSUP';
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i];
+    // The NAME has to be the thing reported missing, not merely present in the string. A
+    // driver prefixes its errors ("page.evaluate: window.gtag is not a function"), so a
+    // substring test turned the page's own broken script into a missing capability.
+    var direct = new RegExp('(^|[^A-Za-z0-9_$])' + n + '\\s*(is not a function|is not implemented|is not supported)', 'i');
+    var reading = new RegExp('Cannot read propert(y|ies) of undefined.*' + n, 'i');
+    var method = new RegExp('(^|[^A-Za-z0-9_$])' + n + '\\s*:\\s*(Not implemented|Not supported)', 'i');
+    if (direct.test(msg) || reading.test(msg) || method.test(msg)) return 'ENOTSUP';
+  }
   return 'EACTION';
 }
 async function runActions(page, steps, ctx) {
@@ -135,8 +146,10 @@ async function runActions(page, steps, ctx) {
         rec.code = 'EREFSTALE';
         rec.error = 'refs were taken from tree ' + wantFp + ' and the page now fingerprints as '
           + fullFp + (structFp ? ' (structure ' + structFp + ')' : '')
-          + '; the tree changed, so a ref may no longer name the element you read. Pass the'
-          + ' structure fingerprint instead if only visible text moves on this page';
+          + '; the tree changed, so a ref may no longer name the element you read. Take a new'
+          + ' snapshot. fingerprintStructure exists for pages whose accessible names carry a'
+          + ' clock or a badge, but it compares ref and role ONLY: a list that reorders under'
+          + ' stable refs is invisible to it, so do not use it to click anything destructive';
         return false;
       }
       verifiedClean = true;

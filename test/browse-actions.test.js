@@ -249,16 +249,35 @@ test('a ref step AFTER a mutating step is re-checked, not waved through', async 
   assert.equal(r.steps[1].code, 'EREFSTALE');
 });
 
-test('an inert step does not buy another snapshot', async () => {
-  let n = 0;
-  const page = fakePage({ urls: ['https://app.test/#dash'] });
-  const r = await runActions(page, steps([{ ref: 'e1', click: true }, { sleepMs: 5 }, { ref: 'e2', hover: true }]), {
-    urlAtSnapshot: 'https://app.test/#dash',
-    refsFingerprint: 'r12-abc',
-    fingerprintOf: async () => { n += 1; return { full: 'r12-abc' }; },
-  });
-  assert.equal(r.ok, true);
-  assert.equal(n, 2, 'once before the first ref, once after the click; sleepMs adds nothing');
+test('no ref step is ever waved through, whatever sits between them', async () => {
+  // Every ref-targeted verb mutates, so today a check always precedes every ref step. That
+  // is the property that matters and the one round 2 broke. __INERT exists for the
+  // read-only ref reads planned in 030; until then it is deliberately minimal, because
+  // scroll mounts rows on an infinite list, waitFor succeeds BECAUSE the dom changed, and
+  // waitForLoadState waits for content to arrive.
+  const count = async (list) => {
+    let n = 0;
+    const page = fakePage({ urls: ['https://app.test/#dash'] });
+    const r = await runActions(page, steps(list), {
+      urlAtSnapshot: 'https://app.test/#dash',
+      refsFingerprint: 'r12-abc',
+      fingerprintOf: async () => { n += 1; return { full: 'r12-abc' }; },
+    });
+    return { checks: n, refSteps: r.steps.filter((s) => s.targetKind === 'ref').length, guards: r.refGuards };
+  };
+  const lists = [
+    [{ ref: 'e1', hover: true }, { sleepMs: 5 }, { ref: 'e2', hover: true }],
+    [{ ref: 'e1', hover: true }, { scroll: 'bottom' }, { ref: 'e2', hover: true }],
+    [{ ref: 'e1', hover: true }, { waitForLoadState: 'stable' }, { ref: 'e2', hover: true }],
+    [{ ref: 'e1', hover: true }, { selector: '#x', click: true }, { ref: 'e2', hover: true }],
+    [{ ref: 'e1', click: true }, { ref: 'e2', click: true }, { ref: 'e3', click: true }],
+  ];
+  for (const list of lists) {
+    const got = await count(list);
+    assert.equal(got.checks, got.refSteps, 'one check per ref step: ' + JSON.stringify(list));
+    assert.ok(got.guards.every((g) => g === 'fingerprint'), 'and each labelled with what it got');
+  }
+  assert.equal(Object.keys({ sleepMs: 1 }).length, 1);
 });
 
 test('the structure fingerprint survives text that moves on its own', async () => {
@@ -415,8 +434,9 @@ function compiledPage(opts = {}) {
   };
 }
 
-test('a step that ran is reported even when the item is lost to the deadline', async () => {
-  // The click really happened. Losing the item used to erase all evidence of it.
+test('a capture that fits the reserve no longer loses the item it follows', async () => {
+  // The reserve is derived from the work that still has to happen, so a screenshot that
+  // used to eat the whole remaining budget now has room bought for it.
   const page = compiledPage({ slow: { screenshot: 3000 } });
   const src = compile(validateJob({
     urls: ['https://a.test'], timeoutMs: 4000,
@@ -424,10 +444,25 @@ test('a step that ran is reported even when the item is lost to the deadline', a
     screenshot: { type: 'png' },
   }));
   const out = await runCompiled(src, page);
-  assert.ok(out, 'the script must still print its payload');
   assert.deepEqual(page.seen, ['click'], 'the side effect happened');
-  assert.ok(Array.isArray(out.actionLog), 'actionLog must exist');
-  assert.equal(out.actionLog.length, 1, 'and it must carry the step that ran');
+  assert.equal(out.items.length, 1, 'and the item survived to report it');
+  assert.equal(out.actionLog.length, 1);
+});
+
+test('when the item IS lost, the step that already ran is still on the record', async () => {
+  // No reserve can cover an arbitrarily slow capture. What must never happen is a live page
+  // being clicked and the run reporting nothing at all about it.
+  const page = compiledPage({ slow: { screenshot: 9000 } });
+  const src = compile(validateJob({
+    urls: ['https://a.test'], timeoutMs: 4000,
+    actions: [{ ref: 'e1', click: true }],
+    screenshot: { type: 'png' },
+  }));
+  const out = await runCompiled(src, page);
+  assert.deepEqual(page.seen, ['click'], 'the click fired');
+  assert.equal(out.items.length, 0, 'and the item did not survive');
+  assert.ok(out.partial.includes('inner-deadline'));
+  assert.equal(out.actionLog.length, 1, 'the evidence must outlive the item');
   assert.equal(out.actionLog[0].verb, 'click');
   assert.equal(out.actionLog[0].ok, true);
 });

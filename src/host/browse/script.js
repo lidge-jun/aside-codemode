@@ -296,7 +296,14 @@ async function one(item) {
         deadlineAt: actionDeadlineNow(),
         refsFingerprint: JOB.refsFingerprint,
         guardTimeoutMs: 5000,
-        onStep: function (rec) { actionLog.push({ url: item.url, i: rec.i, verb: rec.verb, target: rec.target, ok: rec.ok, code: rec.code }); },
+        onStep: function (rec) {
+          var row = { url: item.url, i: rec.i, verb: rec.verb, target: rec.target, ok: rec.ok, code: rec.code };
+          actionLog.push(row);
+          // Printed IMMEDIATELY as well as buffered. The final payload is written after
+          // cleanup(), so a CLI killed on a hung page.close() would otherwise take the
+          // record of an executed side effect with it.
+          try { console.log(JSON.stringify({ type: 'step', step: row })); } catch (e) {}
+        },
         fingerprintOf: function (p) {
           return snapshot(p).then(function (s) {
             var sum = summarizeTree((s && s.tree) || '', 'interactive', 200000);

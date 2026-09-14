@@ -43,6 +43,21 @@ export function parseFinal(stdout) {
 
 // Aggregating per step is what turns a pile of item timings into an answer to "what is
 // slow" — issue #20 asks for a bottleneck report, not a transcript.
+// Steps are printed the moment they run, so an executed side effect is recoverable from a
+// transcript whose final payload never arrived.
+export function parseSteps(stdout) {
+  const rows = [];
+  for (const line of stripAnsi(stdout).split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    try {
+      const o = JSON.parse(t);
+      if (o && o.type === 'step' && o.step) rows.push(o.step);
+    } catch (_) { /* not a step line */ }
+  }
+  return rows;
+}
+
 export function aggregateSteps(items = []) {
   const byStep = {};
   for (const item of items) {
@@ -116,7 +131,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
         ok: false,
         items: job.urls.map((url) => ({ url, ok: false, code: killed ? 'EHOSTKILL' : 'ENOMARKER' })),
         timings: { steps: [], totalMs },
-      actionLog: (parseFinal(stdout) && parseFinal(stdout).actionLog) || [],
+      actionLog: parseSteps(stdout),
       partial: [killed ? 'host-kill' : 'no-marker'],
       leakedUrls: job.urls.slice(),
       raw: { stdout, marker },
@@ -125,7 +140,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     }
 
     const items = final && Array.isArray(final.items) ? final.items : [];
-    const actionLog = final && Array.isArray(final.actionLog) ? final.actionLog : [];
+    const actionLog = final && Array.isArray(final.actionLog) && final.actionLog.length
+      ? final.actionLog
+      : parseSteps(stdout);
     const leakedUrls = final && Array.isArray(final.leakedUrls) ? final.leakedUrls : [];
     const partial = final && Array.isArray(final.partial) ? final.partial.slice() : [];
     if (marker === 'error') partial.push('script-error');

@@ -208,3 +208,20 @@ test('register with launcher:true reports the shim path', () => {
   assert.ok(readFileSync(r.launcher.path, 'utf8').includes(r.cli));
 });
 
+test('browsing stays off unless the install explicitly asks for it', () => {
+  const fx = fixture();
+  run(fx);
+  const cfg = JSON.parse(readFileSync(path.join(fx.xdg, 'codemode', 'config.json'), 'utf8'));
+  assert.equal(cfg.browseCaps === undefined || cfg.browseCaps.enabled !== true, true);
+});
+
+test('enableBrowse opts the machine in without dropping the other browse caps', () => {
+  const fx = fixture();
+  const cfgPath = path.join(fx.xdg, 'codemode', 'config.json');
+  mkdirSync(path.dirname(cfgPath), { recursive: true });
+  writeFileSync(cfgPath, JSON.stringify({ browseCaps: { enabled: false, maxTabs: 3 } }));
+  run(fx, { enableBrowse: true });
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  assert.equal(cfg.browseCaps.enabled, true);
+  assert.equal(cfg.browseCaps.maxTabs, 3, 'an existing cap must survive the opt-in');
+});

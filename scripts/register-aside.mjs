@@ -6,6 +6,7 @@
 //
 //   node scripts/register-aside.mjs                 register the AGENTS block
 //   node scripts/register-aside.mjs --launcher      also write ~/.local/bin/codemode
+//   node scripts/register-aside.mjs --browse        opt this machine into browsing
 //   ASIDE_ACCOUNT=1,3 node scripts/register-aside.mjs   narrow to those ids
 import os from 'node:os';
 import path from 'node:path';
@@ -25,6 +26,7 @@ const r = applyRegister({
   xdgConfigHome: process.env.XDG_CONFIG_HOME,
   asideAccounts: accountEnv ? accountEnv.split(',') : undefined,
   launcher: argv.includes('--launcher'),
+  enableBrowse: argv.includes('--browse'),
 });
 
 // The per-account summary goes to stderr so stdout stays parseable JSON.

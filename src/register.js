@@ -35,12 +35,19 @@ function msg(e) {
   return String(e && e.message ? e.message : e);
 }
 
-function mergeMachineConfig({ existing, homedir, accountRoot, repoRoot }) {
+function mergeMachineConfig({ existing, homedir, accountRoot, repoRoot, enableBrowse }) {
   const roots = [homedir];
   if (accountRoot !== homedir && !accountRoot.startsWith(homedir + path.sep)) roots.push(accountRoot);
   const config = existing && typeof existing === 'object' ? { ...existing } : {};
   config.roots = roots;
   if (!Array.isArray(config.excludeGlobs)) config.excludeGlobs = DEFAULT_EXCLUDES.slice();
+  // Browsing stays opt-in per machine (browseCaps.enabled defaults to false), so a
+  // fleet install has to say so out loud rather than flip the default in code.
+  if (enableBrowse) {
+    const caps = config.browseCaps && typeof config.browseCaps === 'object' ? { ...config.browseCaps } : {};
+    caps.enabled = true;
+    config.browseCaps = caps;
+  }
   if (process.platform !== 'win32' && typeof config.rgPath === 'string' && config.rgPath.toLowerCase().endsWith('.exe')) {
     config.rgPath = null;
   } else if (process.platform === 'win32' && !config.rgPath && existsSync(path.join(repoRoot, 'bin', 'rg.exe'))) {
@@ -213,7 +220,7 @@ export function installLauncher({ homedir, node, cli, platform = process.platfor
 
 export function applyRegister({
   asideHome, repoRoot, execPath, homedir, xdgConfigHome,
-  asideAccounts, launcher = false, platform = process.platform,
+  asideAccounts, launcher = false, enableBrowse = false, platform = process.platform,
 }) {
   const { roots, truncated } = listAccountRoots({ asideHome, only: asideAccounts });
   const primaryRoot = (roots.find((r) => r.current) || roots[0]).root;
@@ -229,7 +236,7 @@ export function applyRegister({
       try { existing = readJson(userPath); } catch { existing = {}; }
     }
     try {
-      writeJson(userPath, mergeMachineConfig({ existing, homedir, accountRoot: primaryRoot, repoRoot }));
+      writeJson(userPath, mergeMachineConfig({ existing, homedir, accountRoot: primaryRoot, repoRoot, enableBrowse }));
     } catch { /* continue to AGENTS */ }
 
     const repoCfg = path.join(repoRoot, 'codemode.config.json');
@@ -241,7 +248,7 @@ export function applyRegister({
       try { repoExisting = readJson(example); } catch { repoExisting = {}; }
     }
     try {
-      writeJson(repoCfg, mergeMachineConfig({ existing: repoExisting, homedir, accountRoot: primaryRoot, repoRoot }));
+      writeJson(repoCfg, mergeMachineConfig({ existing: repoExisting, homedir, accountRoot: primaryRoot, repoRoot, enableBrowse }));
     } catch { /* EACCES or other - continue */ }
   } catch { /* continue to AGENTS */ }
 
@@ -337,4 +344,3 @@ export function applyRegister({
     launcher: launcherResult,
   };
 }
-

@@ -40,11 +40,12 @@ second spawn path.**
 path (`002_design_inputs.md` A1). Required export:
 
 ```js
-export function createBrowseSession({ spawnImpl, bin, signal, hostDeadlineMs, tmpDir });
-// session.run(source: string) => Promise<{
-//   stdout: string, stderr: string, exitCode: number|null, killed: boolean,
-//   marker: 'ok'|'error'|null, markerMs: number|null, leakedUrls: string[],
-// }>
+// SUPERSEDED BY 003 C1. session.run takes a validated JOB, not a source string:
+//   createBrowseSession({ spawnAside, resolveAside, readFile, stat, now, signal })
+//   session.run(job, { signal }) => Promise<SessionResult>
+// SessionResult = { ok, items, timings, partial: string[], leakedUrls, raw: { stdout, marker } }
+// session.run compiles the job internally via compile(job) in script.js; no caller compiles,
+// and no caller parses stdout to decide success. raw.stdout remains available for diagnostics.
 ```
 
 Argv shape, measured: `['repl', <scriptPath>]` (`001` E1). Success is the

@@ -1019,9 +1019,17 @@ async function captureUrls(urls, opts = {}) {
     defaultMs: opts.config?.browseCaps?.navigateTimeoutMs,
     maxMs: opts.config?.browseCaps?.maxNavigateTimeoutMs,
     runItem: async ({ url, timeoutMs, signal }) => {
-      // wp2 spawnImpl injection. Tests of session keep injecting spawnImpl;
-      // they never launch aside.exe. Policy tests never reach here.
-      return spawnOnePage({ url, timeoutMs, signal, spawnImpl: opts.spawnImpl, compile: opts.compile });
+      // SUPERSEDED BY 003 C4. spawnOnePage is DELETED from the design: one process
+      // per URL pays the measured 1.4-2.4s startup per URL and throws away the
+      // 3397ms -> 908ms batching win (001 E1/E6) this whole unit exists for.
+      //
+      // The breaker is decide-on-host, enforce-in-script. runGuardedBatch stays a
+      // host function but wraps exactly ONE session.run: policy.js emits a plain
+      // per-item plan { url, timeoutMs, waitSelector, skip }, script.js embeds that
+      // plan as a literal in the compiled source, the script enforces it (a skipped
+      // item is failed without opening a tab), and policy.js feeds the returned
+      // per-item outcomes back into breaker state so the next call sees the trip.
+      throw new Error('spawnOnePage removed: batch through one session.run (003 C4)');
     },
   });
 }

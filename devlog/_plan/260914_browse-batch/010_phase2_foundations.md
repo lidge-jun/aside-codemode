@@ -456,10 +456,13 @@ async function one(url) {
   let tab;
   try {
     let t0 = Date.now();
-    tab = await openTab(url);
-    opened.push({ id: tab && tab.id, url });
+    // E7 (003): openTab RETURNS the page. There is no tab.page and no tab.id;
+    // identity is page.targetId. Register the promise before awaiting it (003 C5.2).
+    const pagePromise = openTab(url);
+    pending.push(pagePromise);
+    const page = await pagePromise;
+    opened.push({ targetId: page && page.targetId, url, page });
     timings.navigate = elapsed(t0);
-    const page = tab.page || tab;
     t0 = Date.now();
     if (page && typeof page.waitForLoadState === 'function') {
       await page.waitForLoadState(JOB.waitUntil);
@@ -992,7 +995,13 @@ const DEFAULTS = {
   maxResultBytes: 65536,
   maxTimeoutMs: 120000,
   searchCaps: { files: 5000, content: 500 },
-  browseCaps: { enabled: true, timeoutMs: 30000, maxTabs: 8 },
+  // Superseded by 003 C3: opt-in by default, inner cap 25000 (below Aside's ~30s
+  // internal screenshot timeout), and wp3/wp4 keys live in the SAME object.
+  browseCaps: {
+    enabled: false, timeoutMs: 25000, maxTabs: 8, concurrency: 4,
+    navigateTimeoutMs: 15000, maxNavigateTimeoutMs: 25000,
+    breakerFailures: 3, breakerCooldownMs: 30000, domainTimeouts: {},
+  },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 ```
@@ -1370,7 +1379,11 @@ These are in the unit write scope; wp2 C must patch them because guest-visible n
 
 ```js
   if (!config.browseCaps || typeof config.browseCaps !== 'object') {
-    config.browseCaps = { enabled: true, timeoutMs: 30000, maxTabs: 8 };
+    config.browseCaps = {
+      enabled: false, timeoutMs: 25000, maxTabs: 8, concurrency: 4,
+      navigateTimeoutMs: 15000, maxNavigateTimeoutMs: 25000,
+      breakerFailures: 3, breakerCooldownMs: 30000, domainTimeouts: {},
+    }; // 003 C3
   }
   if (!('asidePath' in config)) config.asidePath = null;
 ```

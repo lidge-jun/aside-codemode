@@ -229,6 +229,18 @@ SessionResult = {
 `parseMarker(stdout)` -> parse the JSON payload -> inspect every claimed file
 (exists, bytes, PNG IHDR / JPEG SOF, PDF MediaBox) -> build `SessionResult`.
 
+Two paths the sequence above must not skip:
+
+- **The host kill path.** If `hostMs` fires, the script never printed its JSON, so there are no
+  `leakedUrls` to read. `session.run` takes the leaked set from the **job it sent** — every url
+  it asked for that has no completed item — and returns `partial: ['host-kill']` with those
+  urls. E5 says those tabs cannot be recovered later, so reporting them is the only honest
+  outcome; silence would turn a permanent leak into a clean-looking result.
+- **MediaBox parsing lives in browse for wp2.** 002 places `pagebox.js` under `report/` and
+  forbids browse from importing report. `session.run` must verify page size, so wp2 puts the
+  parser at `src/host/browse/pagebox.js`; wp5's report layer imports it from there rather than
+  owning a second copy.
+
 Success is the trailing `[ok | Nms]` marker **and** the file inspection. A missing marker is a
 failure even at exit 0. No caller parses `raw.stdout` to decide success.
 
@@ -237,18 +249,26 @@ failure even at exit 0. No caller parses `raw.stdout` to decide success.
 ```js
 "use strict";
 const JOB = /* JSON literal, includes the per-item plan from policy.js (C4) */;
-const opened = [];   // { targetId, url, page }
+const opened = [];   // { targetId, url, page, closed }
 const pending = [];  // every openTab promise, registered BEFORE it is awaited
+const items = [];
 let deadlineHit = false;
 
+function markClosed(rec) { rec.closed = true; }
+
 async function one(item) {
-  if (deadlineHit || item.skip) return { url: item.url, ok: false, code: 'ESKIP' };
-  const pr = openTab(item.url);   // register first (C5.2)
+  if (deadlineHit || item.skip) { items.push({ url: item.url, ok: false, code: 'ESKIP' }); return; }
+  const pr = openTab(item.url);   // C5.2: register the PROMISE before awaiting it
   pending.push(pr);
   const page = await pr;          // E7: openTab RETURNS the page
-  opened.push({ targetId: page.targetId, url: item.url, page });
-  // ... waits, snapshot(page), page.screenshot(...), page.pdf({ paperWidth, paperHeight })
-  return { url: item.url, ok: true /* , ... */ };
+  const rec = { targetId: page.targetId, url: item.url, page, closed: false };
+  opened.push(rec);
+  try {
+    // waits, snapshot(page), page.screenshot(...), page.pdf({ paperWidth, paperHeight })
+    items.push({ url: item.url, ok: true /* , ... */ });
+  } finally {
+    try { await page.close(); markClosed(rec); } catch (_) {}
+  }
 }
 
 async function main() {
@@ -257,19 +277,26 @@ async function main() {
 }
 
 async function cleanup() {
-  // C5.3: await EVERY registered promise, settled or not, and close what resolved.
+  // C5.3: await EVERY registered promise, settled or not, and close what resolved —
+  // including a page that resolves AFTER the deadline, which never reached `one`.
   const settled = await Promise.allSettled(pending);
   for (const s of settled) {
-    if (s.status === 'fulfilled' && s.value) { try { await s.value.close(); } catch (_) {} }
+    if (s.status !== 'fulfilled' || !s.value) continue;
+    const page = s.value;
+    let rec = opened.find((o) => o.page === page);
+    if (!rec) { rec = { targetId: page.targetId, url: null, page, closed: false }; opened.push(rec); }
+    if (!rec.closed) { try { await page.close(); markClosed(rec); } catch (_) {} }
   }
-  const leaked = opened.filter((o) => !o.closed).map((o) => o.url);
-  return leaked;
+  return opened.filter((o) => !o.closed).map((o) => o.url);
 }
 
-const timer = new Promise((r) => setTimeout(() => { deadlineHit = true; r('deadline'); }, JOB.innerMs));
-let out;
-try { out = await Promise.race([main(), timer]); }
-finally { const leakedUrls = await cleanup(); console.log(JSON.stringify({ type: 'final', items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] })); }
+// `sleep` is a measured Aside global (001 E2). setTimeout is not relied on.
+const timer = sleep(JOB.innerMs).then(() => { deadlineHit = true; });
+try { await Promise.race([main(), timer]); }
+finally {
+  const leakedUrls = await cleanup();
+  console.log(JSON.stringify({ type: 'final', items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
+}
 ```
 
 Close with `page.close()`. `closeTab` is not used and must not be asserted against.
@@ -278,8 +305,8 @@ Close with `page.close()`. `closeTab` is not used and must not be asserted again
 
 | File | Proves |
 | --- | --- |
-| `test/browse-schema.test.js` | unknown key rejected with the valid list; `page.route`, `maxWidth`, `pdf.format` throw `ENOTSUP`; `waitUntil`/`waitForLoadState` allowlist rejects `networkidle` and garbage; `timeoutMs` above the cap is clamped |
-| `test/browse-script.test.js` | compiled source contains `paperWidth`/`paperHeight` and never `page.route`, `maxWidth`, `closeTab`, `tab.page`, `tab.id`; contains `pending.push` before `await`; `deadlineMath` returns `inner < host` |
+| `test/browse-schema.test.js` | unknown key rejected with the valid list; `page.route`, `maxWidth`, `pdf.format` throw `ENOTSUP`; the wait allowlist is exactly `{'load','domcontentloaded','stable'}` — `networkidle` throws `ENOTSUP` and any other string throws `EBADVAL`, because E7 proved Aside accepts both silently; `timeoutMs` above **`browseCaps.timeoutMs` (default 25000)** is clamped to it. `ASIDE_REPL_CAP_MS = 120000` is only the absolute ceiling Aside itself imposes and is never the effective cap |
+| `test/browse-script.test.js` | **Runs the compiled source**, it does not grep it. Evaluate the string in a `node:vm` context with fake `openTab`, `sleep`, `snapshot` and `console` globals, then assert behaviour. Required activation for C5: one fake `openTab` resolves AFTER the inner deadline has fired, and the test asserts `close()` was still called on that late page and that it is absent from `leakedUrls`. A second case makes `openTab` reject and asserts the other items still complete. Grepping for `finally`/`closeTab` is explicitly NOT acceptance for C5 (C5 above). Substring checks may additionally confirm the source never contains `page.route`, `maxWidth`, `closeTab`, `tab.page` or `tab.id`, and that `paperWidth`/`paperHeight` are present — but those are hygiene, not the C5 proof |
 | `test/browse-session.test.js` | injected `spawnAside` fake (a `process.execPath -e` child) printing JSON + `[ok | 12ms]` parses; exit 0 with `[error | 3ms]` is a FAILURE; missing marker is a failure; a claimed-but-absent file fails the item |
 | `test/browse-pagebox.test.js` | committed 2-page PDF fixture: MediaBox `612x792` fails an A4 request, `595.92x841.92` passes |
 | `test/browse-doctor.test.js` | spawn `src/cli.js --doctor --browse` like `test/cwd.test.js:68`; asserts the matrix keys |

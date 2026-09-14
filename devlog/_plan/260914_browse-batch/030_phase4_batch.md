@@ -469,9 +469,12 @@ export function createFetchFirst({
     if (!session || !compileRenderedHtmlScript) {
       return urls.map((url) => ({ url, error: { error: 'browser fallback unavailable', code: 'ENOTSUP' }, needsBrowser: true }));
     }
-    const source = compileRenderedHtmlScript({ urls, scriptDeadlineMs: 25000 });
-    const raw = await session.run(source);
-    const parsed = parseReplTranscript(raw.stdout);
+    // SUPERSEDED BY 003 C1: build a validated job and let session.run compile it.
+    // session.run(job, { signal }) returns SessionResult; it does the marker and
+    // file inspection itself, so no caller parses stdout to decide success.
+    const job = buildRenderedHtmlJob({ urls, timeoutMs: 25000 });
+    const res = await session.run(job, { signal });
+    const parsed = { items: res.items, leakedUrls: res.leakedUrls };
     return urls.map((url, i) => {
       const row = parsed.items.find((x) => x.index === i) || parsed.items[i];
       if (!row || row.error) {
@@ -770,7 +773,7 @@ export function compileCaptureManyScript({ items, opts, scriptDeadlineMs, outDir
     'async function closeOwned() {',
     '  const tabs = owned.splice(0);',
     '  for (const t of tabs) {',
-    '    try { await closeTab(t.id); } catch {}',
+    '    try { await t.page.close(); } catch {}',
     '    emit({ event: "unlease", tabId: t.id, url: t.url });',
     '  }',
     '}',
@@ -818,9 +821,9 @@ async function runItem(it) {
       return { index: it.index, name: it.name, url: it.url, error: { error: "in-script deadline", code: "ETIMEOUT" } };
     }
     tab = await openTab(it.url);
-    owned.push({ id: tab.id, url: it.url });
-    emit({ event: "lease", tabId: tab.id, url: it.url, index: it.index });
-    const p = tab.page;
+    owned.push({ targetId: tab.targetId, url: it.url, page: tab });
+    emit({ event: "lease", tabId: tab.targetId, url: it.url, index: it.index });
+    const p = tab; // E7: openTab returns the page
     if (typeof p.waitForLoadState === "function") {
       try { await p.waitForLoadState("domcontentloaded"); } catch {}
     }
@@ -854,10 +857,10 @@ async function runItem(it) {
     return { index: it.index, name: it.name, url: it.url, error: { error: String(e && e.message || e), code: e && e.code }, ms: Date.now() - started };
   } finally {
     if (tab) {
-      const idx = owned.findIndex((t) => t.id === tab.id);
+      const idx = owned.findIndex((t) => t.targetId === tab.targetId);
       if (idx !== -1) owned.splice(idx, 1);
-      try { await closeTab(tab.id); } catch {}
-      emit({ event: "unlease", tabId: tab.id, url: it.url });
+      try { await tab.close(); } catch {}
+      emit({ event: "unlease", tabId: tab.targetId, url: it.url });
     }
   }
 }
@@ -917,9 +920,9 @@ export function compileRenderedHtmlScript({ urls, scriptDeadlineMs }) {
     '  try {',
     '    if (Date.now() > DEADLINE) return { index: it.index, url: it.url, error: { error: "in-script deadline", code: "ETIMEOUT" } };',
     '    tab = await openTab(it.url);',
-    '    owned.push({ id: tab.id, url: it.url });',
-    '    emit({ event: "lease", tabId: tab.id, url: it.url, index: it.index });',
-    '    const p = tab.page;',
+    '    owned.push({ targetId: tab.targetId, url: it.url, page: tab });',
+    '    emit({ event: "lease", tabId: tab.targetId, url: it.url, index: it.index });',
+    '    const p = tab; // E7: openTab returns the page',
     '    if (typeof p.waitForLoadState === "function") { try { await p.waitForLoadState("domcontentloaded"); } catch {} }',
     '    const title = typeof p.title === "function" ? await p.title() : "";',
     '    const finalUrl = typeof p.url === "function" ? p.url() : it.url;',
@@ -931,10 +934,10 @@ export function compileRenderedHtmlScript({ urls, scriptDeadlineMs }) {
     '    return { index: it.index, url: it.url, error: { error: String(e && e.message || e), code: e && e.code } };',
     '  } finally {',
     '    if (tab) {',
-    '      const idx = owned.findIndex((t) => t.id === tab.id);',
+    '      const idx = owned.findIndex((t) => t.targetId === tab.targetId);',
     '      if (idx !== -1) owned.splice(idx, 1);',
-    '      try { await closeTab(tab.id); } catch {}',
-    '      emit({ event: "unlease", tabId: tab.id, url: it.url });',
+    '      try { await tab.close(); } catch {}',
+    '      emit({ event: "unlease", tabId: tab.targetId, url: it.url });',
     '    }',
     '  }',
     '}',
@@ -1061,10 +1064,12 @@ export function createBrowse({ session, assertInside, signal, fetchImpl, detectB
       scriptDeadlineMs,
       outDir,
     });
-    const raw = await session.run(source, { hostDeadlineMs: scriptDeadlineMs + HOST_SLACK_MS, signal });
-    const parsed = parseReplTranscript(raw.stdout);
-    if (raw.killed) {
-      parsed.leakedUrls = [...new Set([...(parsed.leakedUrls || []), ...((raw.leakedUrls) || [])])];
+    // SUPERSEDED BY 003 C1/C2: session.run owns compilation and deadline math
+    // (deadlineMath(requestedMs, browseCaps), host = inner + SLACK_MS = 1500).
+    const res = await session.run(job, { signal });
+    const parsed = { items: res.items, leakedUrls: res.leakedUrls, partial: res.partial };
+    if (res.partial && res.partial.length) {
+      parsed.leakedUrls = [...new Set([...(parsed.leakedUrls || []), ...((res.leakedUrls) || [])])];
     }
     const envelope = buildCaptureEnvelope({
       parsed,

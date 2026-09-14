@@ -85,14 +85,14 @@ Wait-strategy half (implemented):
 From 010, this phase **calls** and does not reimplement:
 
 - `createBrowseSession({ config, env, signal, spawnImpl, execFileImpl }).run({ job, source, workDir, deadlines })` — custom `source` skips `compileBrowseScript` (010 §3.5). Success = trailing `[ok | Nms]` AND claimed files. `scriptDeadlineMs < hostWaitMs`. Kill sets `killed` + `leakedUrls`.
-- `computeDeadlines`, `BrowseOptionError`, `A4_INCHES`, `UNSUPPORTED.route`, `ASIDE_REPL_CAP_MS` 120000, argv budget 24000 bytes (`E2BIG`).
+- `deadlineMath`, `BrowseOptionError`, `A4_INCHES`, `UNSUPPORTED.route`, `ASIDE_REPL_CAP_MS` 120000, argv budget 24000 bytes (`E2BIG`).
 - `buildBrowseEnvelope` / `applyArtifactInspection` — enumerable object, no `toJSON`, failures in `items[]` (`src/sandbox.js:110-112` search lane stays search-only).
 - `createBrowse` returns a frozen one-level object (wp2: `probe` + `exec`/`run`). wp5 adds methods to that factory.
 - wp4 ([030](030_phase4_batch.md) §5.8) freezes `{ captureMany, screenshot, readText }`. wp5 **spreads those methods** and adds `extract` / `snapshot` / `open` (and keeps `probe` / `exec` if wp2 left them). Do not replace the factory with an extract-only object.
 - wp4 `compileCaptureManyScript` already emits `waitForLoadState("domcontentloaded")` (030 ~L813). wp5 replaces that hardcoded wait with `resolveWait` per URL so `captureMany` inherits selector waits. Do not add a second compiler.
 - wp3 `policy.js` already exports breaker helpers. wp5 **appends** `resolveWait` / `compileWaitSnippet` to that same file. Do not create `wait.js`.
-- `session.run` signature may be 010's `run({ job, source, ... })` or 030's `run(source, { hostDeadlineMs })`. At wp5 P, call whichever landed. Tests inject the same shape.
-- `src/host/report/report.js` is an empty frozen factory in wp2 so `report` can be injected; wp5 replaces it with `{ build }`.
+- `session.run` is settled by 003 C1: **`session.run(job, { signal })`**. It is not `run(source)` and not `run({ job, source })`, and there is nothing to decide at wp5 P. The caller builds a validated job; `session.run` compiles it via `script.js` and returns `SessionResult` = `{ ok, items, timings, partial: string[], leakedUrls, raw: { stdout, marker } }`. No caller parses stdout to decide success.
+- `src/host/report/report.js` is created NEW in wp5. wp2 injects `report: Object.freeze({})` inline in `globals.js` and does not create `src/host/report/*` at all (010 forbids it), so wp5 must mark this file NEW rather than MODIFY.
 - wp3 `policy.js` owns breaker + block-detect. wp5 only **adds** wait exports; if the file is missing at wp5 P, stop and amend — do not create a second wait module.
 - Wait insertion is §5.5 (`compileCaptureManyScript` / `compileBrowseScript`), not a new compiler.
 
@@ -317,7 +317,7 @@ Owns extract/snapshot/open compilers and the in-execution snapshot cache. Type p
 ```js
 // src/host/browse/extract.js
 import { createHash } from 'node:crypto';
-import { BrowseOptionError, computeDeadlines } from './schema.js';
+import { BrowseOptionError, deadlineMath } from './schema.js';
 import { resolveWait } from './policy.js';
 
 export const EXTRACT_TYPES = Object.freeze(['string', 'krw', 'usd', 'int', 'date']);
@@ -473,9 +473,9 @@ export function compileExtractScript({ url, schema, wait, scriptDeadlineMs }) {
     const work = (async () => {
       const tOpen = Date.now();
       const tab = await openTab(JOB.url);
-      opened.push({ id: tab && (tab.id || tab.targetId || tab), url: JOB.url });
+      opened.push({ targetId: tab && tab.targetId, url: JOB.url, page: tab });
       record('openTab', Date.now() - tOpen, { url: JOB.url });
-      const page = tab.page || tab;
+      const page = tab; // E7: openTab returns the page
       await applyWait(page, JOB.url);
       const tEv = Date.now();
       const extract = await page.evaluate((schema) => {
@@ -512,7 +512,7 @@ export function compileExtractScript({ url, schema, wait, scriptDeadlineMs }) {
     if (!items.length) items.push({ url: JOB.url, ok: false, error: String(e && e.message ? e.message : e), requested: {}, actual: {} });
     console.log(JSON.stringify({ items, timings, leakedUrls: opened.map((o) => o.url), truncated: false, error: String(e && e.message ? e.message : e), code: e && e.code || null }));
   } finally {
-    for (const t of opened) { try { await closeTab(t.id); } catch (_) {} }
+    for (const t of opened) { try { await t.page.close(); } catch (_) {} }
   }
 })();
 `;
@@ -538,9 +538,9 @@ export function compileSnapshotScript({ url, wait, scriptDeadlineMs }) {
     const work = (async () => {
       const tOpen = Date.now();
       const tab = await openTab(JOB.url);
-      opened.push({ id: tab && (tab.id || tab.targetId || tab), url: JOB.url });
+      opened.push({ targetId: tab && tab.targetId, url: JOB.url, page: tab });
       record('openTab', Date.now() - tOpen, { url: JOB.url });
-      const page = tab.page || tab;
+      const page = tab; // E7: openTab returns the page
       await applyWait(page, JOB.url);
       const tS = Date.now();
       const snap = await snapshot(tab, { interactive: true });
@@ -553,7 +553,7 @@ export function compileSnapshotScript({ url, wait, scriptDeadlineMs }) {
     if (!items.length) items.push({ url: JOB.url, ok: false, error: String(e && e.message ? e.message : e), requested: {}, actual: {} });
     console.log(JSON.stringify({ items, timings, leakedUrls: opened.map((o) => o.url), truncated: false, error: String(e && e.message ? e.message : e) }));
   } finally {
-    for (const t of opened) { try { await closeTab(t.id); } catch (_) {} }
+    for (const t of opened) { try { await t.page.close(); } catch (_) {} }
   }
 })();
 `;
@@ -571,9 +571,9 @@ export function compileOpenScript({ url, wait, scriptDeadlineMs }) {
     const work = (async () => {
       const tOpen = Date.now();
       const tab = await openTab(JOB.url);
-      opened.push({ id: tab && (tab.id || tab.targetId || tab), url: JOB.url });
+      opened.push({ targetId: tab && tab.targetId, url: JOB.url, page: tab });
       record('openTab', Date.now() - tOpen, { url: JOB.url });
-      const page = tab.page || tab;
+      const page = tab; // E7: openTab returns the page
       const w = JOB.wait;
       if (w) {
         const t0 = Date.now();
@@ -590,7 +590,7 @@ export function compileOpenScript({ url, wait, scriptDeadlineMs }) {
     if (!items.length) items.push({ url: JOB.url, ok: false, error: String(e && e.message ? e.message : e), requested: {}, actual: {} });
     console.log(JSON.stringify({ items, timings, leakedUrls: opened.map((o) => o.url), truncated: false, error: String(e && e.message ? e.message : e) }));
   } finally {
-    for (const t of opened) { try { await closeTab(t.id); } catch (_) {} }
+    for (const t of opened) { try { await t.page.close(); } catch (_) {} }
   }
 })();
 `;
@@ -601,7 +601,7 @@ export function createExtractFns({ session, config, signal }) {
   const maxChars = config?.browseCaps?.snapshotMaxChars ?? DEFAULT_SNAPSHOT_MAX_CHARS;
   const waitForByHost = config?.browseCaps?.waitForByHost ?? {};
   async function runSource(url, source, timeoutMs) {
-    const deadlines = computeDeadlines(timeoutMs, config?.browseCaps);
+    const deadlines = deadlineMath(timeoutMs, config?.browseCaps);
     if (Buffer.byteLength(source) > 24000) {
       throw new BrowseOptionError('repl script exceeds Windows argv budget', 'E2BIG');
     }
@@ -614,7 +614,7 @@ export function createExtractFns({ session, config, signal }) {
       httpUrl(url);
       validateExtractSchema(schema);
       const wait = resolveWait(url, opts, waitForByHost);
-      const source = compileExtractScript({ url, schema, wait, scriptDeadlineMs: computeDeadlines(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
+      const source = compileExtractScript({ url, schema, wait, scriptDeadlineMs: deadlineMath(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
       const env = await runSource(url, source, opts.timeoutMs);
       const item = env.items[0] || {};
       const applied = applyExtractSchema(schema, item.extract || {});
@@ -639,7 +639,7 @@ export function createExtractFns({ session, config, signal }) {
         throw new BrowseOptionError('browse.snapshot: compact must be an array of role names', 'EBADVAL');
       }
       const wait = resolveWait(target, opts, waitForByHost);
-      const source = compileSnapshotScript({ url: target, wait, scriptDeadlineMs: computeDeadlines(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
+      const source = compileSnapshotScript({ url: target, wait, scriptDeadlineMs: deadlineMath(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
       const env = await runSource(target, source, opts.timeoutMs);
       const item = env.items[0] || {};
       const snap = item.snapshot && typeof item.snapshot === 'object' ? item.snapshot : { tree: '', refs: null, diff: '' };
@@ -664,7 +664,7 @@ export function createExtractFns({ session, config, signal }) {
     async open(url, opts = {}) {
       httpUrl(url);
       const wait = resolveWait(url, opts, waitForByHost);
-      const source = compileOpenScript({ url, wait, scriptDeadlineMs: computeDeadlines(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
+      const source = compileOpenScript({ url, wait, scriptDeadlineMs: deadlineMath(opts.timeoutMs, config?.browseCaps).scriptDeadlineMs });
       const env = await runSource(url, source, opts.timeoutMs);
       const item = env.items[0] || {};
       return { ok: item.ok !== false, url, title: item.title ?? null, wait, timings: env.timings, complete: env.complete, partial: env.partial };
@@ -1061,7 +1061,7 @@ import http from 'node:http';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { A4_INCHES, BrowseOptionError, computeDeadlines } from '../browse/schema.js';
+import { A4_INCHES, BrowseOptionError, deadlineMath } from '../browse/schema.js';
 
 export function compilePdfScript({ url, pdfPath, paperWidth, paperHeight, scriptDeadlineMs }) {
   const payload = { url, pdfPath, paperWidth, paperHeight, scriptDeadlineMs };
@@ -1075,9 +1075,9 @@ export function compilePdfScript({ url, pdfPath, paperWidth, paperHeight, script
     const work = (async () => {
       const t0 = Date.now();
       const tab = await openTab(JOB.url);
-      opened.push({ id: tab && (tab.id || tab.targetId || tab), url: JOB.url });
+      opened.push({ targetId: tab && tab.targetId, url: JOB.url, page: tab });
       record('openTab', Date.now() - t0, { url: JOB.url });
-      const page = tab.page || tab;
+      const page = tab; // E7: openTab returns the page
       await page.waitForSelector('body', { timeout: 15000 });
       const t1 = Date.now();
       await page.pdf({ paperWidth: JOB.paperWidth, paperHeight: JOB.paperHeight, printBackground: true, path: JOB.pdfPath });
@@ -1090,7 +1090,7 @@ export function compilePdfScript({ url, pdfPath, paperWidth, paperHeight, script
     if (!items.length) items.push({ url: JOB.url, ok: false, error: String(e && e.message ? e.message : e), artifactPath: JOB.pdfPath, requested: { paperWidth: JOB.paperWidth, paperHeight: JOB.paperHeight }, actual: {} });
     console.log(JSON.stringify({ items, timings, leakedUrls: opened.map((o) => o.url), truncated: false, error: String(e && e.message ? e.message : e) }));
   } finally {
-    for (const t of opened) { try { await closeTab(t.id); } catch (_) {} }
+    for (const t of opened) { try { await t.page.close(); } catch (_) {} }
   }
 })();`;
 }
@@ -1116,7 +1116,7 @@ export async function printHtml({ html, session, config, signal, paperWidth, pap
   const { server, url } = await listenImpl(html);
   const dir = mkdtempSync(path.join(os.tmpdir(), 'codemode-report-'));
   const pdfPath = path.join(dir, 'report.pdf');
-  const deadlines = computeDeadlines(timeoutMs, config?.browseCaps);
+  const deadlines = deadlineMath(timeoutMs, config?.browseCaps);
   const source = compilePdfScript({ url, pdfPath: pdfPath.replace(/\\/g, '/'), paperWidth: paperW, paperHeight: paperH, scriptDeadlineMs: deadlines.scriptDeadlineMs });
   try {
     const env = await session.run({ source, deadlines, job: { urls: [url], timeoutMs }, workDir: dir });

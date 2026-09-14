@@ -47,9 +47,10 @@ createBrowseSession({ spawnAside, resolveAside, readFile, stat, now, signal })
 - `job` is a **validated job object** from `schema.js`, never a string of JavaScript.
   030's `run(source) -> {stdout}` and 040's "call whichever landed" are both superseded.
 - `session.run` calls `compile(job)` from `script.js` internally. No caller compiles.
-- Deadlines come from **`deadlineMath(requestedMs)`** in `script.js` — 010's arity, taking the
-  requested milliseconds, not the job. `computeDeadlines` does not exist; 040 imports
-  `deadlineMath` from `./script.js`.
+- Deadlines come from **`deadlineMath(requestedMs, browseCaps)`** exported by `script.js`. It
+  takes the requested milliseconds (010's arity) plus the caps object 040 already passes, and
+  returns `{ innerMs, hostMs }`. The name `computeDeadlines` does not exist and it is NOT in
+  `schema.js`; 040 imports `deadlineMath` from `./script.js`.
 - `SLACK_MS = 1500` (010's value); 030's 3000 is superseded.
   `hostDeadlineMs = innerDeadlineMs + SLACK_MS`.
 - `SessionResult` is `{ ok, items, timings, partial, leakedUrls, raw }`, handed to `result.js`.

@@ -471,7 +471,7 @@ async function one(url) {
     if (page && typeof page.viewportSize === 'function') actual.viewport = page.viewportSize();
     if (JOB.snapshot && typeof snapshot === 'function') {
       t0 = Date.now();
-      await snapshot(tab.id != null ? tab.id : tab);
+      await snapshot(tab); // E7: snapshot rejects a string id
       timings.snapshot = elapsed(t0);
     }
     let shotPath = null, shotBytes = null;
@@ -525,7 +525,7 @@ async function run() {
     };
   } finally {
     for (const t of opened) {
-      try { await closeTab(t.id); } catch (_) {}
+      try { await t.page.close(); } catch (_) {}
     }
   }
   console.log(JSON.stringify(payload));

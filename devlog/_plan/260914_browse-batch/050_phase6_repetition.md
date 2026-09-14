@@ -880,8 +880,8 @@ export function compileRecipeScript(recipe, args, { scriptDeadlineMs }) {
     + '  try {\n'
     + '    const work = (async () => {\n'
     + '      const tab = await openTab(JOB.url);\n'
-    + '      opened.push({ id: tab && (tab.id || tab.targetId || tab), url: JOB.url });\n'
-    + '      const page = tab.page || tab;\n'
+    + '      opened.push({ targetId: tab && tab.targetId, url: JOB.url, page: tab });\n'
+    + '      const page = tab; // E7: openTab returns the page\n'
     + '      let extract = null;\n'
     + '      let failedStep = null;\n'
     + '      for (const step of JOB.steps) {\n'
@@ -915,7 +915,7 @@ export function compileRecipeScript(recipe, args, { scriptDeadlineMs }) {
     + '    if (!items.length) items.push({ url: JOB.url, ok: false, error: String(e && e.message ? e.message : e), code: e && e.code || null });\n'
     + '    console.log(JSON.stringify({ items, timings: [], leakedUrls: opened.map((o) => o.url), error: String(e && e.message ? e.message : e) }));\n'
     + '  } finally {\n'
-    + '    for (const t of opened) { try { await closeTab(t.id); } catch (_) {} }\n'
+    + '    for (const t of opened) { try { await t.page.close(); } catch (_) {} }\n'
     + '  }\n'
     + '})();\n';
 }

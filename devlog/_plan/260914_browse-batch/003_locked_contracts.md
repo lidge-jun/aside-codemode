@@ -601,4 +601,68 @@ listener and never fires. Refusing only `route` would leave that door open.
 
 A file that exists is not a report of the requested size; the check is the deliverable.
 
+## C12 — wp6 spec: search, media, shared cache, watch, recipes, prefetch
+
+Closes #19, #13, #15, #7, #9, #16. Last feature phase.
+
+### E8 — measured before speccing #19
+
+| Call | Measured |
+| --- | --- |
+| `typeof googleSearch.search` | `function` — it exists |
+| `await googleSearch.search('ripgrep')` | **fails**: `Google Search returned bot challenge HTML. Open ... in the browser, solve it, then retry.` |
+| `typeof youtube.search` | `function` |
+| `await youtube.search('ripgrep')` | **works**, returned real videoId/url/title/channelName rows |
+
+So Google is callable and blocked, while YouTube genuinely works. A `searchMany` that
+quietly returns nothing for Google would be the silent failure this layer keeps refusing.
+
+### #19 — `web.searchMany(queries, { engine })`
+
+N queries in parallel, URL-deduped, with an optional date filter. Engines:
+
+| Engine | Path | Behaviour |
+| --- | --- | --- |
+| `youtube` | Aside `youtube.search` | works; default for video queries |
+| `google` | Aside `googleSearch.search` | attempted, and its bot-challenge reply is DETECTED and returned as `EBLOCKED` with `alternate: 'solve-in-browser'` — never retried, never reported as an empty result set |
+| `duckduckgo` | host fetch of the no-key HTML endpoint | default for web queries |
+
+Dedupe is on normalised URL (strip `utm_*`, trailing slash, fragment). The date filter is
+applied host-side to whatever the engine returned, and `filtered` counts what it dropped so
+a caller can tell an empty result from an over-aggressive filter.
+
+### #13 — `browse.downloadMedia(urls, { outDir })`
+
+Direct host `fetch` of image URLs, no page capture. Each item is written through
+`assertInside` with a host-generated name, and the bytes are identified with the existing
+`imageDimensions`/`mimeOf` readers so a caller learns what actually arrived. A response
+whose content-type is not an image is an item failure, not a saved HTML error page.
+
+### #15 — one shared TTL cache
+
+`snapshot-cache.js` generalises into `cache.js` with the same key discipline, reused by
+`readText`, `extract` and `searchMany`. Keyed by namespace + url/query + Aside account root
++ locale + viewport + roles + waitSelector + schema version. Cooperating processes, TTL-only
+invalidation, not a security boundary — the same standing as the file locks.
+
+### #7 — `browse.watch(urls, { store })`
+
+Per-URL text hash held in the cache. A revisit returns `{ changed, diff }` only for URLs
+whose hash moved; unchanged URLs return `{ changed: false }` with no body, which is the
+token saving. First sight is `changed: true` with `first: true` so it is never mistaken for
+a change.
+
+### #9 — `recipes.run(name, args)`
+
+A recipe is DATA, not code: `{ url, waitSelector, extract, engine }` resolved from a
+registry. It executes through the existing `browse.exec` path with no model turn. Guest
+`.js` recipe files are refused — loading caller code would reintroduce the trust problem
+the `node:vm` boundary exists to contain.
+
+### #16 — `browse.prefetch(urls)`
+
+Warms the cache for a watch list. Last on purpose: prefetch is only worth anything once the
+cache key is trustworthy, and it is explicitly best-effort — failures are reported, never
+thrown, because a warm-up that breaks the caller's run is worse than a cold cache.
+
 A `file:` url is refused up front, matching E7.

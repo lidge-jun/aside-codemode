@@ -32,7 +32,8 @@ export function compile(job, plan = null) {
     snapshot: job.snapshot,
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
-    detect: detectionPatterns(),
+    extract: job.extract || null,
+    detect: job.detect === false ? null : detectionPatterns(),
   };
   return TEMPLATE.replace('__JOB__', JSON.stringify(payload));
 }
@@ -45,14 +46,15 @@ const pending = [];
 const items = [];
 let deadlineHit = false;
 function markClosed(rec) { rec.closed = true; }
-const RX = {
+const RX = JOB.detect ? {
   captcha: new RegExp(JOB.detect.captcha, 'i'),
   hardBlock: new RegExp(JOB.detect.hardBlock, 'i'),
   loginPath: new RegExp(JOB.detect.loginPath, 'i'),
   password: new RegExp(JOB.detect.password, 'i'),
-};
+} : null;
 function hostOf(u) { try { return new URL(u).host.toLowerCase(); } catch (_) { return null; } }
 function detectBlock(requestedUrl, finalUrl, title, tree) {
+  if (!RX) return null;
   const hay = String(title) + '\\n' + String(tree);
   if (RX.captcha.test(hay)) return { kind: 'captcha', alternate: 'authenticated-exec' };
   if (RX.hardBlock.test(hay)) return { kind: 'blocked', alternate: 'api' };
@@ -104,6 +106,30 @@ async function one(item) {
       return;
     }
     const out = { url: item.url, ok: true, finalUrl, title, timings: t, capture: { requested: {}, actual: {}, matched: true } };
+    if (JOB.extract) {
+      // ONE evaluate for the whole schema: the point of #10 is to avoid shipping a tree.
+      out.data = await page.evaluate((schema) => {
+        const pick = (spec) => {
+          const s = typeof spec === 'string' ? { selector: spec } : spec;
+          const nodes = s.all ? Array.from(document.querySelectorAll(s.selector)) : [document.querySelector(s.selector)];
+          const read = (n) => {
+            if (!n) return null;
+            const v = s.attr ? n.getAttribute(s.attr) : n.textContent;
+            return v === null || v === undefined ? null : (s.trim === false ? v : String(v).trim());
+          };
+          return s.all ? nodes.map(read) : read(nodes[0]);
+        };
+        const data = {}; const missing = [];
+        for (const [field, spec] of Object.entries(schema)) {
+          const v = pick(spec);
+          data[field] = v;
+          // absent must be distinguishable from empty, or a caller cannot tell
+          // "no price on this page" from "the price is an empty string".
+          if (v === null || (Array.isArray(v) && v.length === 0)) missing.push(field);
+        }
+        return { data, missing };
+      }, JOB.extract);
+    }
     if (JOB.snapshot) { out.snapshotBytes = tree.length; t.snapshot = lap(); }
     if (JOB.screenshot) {
       const buf = await page.screenshot(JOB.screenshot);
@@ -122,6 +148,11 @@ async function one(item) {
       const buf = await page.pdf(JOB.pdf);
       out.capture.requested.pdf = JOB.pdf;
       out.capture.actual.pdfBytes = buf ? buf.length : 0;
+      if (item.pdfName) {
+        await fs.mkdir('./artifacts', { recursive: true });
+        await fs.writeFile('./artifacts/' + item.pdfName, buf);
+        out.pdfName = item.pdfName;
+      }
       t.pdf = lap();
     }
     items.push(out);

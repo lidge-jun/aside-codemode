@@ -88,11 +88,16 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       : null;
     // Host-generated artifact names ride in the plan; the script never invents one.
     const names = Array.isArray(opts.artifactNames) ? opts.artifactNames : null;
+    const pdfNames = Array.isArray(opts.pdfNames) ? opts.pdfNames : null;
     const planWithNames = names
       ? (plan || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
           .map((p, i) => ({ ...p, artifactName: names[i] }))
       : plan;
-    const source = compile(job, planWithNames);
+    const planFinal = pdfNames
+      ? (planWithNames || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
+          .map((p, i) => ({ ...p, pdfName: pdfNames[i] }))
+      : planWithNames;
+    const source = compile(job, planFinal);
     const bin = await resolveAside();
     const startedAt = now();
 

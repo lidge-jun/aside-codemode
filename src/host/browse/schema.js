@@ -33,7 +33,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'screenshot', 'pdf', 'concurrency']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect']);
 const SHOT_KEYS = Object.freeze(['clip', 'type', 'quality', 'fullPage']);
 const PDF_KEYS = Object.freeze(['paperWidth', 'paperHeight', 'printBackground']);
 
@@ -64,6 +64,9 @@ export function validateJob(raw, browseCaps = {}) {
   // `route` comes back as "unknown option", which tells the caller nothing about WHY
   // it cannot work — and the whole point of this module is that the reason is measured.
   if (raw.route !== undefined) notSupported('route');
+  // #11's own spelling. page.on IS present and will happily accept a 'request' listener
+  // that never fires, so refusing only 'route' would leave that trap open.
+  if (raw.block !== undefined) notSupported('route');
   rejectUnknown(raw, JOB_KEYS, 'job');
 
   if (!Array.isArray(raw.urls) || raw.urls.length === 0) {
@@ -92,6 +95,20 @@ export function validateJob(raw, browseCaps = {}) {
 
   if (raw.waitSelector !== undefined && typeof raw.waitSelector !== 'string') {
     throw new BrowseOptionError('waitSelector must be a string', 'EBADVAL');
+  }
+
+  let extract = null;
+  if (raw.extract !== undefined) {
+    if (!raw.extract || typeof raw.extract !== 'object' || Array.isArray(raw.extract)) {
+      throw new BrowseOptionError('extract must be an object mapping field names to selectors', 'EBADVAL');
+    }
+    for (const [field, spec] of Object.entries(raw.extract)) {
+      const s = typeof spec === 'string' ? { selector: spec } : spec;
+      if (!s || typeof s !== 'object' || typeof s.selector !== 'string' || !s.selector) {
+        throw new BrowseOptionError(`extract.${field} needs a css selector string or { selector, attr?, all?, trim? }`, 'EBADVAL');
+      }
+    }
+    extract = raw.extract;
   }
 
   let screenshot = null;
@@ -124,5 +141,11 @@ export function validateJob(raw, browseCaps = {}) {
     screenshot,
     pdf,
     concurrency,
+    extract,
+    // Block detection reads the rendered page, so a document that TALKS about blocking
+    // trips it: a report listing an EBLOCKED item rendered the word "blocked" and the
+    // detector flagged the report itself. Content we generated is not a remote origin,
+    // so the caller can turn detection off for it. Defaults on.
+    detect: raw.detect !== false,
   });
 }

@@ -100,7 +100,7 @@
           unreturned: reconciled.filter((i) => i.status === 'unreturned').length,
           items: reconciled,
           ledger: requested,
-          extraItems: extra.length ? extra : undefined,
+          extraItems: (extra.length || orphans.length) ? extra.concat(orphans) : undefined,
           reconciledBy: positional ? 'position' : (unreconciled ? 'none' : 'jobId'),
           effects: [], complete: status === 'completed', truncated: false,
           /* 기존 키 전부 그대로 */

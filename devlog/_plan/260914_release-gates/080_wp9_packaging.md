@@ -29,7 +29,11 @@
 
 **표시자는 새로 만들지 않는다.** `src/register.js:15-16`이 이미 `<!-- aside-codemode:start -->` /
 `<!-- aside-codemode:end -->`를 쓰고 있다. 다른 표시자를 도입하면 재설치 때 블록이 두 개가 된다.
-이 phase는 `src/register.js`를 MODIFY해서 **같은 표시자 안의 본문만** 아래 내용으로 바꾼다.
+그리고 블록 본문은 `register.js` 안에 있지 않다. `register.js:230,257,288`이 읽는
+**`templates/AGENTS.codemode.md`(현재 95줄)가 본문의 출처**다. 그 파일을 MODIFY하지 않으면
+새 설치기가 짧은 블록을 써도 기존 register가 같은 표시자로 긴 템플릿을 되돌려 넣는다.
+그래서 이 phase의 MODIFY 목록은 `templates/AGENTS.codemode.md`(본문 교체)와
+`src/register.js`(짧아진 템플릿을 그대로 쓰는지 확인, 표시자·멱등 로직은 유지) 둘 다다.
 
 현재 계정별 블록은 97줄/6.4KB다. 교체 후 본문은 다음 형태다:
 

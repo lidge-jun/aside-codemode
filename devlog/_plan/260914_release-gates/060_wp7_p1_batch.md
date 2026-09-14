@@ -21,8 +21,16 @@
               browserOk: true, ok: false, degraded: true, degradedReason: 'browser returned no text' };
 
 **`item.text`를 만들 경로가 지금 없다.** `browse.exec({snapshot:true})`의 성공 항목은 `snapshot`과 160자 `render.sample`뿐이다
-(`script.js:331-341`). 그래서 이 phase는 `src/host/browse/script.js`도 MODIFY한다:
-readText가 요청할 때만(`JOB.fullText === true`) `visibleText`를 상한과 함께 `out.text`로 싣는다.
+(`script.js:331-341`). 그래서 `fullText` 플래그의 **네 홉을 전부** 뚫는다. 한 곳이라도 빠지면 `item.text`는 계속 없다:
+
+1. `schema.js:65`의 `JOB_KEYS`에 `'fullText'`를 추가한다(`rejectUnknown`이 202행에서 모르는 키를 거절한다).
+   `validateJob`은 `fullText`를 boolean으로 검증하고 기본값은 false다.
+2. `script.js:115-140`의 `compile` payload에 `fullText: job.fullText === true`를 추가한다(payload는 나열된 키만 싣는다).
+3. `script.js`의 렌더 구간(331-341행)에서 `JOB.fullText`일 때만 `out.text = visibleText.slice(0, JOB.maxTextChars || 200000)`을 싣는다.
+   기본 경로의 페이로드 크기는 그대로 둔다.
+4. `read-text.js:122`의 폴백 호출에 플래그를 넣는다:
+   `await browse.exec({ urls: [url], snapshot: true, fullText: true, timeoutMs: opts.timeoutMs || timeoutMs })`
+
 요약을 본문으로 승격하지 않는 것이 F6의 핵심이므로, 본문 경로를 만들지 않으면 이 결함은 닫히지 않는다.
 
 2. fetch 경로(102-117행)에 상태와 로그인 감지를 넣는다. 현재는 `needsBrowser`만 본다:
@@ -34,9 +42,11 @@ readText가 요청할 때만(`JOB.fullText === true`) `visibleText`를 상한과
             fallbackReason: 'http-' + status };
         }
         // policy.js의 실제 시그니처는 객체 하나다: detect({ requestedUrl, finalUrl, title, tree }).
-        // 그리고 반환 kind는 'login-wall'이다. fetch는 redirect: 'follow'이므로 최종 URL은 res.url에서 읽는다.
-        const finalUrl = res.url || url;
-        const wall = detect({ requestedUrl: url, finalUrl, title: titleOf(html), tree: markdown });
+        // 반환 kind는 'login-wall'이다. fetch는 redirect: 'follow'이므로 최종 URL은 res.url에서 읽는다.
+        // 현재 res는 try 블록 안의 const라(read-text.js:101) 이 검사 위치에서 보이지 않는다.
+        // let fetched = null; 을 try 밖으로 올리고 101행을 fetched = await doFetch(...)로 바꾼다.
+        const finalUrl = (fetched && fetched.url) || url;
+        const wall = detect({ requestedUrl: url, finalUrl, tree: markdown });   // title 기본값은 ''이다
         if (wall && wall.kind === 'login-wall') {
           return { url, finalUrl, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
             blockKind: 'login-wall', fallbackReason: 'login-wall' };
@@ -87,6 +97,9 @@ readText가 요청할 때만(`JOB.fullText === true`) `visibleText`를 상한과
 - `createReadText`의 시그니처를 MODIFY한다. 현재는 `{ fetchImpl, browse, timeoutMs }`뿐이라(`read-text.js:77`)
   추가 프로퍼티가 버려진다. `{ fetchImpl, browse, timeoutMs, cache = null, accountRoot = '' }`로 넓히고
   읽기 전 `cache.get({ namespace: 'readText', subject: url, accountRoot, locale })`를 조회한다.
+- **호출부도 같이 바꾼다.** `browse.js:65`는 아직 `createReadText({ browse: ... })`다.
+  `createReadText({ browse: caps.enabled === true ? { exec } : null, cache, accountRoot })`로 고치지 않으면
+  시그니처만 넓어지고 캐시는 여전히 주입되지 않는다.
 - `ok === false`인 관측은 **저장하지 않는다.** 이 규칙은 `watch.js:72-73`의 prefetch 쓰기에도 적용한다.
   거기서 `read.ok`를 보지 않고 `{markdown, source}`만 저장하면, 403/로그인 워밍이 캐시 hit로 되살아나
   F9의 `read.ok === false` 검사를 우회한다. 저장 값에 `ok`와 `blockKind`를 함께 넣는다.

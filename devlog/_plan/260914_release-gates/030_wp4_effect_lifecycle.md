@@ -108,7 +108,18 @@
 
    close 루프는 `settled`가 cap됐든 아니든 `opened[]`를 대상으로 한 번 돈다.
    핸들이 없는 레코드(`page: null`)는 닫을 수 없으므로 `closed:false`로 남아 `leakedUrls`(531행)에 이름이 실린다.
-   `one()`의 `pending.push`에 `jobId`를, open catch에 `p.settled = 'rejected'` 표시를 추가하는 것도 이 phase의 변경이다.
+   `one()` 쪽에도 세 가지 변경이 같이 들어간다. 이것이 없으면 위 cleanup은 동작하지 않는다:
+
+        // 1) pending 레코드를 지역 변수로 잡고 jobId를 싣는다. pending.at(-1)로 찾으면 worker가 겹칠 때 다른 요청을 표시한다.
+        const pend = { url: item.url, jobId: item.jobId, pr, settled: null };
+        pending.push(pend);
+        // 2) open이 reject되면 그 레코드에 직접 표시한다(script.js:269 부근 catch).
+        pr.then(() => { pend.settled = 'fulfilled'; }, () => { pend.settled = 'rejected'; });
+        // 3) opened 레코드에도 jobId를 넣는다(script.js:277-278). 지금은 { targetId, url, page, closed }뿐이라
+        //    cleanup의 o.jobId 비교가 항상 undefined가 되고, 이미 열린 탭이 cap마다 복제로 들어가 가짜 누수가 된다.
+        const rec = { targetId: page && page.targetId, url: item.url, jobId: item.jobId, page, closed: false };
+
+   `opened[]`와 `pending[]`의 식별자가 같아야 중복 URL에서 두 배열이 같은 요청을 가리킨다.
 
 ## MODIFY src/host/browse/session.js
 

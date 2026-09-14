@@ -116,6 +116,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
         ok: false,
         items: job.urls.map((url) => ({ url, ok: false, code: killed ? 'EHOSTKILL' : 'ENOMARKER' })),
         timings: { steps: [], totalMs },
+      actionLog: (parseFinal(stdout) && parseFinal(stdout).actionLog) || [],
       partial: [killed ? 'host-kill' : 'no-marker'],
       leakedUrls: job.urls.slice(),
       raw: { stdout, marker },
@@ -124,6 +125,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     }
 
     const items = final && Array.isArray(final.items) ? final.items : [];
+    const actionLog = final && Array.isArray(final.actionLog) ? final.actionLog : [];
     const leakedUrls = final && Array.isArray(final.leakedUrls) ? final.leakedUrls : [];
     const partial = final && Array.isArray(final.partial) ? final.partial.slice() : [];
     if (marker === 'error') partial.push('script-error');
@@ -143,6 +145,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     return {
       ok: marker === 'ok' && items.length > 0 && items.every((i) => i.ok) && leakedUrls.length === 0,
       items,
+      // Steps that really ran, even when their item never made it into items[]. A click on
+      // a live page is a side effect and must never be erased by a deadline.
+      actionLog,
       // Aggregate verdict across the batch: true only when every item proved its content,
       // false when any item failed a check, null when nothing was checkable.
       contentVerified: items.length === 0 ? null

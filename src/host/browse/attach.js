@@ -27,7 +27,7 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
-import { TREE_SUMMARY_SRC } from './script.js';
+import { TREE_SUMMARY_SRC, jsonForScript } from './script.js';
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 
@@ -133,7 +133,13 @@ try {
           deadlineAt: Date.now() + (REQ.actionBudgetMs || 20000),
           urlAtSnapshot: row.href || null,
           refsFingerprint: REQ.refsFingerprint || null,
-          fingerprintOf: function (p) { return snapshot(p).then(function (s) { return summarizeTree((s && s.tree) || "", "interactive", 200000).fingerprint; }); },
+          guardTimeoutMs: 5000,
+          fingerprintOf: function (p) {
+            return snapshot(p).then(function (s) {
+              var sum = summarizeTree((s && s.tree) || "", "interactive", 200000);
+              return { full: sum.fingerprint, structure: sum.fingerprintStructure };
+            });
+          },
           allowStaleRefs: REQ.allowStaleRefs,
           stopOnError: REQ.stopOnError
         });
@@ -160,7 +166,7 @@ export function compileAttach(req) {
   // Function replacer: see the note in script.js compile(). A $& in a fill value or a
   // selector would otherwise be substituted into the generated source after escaping.
   return TREE_SUMMARY_SRC + '\n' + ACTION_STEP_SRC + '\n'
-    + ATTACH_TEMPLATE.replace('__REQ__', () => JSON.stringify(req));
+    + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req));
 }
 
 function disabled(name) {

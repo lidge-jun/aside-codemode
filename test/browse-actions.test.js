@@ -228,21 +228,54 @@ test('a fingerprint catches a renumbering that never changed the url', async () 
   });
   assert.equal(r.steps[0].ok, false);
   assert.equal(r.steps[0].code, 'EREFSTALE');
-  assert.match(r.steps[0].error, /renumbered/);
+  assert.match(r.steps[0].error, /the tree changed/);
   assert.equal(r.steps[0].refGuard, 'fingerprint');
   assert.equal(page.calls.filter((c) => c.on === 'locator').length, 0, 'nothing was clicked');
 });
 
-test('a matching fingerprint lets the step through and is only checked once', async () => {
-  let calls = 0;
+test('a ref step AFTER a mutating step is re-checked, not waved through', async () => {
+  // The second audit round: checking once meant step 1's click could renumber the tree and
+  // step 2 got only a url check while still being labelled fingerprint.
+  let n = 0;
   const page = fakePage({ urls: ['https://app.test/#dash'] });
   const r = await runActions(page, steps([{ ref: 'e1', click: true }, { ref: 'e2', hover: true }]), {
     urlAtSnapshot: 'https://app.test/#dash',
     refsFingerprint: 'r12-abc',
-    fingerprintOf: async () => { calls += 1; return 'r12-abc'; },
+    fingerprintOf: async () => { n += 1; return n === 1 ? { full: 'r12-abc' } : { full: 'r19-zzz' }; },
+  });
+  assert.equal(n, 2, 'the click marked the tree dirty, so the next ref step must re-check');
+  assert.equal(r.steps[0].ok, true);
+  assert.equal(r.steps[1].ok, false);
+  assert.equal(r.steps[1].code, 'EREFSTALE');
+});
+
+test('an inert step does not buy another snapshot', async () => {
+  let n = 0;
+  const page = fakePage({ urls: ['https://app.test/#dash'] });
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }, { sleepMs: 5 }, { ref: 'e2', hover: true }]), {
+    urlAtSnapshot: 'https://app.test/#dash',
+    refsFingerprint: 'r12-abc',
+    fingerprintOf: async () => { n += 1; return { full: 'r12-abc' }; },
   });
   assert.equal(r.ok, true);
-  assert.equal(calls, 1, 're-snapshotting per step would cost more than the actions');
+  assert.equal(n, 2, 'once before the first ref, once after the click; sleepMs adds nothing');
+});
+
+test('the structure fingerprint survives text that moves on its own', async () => {
+  const page = fakePage();
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }]), {
+    refsFingerprint: 's4-abc',
+    fingerprintOf: async () => ({ full: 'r4-changed-by-a-clock', structure: 's4-abc' }),
+  });
+  assert.equal(r.ok, true, 'a clock in an accessible name must not refuse every ref forever');
+});
+
+test('refsFingerprint without a way to recompute it reports the weaker guard', async () => {
+  const page = fakePage();
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }]), {
+    urlAtSnapshot: 'https://a.test/one', refsFingerprint: 'r1-aaa',
+  });
+  assert.equal(r.steps[0].refGuard, 'url-only', 'it must not claim the strong guard it cannot run');
 });
 
 test('the guard names its own strength instead of implying a guarantee', async () => {
@@ -279,8 +312,37 @@ test('running out of budget reports EDEADLINE on every unreached step, not ESKIP
     { ref: 'e1', click: true }, { ref: 'e2', click: true }, { ref: 'e3', click: true },
   ]), { deadlineAt: Date.now() + 40 });
   const codes = r.steps.map((s) => s.code);
-  assert.equal(codes.includes('ESKIP'), false, 'no step failed, the clock ran out');
-  assert.ok(codes.every((c) => c === 'EDEADLINE' || c === 'ESTEPTIMEOUT' || c === undefined));
+  assert.ok(codes.includes('EDEADLINE'), 'the clock genuinely ran out');
+  assert.ok(codes.every((c) => c === 'EDEADLINE' || c === 'ESTEPTIMEOUT'),
+    'every step must be accounted for, got ' + JSON.stringify(codes));
+});
+
+test("one step's own timeout is not reported as the shared budget running out", async () => {
+  const page = fakePage({ slow: { click: 400 } });
+  const r = await runActions(page, steps([{ ref: 'e1', click: true, timeoutMs: 40 }, { ref: 'e2', hover: true }]), {
+    deadlineAt: Date.now() + 10000,
+  });
+  assert.equal(r.steps[0].code, 'ESTEPTIMEOUT');
+  assert.equal(r.steps[1].code, 'ESKIP');
+  assert.match(r.steps[1].error, /own timeoutMs/);
+  assert.equal(/budget ran out/.test(r.steps[1].error), false, 'there were ~10s left');
+});
+
+test('a missing locator or evaluate is still ENOTSUP for the verb that needed it', async () => {
+  const noLoc = fakePage();
+  noLoc.locator = () => { throw new Error('page.locator is not a function'); };
+  const a = await runActions(noLoc, steps([{ ref: 'e1', click: true }]), {});
+  assert.equal(a.steps[0].code, 'ENOTSUP', 'the most fundamental absence on this surface');
+  const noEval = fakePage();
+  noEval.evaluate = async (e) => { if (e === 'location.href') return 'https://a/'; throw new Error('page.evaluate is not a function'); };
+  const b = await runActions(noEval, steps([{ scroll: 'bottom' }]), {});
+  assert.equal(b.steps[0].code, 'ENOTSUP');
+});
+
+test('a raw line separator cannot land in the generated source', () => {
+  const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', fill: 'a\u2028b\u2029c' }] }));
+  assert.equal(src.includes('\u2028'), false, 'U+2028 must be escaped, not trusted to the REPL parser');
+  assert.ok(src.includes('\\u2028'));
 });
 
 test('a broken page script is not recorded as a missing capability', async () => {
@@ -311,13 +373,72 @@ test('a value-less verb demands the affirmative', () => {
   assert.equal(steps([{ ref: 'e1', click: true, timeoutMs: 500 }])[0].timeoutMs, 500);
 });
 
-test('the action budget always ends before the script deadline that would drop the item', () => {
-  const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }] }));
-  assert.ok(src.includes('ACTION_HARD_STOP_AT'));
-  assert.ok(src.includes('ACTION_RESERVE_MS'));
-  assert.ok(src.includes('actionDeadlineNow()'), 'per item, not one constant for the batch');
-  const reserve = /ACTION_RESERVE_MS = Math\.max\(1500/.test(src);
-  assert.ok(reserve, 'the reserve must be non-zero or the item is lost with its side effect');
+// Grepping the compiled source proves nothing about what it does. This runs it.
+const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+async function runCompiled(src, page, opts = {}) {
+  const printed = [];
+  const fn = new AsyncFn('openTab', 'snapshot', 'closeTab', 'sleep', 'pwd', 'console', src);
+  await fn(
+    async () => page,
+    async () => ({ tree: opts.tree || '- button "b" [ref=e1]' }),
+    async () => {},
+    (ms) => new Promise((r) => setTimeout(r, ms)),
+    '/tmp',
+    { log: (s) => printed.push(s) },
+  );
+  for (let i = printed.length - 1; i >= 0; i -= 1) {
+    try { const o = JSON.parse(printed[i]); if (o && o.type === 'final') return o; } catch { /* not it */ }
+  }
+  return null;
+}
+
+function compiledPage(opts = {}) {
+  const seen = [];
+  const slow = opts.slow || {};
+  return {
+    seen,
+    url: async () => 'https://a.test/one',
+    title: async () => 't',
+    waitForLoadState: async () => {},
+    waitForSelector: async () => {},
+    screenshot: async () => { if (slow.screenshot) await new Promise((r) => setTimeout(r, slow.screenshot)); return Buffer.from('x'); },
+    evaluate: async (arg) => {
+      if (typeof arg === 'function') {
+        // The template reads the url with a function too; only the render probe wants an object.
+        if (String(arg).includes('location.href')) return 'https://a.test/one';
+        return { textChars: 500, rawChars: 500, scriptChars: 0, skeletonNodes: 0, sample: 'x', requiredSelectorsMatched: [], requiredSelectorsMissing: [], data: {}, missing: [] };
+      }
+      if (arg === 'location.href') return 'https://a.test/one';
+      return null;
+    },
+    locator: () => new Proxy({}, { get: (_t, name) => async () => { seen.push(name); } }),
+  };
+}
+
+test('a step that ran is reported even when the item is lost to the deadline', async () => {
+  // The click really happened. Losing the item used to erase all evidence of it.
+  const page = compiledPage({ slow: { screenshot: 3000 } });
+  const src = compile(validateJob({
+    urls: ['https://a.test'], timeoutMs: 4000,
+    actions: [{ ref: 'e1', click: true }],
+    screenshot: { type: 'png' },
+  }));
+  const out = await runCompiled(src, page);
+  assert.ok(out, 'the script must still print its payload');
+  assert.deepEqual(page.seen, ['click'], 'the side effect happened');
+  assert.ok(Array.isArray(out.actionLog), 'actionLog must exist');
+  assert.equal(out.actionLog.length, 1, 'and it must carry the step that ran');
+  assert.equal(out.actionLog[0].verb, 'click');
+  assert.equal(out.actionLog[0].ok, true);
+});
+
+test('the reserve grows with the work that still has to happen after the steps', () => {
+  const bare = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }] }));
+  const heavy = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }], screenshot: { type: 'png' }, pdf: {}, snapshot: 'tree' }));
+  assert.ok(bare.includes('ACTION_RESERVE_MS'));
+  assert.ok(heavy.includes('JOB.screenshot ? 3000 : 0'), 'a capture must buy itself room');
+  assert.throws(() => validateJob({ urls: ['https://a.test'], timeoutMs: 1000, actions: [{ ref: 'e1', click: true }] }),
+    /cannot fit an action list/, 'an impossible budget is refused up front, not at runtime');
 });
 
 test('attach refuses to call a run ok when its actions failed', async () => {

@@ -263,6 +263,17 @@ export function validateJob(raw, browseCaps = {}) {
     ? (Number.isSafeInteger(browseCaps.concurrency) ? browseCaps.concurrency : 4)
     : requirePositiveInt('concurrency', raw.concurrency);
 
+  const actions = validateActions(raw.actions);
+  // A reserve is held back so the item still gets reported after the steps run. Below this
+  // the action window is empty and every step would report EDEADLINE before anything moved,
+  // which reads as a runtime failure when it is really an impossible configuration.
+  if (actions && timeoutMs < 4000) {
+    throw new BrowseOptionError(
+      `timeoutMs ${timeoutMs} cannot fit an action list: part of the budget is reserved so the result survives the deadline, and one measured click cost 2143ms. Use at least 4000`,
+      'EBADVAL',
+    );
+  }
+
   return Object.freeze({
     urls,
     timeoutMs,
@@ -270,7 +281,7 @@ export function validateJob(raw, browseCaps = {}) {
     waitSelector: raw.waitSelector ?? null,
     snapshot: normalizeSnapshot(raw.snapshot),
     maxTreeChars: raw.maxTreeChars === undefined ? 20000 : requirePositiveInt('maxTreeChars', raw.maxTreeChars),
-    actions: validateActions(raw.actions),
+    actions,
     stopOnError: raw.stopOnError !== false,
     allowStaleRefs: raw.allowStaleRefs === true,
     // snapshot.fingerprint from the read that produced the refs. Without it the staleness

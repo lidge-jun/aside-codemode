@@ -51,13 +51,22 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
   // detectable when the url did NOT change: a modal, a client-side tab switch or an SPA
   // re-render renumbers refs while location.href stays put, and a url comparison sees
   // nothing. Cheap FNV-1a over ref|role|name so it can be recomputed before acting.
-  var fp = 2166136261;
-  for (var fi = 0; fi < refs.length; fi++) {
-    var sig = refs[fi].ref + '|' + refs[fi].role + '|' + refs[fi].name + ';';
-    for (var ci = 0; ci < sig.length; ci++) {
-      fp ^= sig.charCodeAt(ci);
-      fp = (fp + ((fp << 1) + (fp << 4) + (fp << 7) + (fp << 8) + (fp << 24))) >>> 0;
+  // Two independent 32-bit passes, because a single one was brute-forced to a same-length
+  // collision in ~2.5s and a page controls its own accessible names. Also a SECOND
+  // fingerprint over ref|role only: a clock or an unread badge in the tree changed the full
+  // one on every read, which made the guard fire forever with no middle setting.
+  function __fp(rows, withName) {
+    var a = 2166136261;
+    var b = 2166136261 ^ 0x5bf03635;
+    for (var fi = 0; fi < rows.length; fi++) {
+      var sig = rows[fi].ref + '|' + rows[fi].role + (withName ? '|' + rows[fi].name : '') + ';';
+      for (var ci = 0; ci < sig.length; ci++) {
+        var c = sig.charCodeAt(ci);
+        a ^= c; a = (a + ((a << 1) + (a << 4) + (a << 7) + (a << 8) + (a << 24))) >>> 0;
+        b = (((b ^ c) >>> 0) * 16777619) >>> 0;
+      }
     }
+    return a.toString(36) + b.toString(36);
   }
   return {
     mode: mode,
@@ -67,11 +76,21 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     refCount: refs.length,
     refs: refs.slice(0, 500),
     refsTruncated: refs.length > 500,
-    fingerprint: 'r' + refs.length + '-' + fp.toString(36)
+    fingerprint: 'r' + refs.length + '-' + __fp(refs, true),
+    fingerprintStructure: 's' + refs.length + '-' + __fp(refs, false)
   };
 }`;
 
 export const summarizeTree = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
+
+// JSON.stringify does not escape U+2028 / U+2029, and both are raw line terminators inside
+// a script source. Legal since ES2019 in V8, unverified on the Aside REPL parser, so they
+// are escaped rather than trusted.
+export function jsonForScript(value) {
+  return JSON.stringify(value)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
 
 export function compile(job, plan = null) {
   const items = plan && plan.length
@@ -103,7 +122,7 @@ export function compile(job, plan = null) {
   // $' grew a 20KB script to 34KB and made the REPL fail to parse. A function replacer
   // disables that substitution entirely. This bug predates the action layer.
   return TEMPLATE
-    .replace('__JOB__', () => JSON.stringify(payload))
+    .replace('__JOB__', () => jsonForScript(payload))
     .replace('/*__TREE_SUMMARY__*/', () => TREE_SUMMARY_SRC)
     .replace('/*__ACTION_STEPS__*/', () => ACTION_STEP_SRC);
 }
@@ -118,7 +137,13 @@ const SCRIPT_STARTED_AT = Date.now();
 // instant of the global inner timer meant a step in flight when that timer fired took the
 // whole item with it: the click had already happened and the result was items: [] with
 // partial:['inner-deadline'], so a real side effect on a live page left no record.
-const ACTION_RESERVE_MS = Math.max(1500, Math.min(4000, Math.floor(JOB.innerMs / 5)));
+// The reserve has to cover everything that still has to happen AFTER the action list, or
+// the item is dropped together with the side effect it already caused. A flat reserve was
+// not enough: a 4.2s screenshot after a successful click still produced items: [].
+const ACTION_RESERVE_MS = Math.min(
+  Math.floor(JOB.innerMs * 0.6),
+  1500 + (JOB.screenshot ? 3000 : 0) + (JOB.pdf ? 3500 : 0) + (JOB.snapshot ? 1500 : 0) + (JOB.extract ? 1000 : 0)
+);
 const ACTION_HARD_STOP_AT = SCRIPT_STARTED_AT + JOB.innerMs - ACTION_RESERVE_MS;
 function actionDeadlineNow() {
   // Per item, at the moment its actions start: an earlier item's navigation must not be
@@ -129,6 +154,10 @@ function actionDeadlineNow() {
 const opened = [];
 const pending = [];
 const items = [];
+// Every step that actually ran, recorded the moment it ran. items[] is only pushed after
+// extract and capture, so a deadline between the two used to erase the evidence that a live
+// page had been clicked. This survives that.
+const actionLog = [];
 let deadlineHit = false;
 function markClosed(rec) { rec.closed = true; }
 const RX = JOB.detect ? {
@@ -266,7 +295,14 @@ async function one(item) {
       const ran = await runActions(page, JOB.actions, {
         deadlineAt: actionDeadlineNow(),
         refsFingerprint: JOB.refsFingerprint,
-        fingerprintOf: function (p) { return snapshot(p).then(function (s) { return summarizeTree((s && s.tree) || '', 'interactive', 200000).fingerprint; }); },
+        guardTimeoutMs: 5000,
+        onStep: function (rec) { actionLog.push({ url: item.url, i: rec.i, verb: rec.verb, target: rec.target, ok: rec.ok, code: rec.code }); },
+        fingerprintOf: function (p) {
+          return snapshot(p).then(function (s) {
+            var sum = summarizeTree((s && s.tree) || '', 'interactive', 200000);
+            return { full: sum.fingerprint, structure: sum.fingerprintStructure };
+          });
+        },
         urlAtSnapshot: urlBeforeActions,
         allowStaleRefs: JOB.allowStaleRefs,
         stopOnError: JOB.stopOnError
@@ -398,5 +434,5 @@ const timer = (typeof sleep === 'function' ? sleep(JOB.innerMs) : new Promise((r
 try { await Promise.race([main(), timer]); }
 finally {
   const leakedUrls = await cleanup();
-  console.log(JSON.stringify({ type: 'final', pwd: String(pwd), items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
+  console.log(JSON.stringify({ type: 'final', pwd: String(pwd), items, actionLog, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] }));
 }`;

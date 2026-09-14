@@ -42,17 +42,21 @@
           return 'failed';
         }
 
-        export function runStatus({ marker, items, leakedUrls, killed, effects = [] }) {
+        export function runStatus({ marker, items, leakedUrls, killed, effects = [], extras = 0 }) {
           if (killed || marker === null) return 'indeterminate';
           if (items.some((i) => i.status === 'indeterminate')) return 'indeterminate';
           if (effects.some((e) => e.state === 'indeterminate')) {
             return items.some((i) => i.status === 'completed') ? 'partial' : 'failed';
           }
+          if (extras > 0) return items.some((i) => i.status === 'completed') ? 'partial' : 'failed';
           const done = items.filter((i) => i.status === 'completed').length;
           if (done === items.length && items.length > 0 && leakedUrls.length === 0 && marker === 'ok') return 'completed';
           if (done === 0) return 'failed';
           return 'partial';
         }
+
+   `extras`는 배치할 곳이 없던 반환의 수다: 이미 대조한 id를 다시 주장하는 중복과, 발행한 적 없는 id.
+   요청이 전부 답을 받은 것처럼 보여도 원장과 결과가 어긋난 run이므로 `completed`를 주지 않는다.
 
    `effects` 인자는 이 phase에서 항상 `[]`로 들어온다. 030이 실제 값을 넣는 순간 규칙이 자동으로 발효된다.
    `runStatus`는 `item.status`만 본다. 그런데 `script.js:404`는 `stopOnError`일 때만 `out.ok`를 내리므로,

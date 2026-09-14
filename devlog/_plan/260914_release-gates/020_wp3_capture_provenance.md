@@ -77,6 +77,9 @@
 - **host-kill:** `res.status === 'indeterminate'`면 반환 status도 `indeterminate`다(강등 금지).
 - **원장 부재 + 역순 완료:** `res.ledger`가 없으면 파일을 하나도 읽지 않고 전 항목이 `ECONTRACT`다.
   이름을 위치로 추측하지 않는다는 것을 이 케이스가 고정한다.
+  단, wp2가 착수된 뒤로 실제 `createBrowseSession().run()`은 host-kill 경로까지 포함해 **항상** ledger를 싣는다.
+  그래서 이 분기는 실행 경로가 아니라 **계약 방어선**이다. 테스트는 ledger를 생략한 session stub로 발동시키고,
+  그 사실을 테스트 이름에 적는다. 실제 session이 ledger를 빼도록 고치는 것은 010 위반이다.
 - **complete 갱신:** capture 실패로 `status`가 `partial`이 되면 `complete`도 false다(`...res`의 값이 남지 않는다).
 
 ## Verification (C)

@@ -7,6 +7,7 @@
 //      LATER than the script's own deadline. If the host timer ever fires, the script
 //      never printed its payload and the tabs are unrecoverable — that is reported as a
 //      host-kill leak rather than quietly dropped.
+import { randomUUID } from 'node:crypto';
 import { validateJob } from './schema.js';
 import { compile, deadlineMath } from './script.js';
 
@@ -78,6 +79,42 @@ export function aggregateSteps(items = []) {
   return { byStep, slowest };
 }
 
+// The host issues every identifier and derives every status. The script echoes ids and
+// reports per-item facts; it never decides whether the RUN succeeded.
+//
+// Order matters here. A host-kill item carries ok:false, but so does an ordinary failure,
+// and script.js only lowers out.ok when stopOnError is set — so an item whose action list
+// half ran arrives with ok:true. Reading ok first would call both of those completed.
+export function itemStatus(item) {
+  if (!item) return 'unreturned';
+  if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
+  if (item.code === 'EUNRETURNED') return 'unreturned';
+  if (item.actionsOk === false) return 'failed';
+  if (item.ok) return 'completed';
+  if (item.code === 'ESKIP' || item.code === 'ETABBUDGET') return 'skipped';
+  if (item.code === 'EBLOCKED') return 'blocked';
+  return 'failed';
+}
+
+// completed | partial | failed | indeterminate. needs_input is part of the vocabulary but
+// nothing produces it yet: the login-wall mapping belongs to the readText work (060), and
+// claiming it here would mean guessing which EBLOCKED a person could actually clear.
+export function runStatus({ marker, items = [], leakedUrls = [], killed = false, effects = [], extras = 0 }) {
+  if (killed || marker === null) return 'indeterminate';
+  if (items.some((i) => i.status === 'indeterminate')) return 'indeterminate';
+  const done = items.filter((i) => i.status === 'completed').length;
+  // An effect we started but never saw confirmed is not a failure and not a success. It
+  // cannot raise the run to completed, and it must not erase the work that did finish.
+  if (effects.some((e) => e.state === 'indeterminate')) return done > 0 ? 'partial' : 'failed';
+  // A result we could not place — a duplicate of an id we already matched, or an id we
+  // never issued — means the run and the ledger disagree. Every request may look answered
+  // and the run still cannot be called clean.
+  if (extras > 0) return done > 0 ? 'partial' : 'failed';
+  if (items.length > 0 && done === items.length && leakedUrls.length === 0 && marker === 'ok') return 'completed';
+  if (done === 0) return 'failed';
+  return 'partial';
+}
+
 export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
@@ -90,6 +127,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       throw e;
     }
     const job = validateJob(rawJob, opts.browseCaps || {});
+    // The issuing ledger. Position is the key because the same url may be requested twice,
+    // and two requests for one url have nothing else to tell them apart.
+    const runId = 'run-' + randomUUID();
+    const requested = job.urls.map((url, i) => ({ jobId: 'j' + String(i).padStart(3, '0'), url, index: i }));
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
     const caps = opts.browseCaps || {};
     // C4: the host decides, the script enforces. policy state never leaves this process.
@@ -112,7 +153,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       ? (planWithNames || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
           .map((p, i) => ({ ...p, pdfName: pdfNames[i] }))
       : planWithNames;
-    const source = compile(job, planFinal);
+    const planIds = (planFinal || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
+      .map((p, i) => ({ ...p, jobId: requested[i].jobId }));
+    const source = compile({ ...job, runId }, planIds);
     // Windows caps a command line at 32,767 characters and the source travels as an
     // argument. Refusing here with a named code beats spawn ENAMETOOLONG, which says
     // nothing about which option made the script too big.
@@ -135,17 +178,34 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // The script never got to print, so it never got to close its tabs. Every url we
       // asked for is a candidate leak and must be named: reporting nothing here would
       // turn a permanent, unrecoverable leak into a clean-looking result.
+      //
+      // This is indeterminate rather than failed. The run may have clicked, navigated and
+      // written before it was killed; we simply never heard about it.
       return {
+        schema: 'browse/2',
+        runId,
+        status: 'indeterminate',
         ok: false,
-        items: job.urls.map((url) => ({ url, ok: false, code: killed ? 'EHOSTKILL' : 'ENOMARKER' })),
+        requested: requested.length,
+        completed: 0,
+        unreturned: 0,
+        items: requested.map((r) => ({
+          jobId: r.jobId, url: r.url, ok: false,
+          code: killed ? 'EHOSTKILL' : 'ENOMARKER', status: 'indeterminate',
+        })),
+        ledger: requested,
+        reconciledBy: 'ledger',
+        effects: [],
+        complete: false,
+        truncated: false,
         timings: { steps: [], totalMs },
-      actionLog: parseSteps(stdout),
-      partial: [killed ? 'host-kill' : 'no-marker'],
-      leakedUrls: job.urls.slice(),
-      tabs: (parseFinal(stdout) && parseFinal(stdout).tabs) || null,
-      raw: { stdout, marker },
-      pwd: null,
-    };
+        actionLog: parseSteps(stdout),
+        partial: [killed ? 'host-kill' : 'no-marker'],
+        leakedUrls: job.urls.slice(),
+        tabs: (parseFinal(stdout) && parseFinal(stdout).tabs) || null,
+        raw: { stdout, marker },
+        pwd: null,
+      };
     }
 
     const items = final && Array.isArray(final.items) ? final.items : [];
@@ -168,9 +228,57 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (breaker) breaker.record(items);
     const steps = aggregateSteps(items);
 
+    // Reconcile what came back against what was asked for. Counting only the items that
+    // arrived is how eight of nine urls used to report as a whole success.
+    const byJob = new Map();
+    // A second result carrying an id we already matched cannot silently replace the first.
+    // Map.set would have kept the last writer and thrown away a real observation.
+    const duplicates = [];
+    for (const it of items) {
+      if (!it || typeof it.jobId !== 'string') continue;
+      if (byJob.has(it.jobId)) { duplicates.push(it); continue; }
+      byJob.set(it.jobId, it);
+    }
+    const positional = byJob.size === 0 && items.length === requested.length && items.length > 0;
+    const unreconciled = byJob.size === 0 && items.length > 0 && items.length !== requested.length;
+    const reconciled = requested.map((r, i) => {
+      const hit = byJob.get(r.jobId) || (positional ? items[i] : null);
+      if (!hit) return { jobId: r.jobId, url: r.url, ok: false, code: 'EUNRETURNED', status: 'unreturned' };
+      return { ...hit, jobId: r.jobId, url: hit.url || r.url, status: itemStatus(hit) };
+    });
+    // Only an item that names a jobId we never issued is an extra. Items with no jobId at
+    // all are either the position-matched path or the unreconciled one.
+    const extra = items.filter((it) => it && it.jobId && !requested.some((r) => r.jobId === it.jobId));
+    const orphans = unreconciled ? items.slice() : [];
+    if (reconciled.some((i) => i.status === 'unreturned')) partial.push('unreturned');
+    if (unreconciled) partial.push('unreconciled');
+    if (extra.length) partial.push('extra-items');
+    if (duplicates.length) partial.push('duplicate-jobid');
+    const effects = [];
+    const status = runStatus({
+      marker, items: reconciled, leakedUrls, killed, effects,
+      extras: extra.length + duplicates.length,
+    });
+
     return {
-      ok: marker === 'ok' && items.length > 0 && items.every((i) => i.ok) && leakedUrls.length === 0,
-      items,
+      schema: 'browse/2',
+      runId,
+      status,
+      ok: status === 'completed',
+      requested: requested.length,
+      completed: reconciled.filter((i) => i.status === 'completed').length,
+      unreturned: reconciled.filter((i) => i.status === 'unreturned').length,
+      items: reconciled,
+      ledger: requested,
+      extraItems: (extra.length || orphans.length || duplicates.length)
+        ? extra.concat(duplicates).concat(orphans)
+        : undefined,
+      reconciledBy: positional ? 'position' : (byJob.size ? 'jobId' : 'none'),
+      // Side-effect lifetimes arrive with wp4. The slot exists now so runStatus already
+      // knows the rule and nothing has to change shape later.
+      effects,
+      complete: status === 'completed',
+      truncated: false,
       // Steps that really ran, even when their item never made it into items[]. A click on
       // a live page is a side effect and must never be erased by a deadline.
       actionLog,

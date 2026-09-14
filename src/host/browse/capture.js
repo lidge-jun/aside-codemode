@@ -74,11 +74,13 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
           item.artifact = { path: dest, ...verified };
           if (!verified.matched) {
             item.ok = false;
+            item.status = 'failed';
             item.code = 'ECAPTURE';
             item.error = verified.reason;
           }
         } catch (e) {
           item.ok = false;
+          item.status = 'failed';
           item.code = e.code || 'EARTIFACT';
           item.error = String(e.message || e);
         }
@@ -87,6 +89,18 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     }
     const partial = res.partial.slice();
     if (items.some((i) => !i.ok) && !partial.includes('item-failure')) partial.push('item-failure');
-    return { ...res, items, partial, ok: res.ok && items.every((i) => i.ok) };
+    // An artifact that failed verification has to move the RUN status too. Lowering only
+    // item.ok left a batch reporting status:'completed' next to an item that did not.
+    // wp3 replaces this index join with a jobId join; the status arithmetic stays.
+    const done = items.filter((i) => i.status === 'completed').length;
+    const status = res.status === 'indeterminate'
+      ? 'indeterminate'
+      : (done === items.length && items.length > 0 ? res.status : (done > 0 ? 'partial' : 'failed'));
+    return {
+      ...res, items, partial, status,
+      ok: status === 'completed',
+      complete: status === 'completed',
+      completed: done,
+    };
   };
 }

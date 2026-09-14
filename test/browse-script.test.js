@@ -106,3 +106,99 @@ test('the compiled source never reaches for an API Aside does not have', () => {
     assert.ok(!src.includes(forbidden), `compiled source must not contain ${forbidden}`);
   }
 });
+
+// wp2: the host issues jobId and runId, the script only echoes them. Asserting that on the
+// COMPILED script matters because the session tests feed fake stdout that already carries
+// the ids — they would stay green with every echo deleted from the generated source.
+const planned = (urls) => urls.map((url, i) => ({
+  url, timeoutMs: 5000, waitSelector: null, skip: false, jobId: 'j' + String(i).padStart(3, '0'),
+}));
+
+test('every outcome the script can emit carries the jobId it was given', async () => {
+  const urls = ['https://ok.test', 'https://sync.test', 'https://async.test', 'https://skip.test'];
+  const plan = planned(urls);
+  plan[3].skip = true;
+  const source = compile({ ...job(urls), runId: 'run-fixed' }, plan);
+  const { done, payload } = runScript(source, {
+    // A plain function, deliberately: an async one turns the throw below into a rejected
+    // promise and the synchronous catch in the script is never entered.
+    openTab: (url) => {
+      if (url.includes('sync')) throw new Error('synchronous refusal');
+      if (url.includes('async')) return Promise.reject(new Error('late refusal'));
+      return Promise.resolve(makePage(url));
+    },
+    sleep: () => new Promise(() => {}),
+  });
+  await done.catch(() => {});
+  const out = payload();
+  assert.equal(out.items.length, 4);
+  for (const item of out.items) {
+    assert.match(String(item.jobId), /^j00\d$/, 'every item must name the request it answers');
+  }
+  const byId = new Map(out.items.map((i) => [i.jobId, i]));
+  assert.equal(byId.get('j000').ok, true, 'the healthy url is the success path');
+  assert.equal(byId.get('j001').code, 'EOPEN');
+  assert.equal(byId.get('j002').code, 'EOPEN');
+  assert.equal(byId.get('j003').code, 'ESKIP');
+  // The ids belong to the request, not to completion order.
+  assert.equal(byId.get('j000').url, 'https://ok.test');
+  assert.equal(byId.get('j003').url, 'https://skip.test');
+});
+
+// The remaining outcomes the script can print. Each one is its own items.push, so each one
+// is its own chance to drop the id the host asked it to carry.
+function makeRichPage(url, opts = {}) {
+  return {
+    targetId: url,
+    async url() { return url; },
+    async title() { return opts.title || 'Example'; },
+    async evaluate(fn, arg) {
+      if (arg && Array.isArray(arg.selectors)) {
+        return {
+          textChars: opts.textChars === undefined ? 400 : opts.textChars,
+          rawChars: 400, scriptChars: 0, scriptRatio: 0,
+          requiredSelectorsMatched: [], requiredSelectorsMissing: [],
+          skeletonNodes: 0, sample: 'x',
+        };
+      }
+      return url;
+    },
+    async waitForLoadState() { if (opts.waitThrows) throw new Error('navigation blew up'); },
+    async waitForSelector() {},
+    async screenshot() { return Buffer.alloc(10); },
+    async pdf() { return Buffer.alloc(10); },
+    async close() {},
+  };
+}
+
+test('the blocked, unrendered and thrown outcomes name their request too', async () => {
+  const urls = ['https://captcha.test', 'https://thin.test', 'https://throw.test'];
+  const source = compile(
+    { ...validateJob({ urls, timeoutMs: 5000, concurrency: 1, minTextChars: 100, requireContent: true }), runId: 'run-fixed' },
+    planned(urls),
+  );
+  const { done, payload } = runScript(source, {
+    openTab: (url) => Promise.resolve(makeRichPage(url, {
+      title: url.includes('captcha') ? 'verify you are human' : 'Example',
+      textChars: url.includes('thin') ? 3 : 400,
+      waitThrows: url.includes('throw'),
+    })),
+    sleep: () => new Promise(() => {}),
+  });
+  await done.catch(() => {});
+  const byId = new Map(payload().items.map((i) => [i.jobId, i]));
+  assert.equal(byId.size, 3, 'three distinct ids must come back');
+  assert.equal(byId.get('j000').code, 'EBLOCKED');
+  assert.equal(byId.get('j000').blockKind, 'captcha');
+  assert.equal(byId.get('j001').code, 'EUNRENDERED');
+  assert.equal(byId.get('j002').ok, false);
+  assert.match(byId.get('j002').error, /navigation blew up/);
+});
+
+test('runId travels in the job payload so an effect can name the run that caused it', () => {
+  const source = compile({ ...job(['https://a.test']), runId: 'run-fixed' }, planned(['https://a.test']));
+  assert.ok(source.includes('"runId":"run-fixed"'), 'the compiled JOB must carry the host runId');
+  assert.ok(source.includes('"jobId":"j000"'), 'the compiled plan must carry the issued jobId');
+  const without = compile(job(['https://a.test']));
+  assert.ok(without.includes('"runId":null'), 'a job compiled without a runId says so rather than omitting it');
+});

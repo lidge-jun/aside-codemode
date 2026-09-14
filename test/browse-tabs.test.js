@@ -13,12 +13,14 @@ async function runCompiled(src, makePage, opts = {}) {
   const live = { count: 0, peak: 0 };
   const fn = new AsyncFn('openTab', 'snapshot', 'closeTab', 'sleep', 'pwd', 'console', src);
   await fn(
-    async (url) => {
+    // Plain, not async: an async function turns openThrowsSync into a rejected promise and
+    // the script's synchronous catch — the one this file claims to test — is never entered.
+    (url) => {
       if (opts.openThrowsSync) throw new Error('synchronous openTab failure');
-      if (opts.openRejects) throw new Error('EOPEN simulated');
+      if (opts.openRejects) return Promise.reject(new Error('EOPEN simulated'));
       live.count += 1;
       if (live.count > live.peak) live.peak = live.count;
-      return makePage(url, live);
+      return Promise.resolve(makePage(url, live));
     },
     async () => ({ tree: '- button "b" [ref=e1]' }),
     async () => {},
@@ -93,6 +95,22 @@ test('a request that never became a tab gives its slot back', async () => {
   assert.equal(out.tabs.requested, 0, 'every request was rolled back');
 });
 
+// wp2: the refusal is a result like any other, so it has to name the request it refused.
+// Without the id the host counts a skipped url as one that never came back at all.
+test('a url refused by the tab budget still names its own request', async () => {
+  const job = validateJob({ urls: urls(2), concurrency: 1, timeoutMs: 500 }, { maxTabs: 1, concurrency: 1 });
+  const plan = [
+    { url: job.urls[0], timeoutMs: 500, waitSelector: null, skip: false, jobId: 'j000' },
+    { url: job.urls[1], timeoutMs: 1, waitSelector: null, skip: false, jobId: 'j001' },
+  ];
+  // A close that throws keeps the first tab owned, so the second url meets a full budget.
+  const { out } = await runCompiled(compile(job, plan), makePage({ closeThrows: true }));
+  const refused = out.items.find((i) => i.code === 'ETABBUDGET');
+  assert.ok(refused, 'the second url must be refused by the budget');
+  assert.equal(refused.jobId, 'j001');
+  assert.equal(out.items.find((i) => i.jobId === 'j000').jobId, 'j000');
+});
+
 test('a synchronous openTab throw does not leave the counter permanently high', async () => {
   const src = compile(validateJob({ urls: urls(2), concurrency: 1, timeoutMs: 8000 }, { maxTabs: 1, concurrency: 1 }));
   const { out } = await runCompiled(src, makePage(), { openThrowsSync: true });
@@ -160,4 +178,3 @@ test('stripping for the wire removes comments and nothing else', () => {
   assert.ok(src.includes('https://'), 'a // inside a string must not be touched');
   assert.ok(src.includes('  '), 'indentation is preserved, so template literals are safe');
 });
-

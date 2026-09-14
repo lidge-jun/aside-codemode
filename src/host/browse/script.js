@@ -114,6 +114,9 @@ export function compile(job, plan = null) {
     : job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }));
   const payload = {
     items,
+    // Issued host side and echoed back on every effect line, so a side effect can be tied
+    // to the run that caused it even when the final payload never arrives.
+    runId: job.runId || null,
     innerMs: deadlineMath(job.timeoutMs).innerMs,
     concurrency: job.concurrency,
     waitUntil: job.waitUntil,
@@ -234,8 +237,8 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
   return null;
 }
 async function one(item) {
-  if (deadlineHit) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
-  if (item.skip) { items.push({ url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
+  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
+  if (item.skip) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
@@ -248,7 +251,7 @@ async function one(item) {
     await napMs(50);
   }
   if (owned() >= JOB.maxTabs) {
-    items.push({ url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
+    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
     return;
   }
   let pr;
@@ -259,7 +262,7 @@ async function one(item) {
     pr = openTab(item.url);
   } catch (e) {
     tabsRequested -= 1;
-    items.push({ url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   pending.push({ url: item.url, pr });
@@ -269,7 +272,7 @@ async function one(item) {
   } catch (e) {
     // A request that never became a tab must give its slot back, or the pool wedges.
     tabsRequested -= 1;
-    items.push({ url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   if (owned() > tabsPeak) tabsPeak = owned();
@@ -298,7 +301,7 @@ async function one(item) {
     t.detect = lap();
     const blocked = detectBlock(item.url, finalUrl, title, tree);
     if (blocked) {
-      items.push({ url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });
+      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });
       return;
     }
 
@@ -357,11 +360,11 @@ async function one(item) {
     render.contentVerified = reasons.length ? false : (asked ? true : null);
     out_render = render;
     if (reasons.length && JOB.requireContent) {
-      items.push({ url: item.url, ok: false, code: 'EUNRENDERED', finalUrl, title, render, timings: t });
+      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EUNRENDERED', finalUrl, title, render, timings: t });
       return;
     }
     }
-    const out = { url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
+    const out = { jobId: item.jobId, url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
     // The render verdict above describes the page we ARRIVED at. If an action navigates,
     // that verdict is about a document we have left, so it is stamped with its stage and
     // the move is reported rather than left for the caller to infer from a changed url.
@@ -487,7 +490,7 @@ async function one(item) {
     }
     items.push(out);
   } catch (e) {
-    items.push({ url: item.url, ok: false, error: String(e && e.message ? e.message : e), timings: t });
+    items.push({ jobId: item.jobId, url: item.url, ok: false, error: String(e && e.message ? e.message : e), timings: t });
   } finally {
     // A close that HANGS used to cost this worker for the rest of the run, with its queued
     // urls silently never attempted. Capped so the worker returns to the pool.

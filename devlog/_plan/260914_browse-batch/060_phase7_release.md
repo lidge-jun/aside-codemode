@@ -1,5 +1,15 @@
 # 060 — Phase wp7: release (version, public SoT, main, doctor)
 
+> **Read [003_locked_contracts.md](003_locked_contracts.md) first; it overrides this file.**
+> The wp1 audit found that these phase docs, written in parallel, disagreed with each other on
+> the `session.run` signature, the `browseCaps` defaults, the spawn/batch model, the deadline
+> ordering, and several Aside call forms that had never been measured. 003 settles all of them
+> with new measurements (E7). Where this document shows a different shape, 003 is correct.
+> Known corrections that apply here: `openTab` returns the page itself (`tab.page` and `tab.id`
+> are undefined; identity is `page.targetId`), `snapshot` requires that page object and rejects
+> a string id, `file://` navigation is refused, and `waitUntil`/`waitForLoadState` accept any
+> string silently so they must be validated host-side.
+
 Unit: `devlog/_plan/260914_browse-batch/`. Implementation-phase doc (060-range).
 Closes **#23**. Depends on wp2–wp6 having landed on `origin/dev`. Does not
 re-implement capture, extract, cache, or the session spawn path.

@@ -1,5 +1,15 @@
 # 010 — wp2 foundations: Aside REPL execution contract
 
+> **Read [003_locked_contracts.md](003_locked_contracts.md) first; it overrides this file.**
+> The wp1 audit found that these phase docs, written in parallel, disagreed with each other on
+> the `session.run` signature, the `browseCaps` defaults, the spawn/batch model, the deadline
+> ordering, and several Aside call forms that had never been measured. 003 settles all of them
+> with new measurements (E7). Where this document shows a different shape, 003 is correct.
+> Known corrections that apply here: `openTab` returns the page itself (`tab.page` and `tab.id`
+> are undefined; identity is `page.targetId`), `snapshot` requires that page object and rejects
+> a string id, `file://` navigation is refused, and `waitUntil`/`waitForLoadState` accept any
+> string silently so they must be validated host-side.
+
 Unit: `devlog/_plan/260914_browse-batch/`. Implementation phase (010-range).
 Closes **#20**. Records the **#23** architecture decision. Does **not** close #23 (wp7).
 Supersedes goalplan filename `aside-cli.js`: 002 locked `session.js` as the only spawn+deadline+parse path. Do not create `src/host/browse/aside-cli.js`.

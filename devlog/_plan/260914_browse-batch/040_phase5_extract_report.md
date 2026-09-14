@@ -1,5 +1,15 @@
 # 040 — wp5 extraction and reports (closes #18, #10, #14, #11 wait-half, #22)
 
+> **Read [003_locked_contracts.md](003_locked_contracts.md) first; it overrides this file.**
+> The wp1 audit found that these phase docs, written in parallel, disagreed with each other on
+> the `session.run` signature, the `browseCaps` defaults, the spawn/batch model, the deadline
+> ordering, and several Aside call forms that had never been measured. 003 settles all of them
+> with new measurements (E7). Where this document shows a different shape, 003 is correct.
+> Known corrections that apply here: `openTab` returns the page itself (`tab.page` and `tab.id`
+> are undefined; identity is `page.targetId`), `snapshot` requires that page object and rejects
+> a string id, `file://` navigation is refused, and `waitUntil`/`waitForLoadState` accept any
+> string silently so they must be validated host-side.
+
 Unit: `devlog/_plan/260914_browse-batch/`. Work-phase wp5 of [000_plan.md](000_plan.md).
 Binding evidence: [001_probe_evidence.md](001_probe_evidence.md). Binding seams: [002_design_inputs.md](002_design_inputs.md).
 wp2 contract this phase extends: [010_phase2_foundations.md](010_phase2_foundations.md).

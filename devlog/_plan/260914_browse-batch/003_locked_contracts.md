@@ -341,3 +341,72 @@ No amendment needed: C8 is current. One ordering note for B — `src/cli.js:57` 
 `makeRootGuard`, so `--doctor --browse` still will not print on a machine whose every root is
 missing. That is accepted for wp2 rather than moving the guard, because moving it changes
 existing doctor behaviour that `test/cwd.test.js:68` pins.
+
+## C9 — wp3 spec: step timings, block detection, circuit breaker
+
+Closes #20, #17, #21. Builds on the wp2 contract; nothing here changes C1-C8.
+
+### Files
+
+| Path | Kind | Purpose |
+| --- | --- | --- |
+| `src/host/browse/policy.js` | NEW | block-signal detection, per-domain breaker state, per-item plan builder |
+| `src/host/browse/script.js` | MODIFY | measure each step; honour the embedded per-item plan; report block signals |
+| `src/host/browse/session.js` | MODIFY | feed per-item outcomes back into the breaker; aggregate step timings |
+| `src/host/browse/schema.js` | MODIFY | accept `domainTimeouts`, `breakerFailures`, `breakerCooldownMs` |
+| `src/cli.js` | MODIFY | `--doctor --browse` reports measured step timings when `CODEMODE_ASIDE_LIVE=1` |
+| `test/browse-policy.test.js` | NEW | detection + breaker state transitions |
+| `test/browse-timings.test.js` | NEW | per-step timing aggregation |
+
+### #20 — step timings, honestly
+
+The issue asks for a navigate/snapshot/screenshot bottleneck report from `--doctor --browse`.
+Static capability text is not that. So:
+
+- The compiled script measures each step and emits
+  `timings: { navigate, waitFor, snapshot, screenshot, pdf }` in milliseconds per item.
+- `session.run` aggregates into `timings.byStep` with total and max per step, so the slowest
+  stage is visible without reading every item.
+- `--doctor --browse` prints the matrix as today. With `CODEMODE_ASIDE_LIVE=1` it additionally
+  runs ONE real page and prints the measured step timings. Without the flag it says
+  `liveProbe: 'skipped (set CODEMODE_ASIDE_LIVE=1)'` rather than printing zeros, because a
+  fabricated zero would read as a fast page.
+- CI never sets that flag, so no CI job launches a browser.
+
+### #17 — block detection
+
+Detection is on observable page state, never on a retry that eventually gives up:
+
+| Signal | Rule |
+| --- | --- |
+| login wall | final url host differs from requested host AND matches `/(login|signin|sign-in|auth|account)/i`, or the snapshot tree contains a password field role |
+| CAPTCHA | title or tree matches `/captcha|are you a robot|verify you are human|cf-challenge/i` |
+| hard block | title or tree matches `/access denied|403 forbidden|rate limit|too many requests|blocked/i` |
+
+A detected item returns immediately with `ok: false`, `code: 'EBLOCKED'`, `blockKind`, and
+`alternate` naming the route that could work (`api`, `fetch-first`, `authenticated-exec`).
+It must NOT retry: retrying a login wall spends the budget and still fails.
+
+### #21 — per-domain circuit breaker
+
+Host-side state, script-side enforcement, exactly as C4 requires.
+
+```js
+createBreaker({ failures = 3, cooldownMs = 30000, now = Date.now })
+  .plan(urls, { domainTimeouts, defaultTimeoutMs })  // -> [{ url, timeoutMs, skip }]
+  .record(items)                                     // feed outcomes back
+  .state(host)                                       // 'closed' | 'open' | 'half-open'
+```
+
+| Transition | Trigger | Activation scenario |
+| --- | --- | --- |
+| closed -> open | `failures` consecutive failures for one host | record 3 failures, assert `state()` is `open` and the next `plan()` marks that host `skip: true` |
+| open -> half-open | `cooldownMs` elapsed since opening | advance the injected `now`, assert `state()` is `half-open` and `plan()` allows exactly one probe |
+| half-open -> closed | the probe succeeds | record one success, assert `state()` is `closed` and the failure count is reset |
+| half-open -> open | the probe fails | record one failure, assert `state()` is `open` again and the cooldown restarts |
+
+`now` is injected, so every transition is driven by an explicit clock value. No test sleeps.
+
+Per-domain timeouts come from `browseCaps.domainTimeouts` and are clamped to the C2 inner cap
+of 25000, which sits below Aside's measured ~30s internal screenshot timeout — a per-domain
+timeout at or above that ceiling would never fire first and would be decorative.

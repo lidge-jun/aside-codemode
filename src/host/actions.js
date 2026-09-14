@@ -6,7 +6,7 @@
 // absent from this catalog, so actions.check() called a working option unknown
 // (measured 2026-09-13). Value rules come from the same module, so `check` and a
 // real call agree on what is acceptable.
-import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
+import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../search-schema.js';
 import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS } from './browse/actions-schema.js';
 
 const REGISTRY = [
@@ -77,14 +77,15 @@ const REGISTRY = [
   {
     path: 'fs.grepFile',
     description: 'Return only matching lines (with optional context) from ONE file. Use instead of fs.read on a large file.',
-    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase? }?) => Promise<{line,text,context?}[]>',
-    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100).',
+    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase?, normalize? }?) => Promise<{line,text,context?}[]>',
+    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100). A non-ASCII pattern also tries the NFC-folded line so a decomposed file still matches; .scope.normalize reports whether that was in force, and normalize:false turns it off. Returned text and line numbers are always the raw file.',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
       pattern: { type: 'string', required: true, description: 'Regex source or literal' },
       context: { type: 'number', required: false, description: 'Lines of context to include' },
       max: { type: 'number', required: false, description: 'Max matches (default 100). Positive integer; invalid values throw. Hitting max sets .truncated after a one-match lookahead.' },
       ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive' },
+      normalize: { type: 'boolean', required: false, description: 'Fold Unicode normalization when the pattern is non-ASCII (default true). Match decision only; returned bytes are untouched.' },
     },
   },
   {
@@ -193,7 +194,14 @@ export function createActions() {
         else if (name in args && typeOf(args[name]) !== spec.type) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
         } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
-          const problem = checkOptionValue(name, args[name]);
+          // fs.grepFile deliberately keeps the plain check. Its `pattern` is a
+          // REGEX, where 'a*' is a quantifier, while search.files' `pattern` is a
+          // substring filter that refuses glob metacharacters. Routing both
+          // through the entry-scoped checker would make discovery report a valid
+          // grepFile regex as invalid while the real call kept running it.
+          const problem = isSearch
+            ? checkEntryOptionValue(rec.path, name, args[name])
+            : checkOptionValue(name, args[name]);
           if (problem) invalid.push(problem);
         }
       }

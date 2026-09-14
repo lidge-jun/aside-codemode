@@ -8,7 +8,7 @@ const GUEST_API_DOC = [
   'Run JavaScript that orchestrates local search and file tools in ONE call, instead of many separate tool calls.',
   'Your code runs as an async function body: use return for the final answer and await freely. Only the returned value and console output reach the model.',
   'Provided guest APIs (no direct require/process/fetch/network API; not a hostile-code security boundary):',
-  '- search.files({ path, pattern?, glob?, max?, noIgnore?, hidden? }) => string[] — ripgrep-backed path listing. Streams with one-row lookahead to distinguish an exact max from truncation.',
+  '- search.files({ path, pattern?, glob?, max?, noIgnore?, hidden? }) => string[] — ripgrep-backed path listing. `pattern` is a case-sensitive SUBSTRING filter on the returned paths, NOT a glob: pattern:"*.pdf" is rejected with the glob you meant, use glob:"**/*.pdf". Streams with one-row lookahead to distinguish an exact max from truncation.',
   '- search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, noIgnore?, hidden? }) => {file,line,text}[] — content search. max is a GLOBAL row cap.',
   '- search.count({ query, path, glob?, noIgnore? }) => {matches,files} — size a search before pulling rows.',
   '- read_file({ path, offset?, limit? }) => string — Aside-shaped read. offset/limit are 1-indexed LINES. Unpaged and retained paged output cap at 262144 bytes (throws if larger); paged physical lines also cap at 262144 bytes.',
@@ -21,6 +21,7 @@ const GUEST_API_DOC = [
   'IMPORTANT — searches respect .gitignore by default. A parent .gitignore can hide an ENTIRE project directory, so a file you know exists can be missing from results. If something expected is absent, retry with noIgnore:true (add hidden:true for dotfiles) or compare search.count with and without it before concluding it does not exist. Inclusive search.glob can match gitignored/hidden files even when noIgnore/hidden are false. fs.grepFile uses the same completeness envelope as search.*.',
   'Unknown options are rejected with the list of valid ones rather than being silently ignored. Search arrays retain guest iteration; returning them directly or nested serializes {rows,complete,truncated,partial,scope}. Counts serialize the same metadata with matches/files. Preserve metadata when projecting rows. followSymlinks:true is unsupported and rejected.',
   'Paths outside the configured roots are refused. Prefer one code block that searches, filters, reads only the hits, and returns a distilled answer.',
+  'IMPORTANT — paths come back as the bytes on disk. macOS stores filenames decomposed (NFD) while you almost certainly type them composed (NFC), and a decomposed name does NOT contain the composed needle even though both render the same. search.files `pattern`, fs.grepFile and the root guard fold normalization for you; when you filter results YOURSELF (fs.list names, files.find(f => f.includes(...))), call .normalize("NFC") on both sides or you will drop files that are right there. search.content/search.count match raw bytes inside ripgrep and are not folded.',
 ].join('\n');
 
 export const TOOL_DEF = {

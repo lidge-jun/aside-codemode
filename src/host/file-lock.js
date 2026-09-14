@@ -24,6 +24,7 @@ import { mkdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { nfc } from '../unicode.js';
 
 const isWindows = process.platform === 'win32';
 
@@ -61,7 +62,13 @@ export class LockAbortError extends Error {
 // filesystem itself is case-insensitive. assertInside already realpath'd the
 // nearest existing ancestor, so this receives a canonical path.
 export function lockPathFor(target) {
-  const key = isWindows ? path.resolve(target).toLowerCase() : path.resolve(target);
+  const resolved = path.resolve(target);
+  // NFC the KEY, never the path we open. assertInside rejoins the tail of a
+  // not-yet-created file in whatever form the caller typed, so without this fold
+  // the two spellings of one new file hash to two different locks and both
+  // writers believe they hold it — the lost update this module exists to stop.
+  // Folding can only ever over-lock, which is the safe direction.
+  const key = nfc(isWindows ? resolved.toLowerCase() : resolved);
   const digest = createHash('sha256').update(key).digest('hex').slice(0, 40);
   return path.join(LOCK_DIR, `${digest}.lock`);
 }

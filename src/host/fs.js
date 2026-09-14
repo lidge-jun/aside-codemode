@@ -16,6 +16,7 @@ import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
 import { applyLineEdits } from './line-edit.js';
 import { decorateSearchResult } from '../search-result.js';
+import { hasNonAscii, nfc } from '../unicode.js';
 
 // A single returned line is bounded so one pathological minified file cannot
 // blow the result budget. The bound is the same 256 KB read cap rather than a
@@ -99,7 +100,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
     // Pull only matching lines out of one big file, with context. Avoids
     // spending the whole result budget on a file to find three lines. Streams,
     // so a 2 GB log does not become a 2 GB allocation, and stops at `max`.
-    async grepFile(p, pattern, { context = 0, max = 100, ignoreCase = false, maxLineBytes = MAX_LINE_BYTES } = {}) {
+    async grepFile(p, pattern, { context = 0, max = 100, ignoreCase = false, normalize = true, maxLineBytes = MAX_LINE_BYTES } = {}) {
       if (!Number.isSafeInteger(max) || max <= 0) {
         throw new Error(`fs.grepFile: max must be a positive integer (got ${JSON.stringify(max)})`);
       }
@@ -108,6 +109,22 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       }
       const target = assertInside(p);
       const re = toMatcher(pattern, ignoreCase);
+      // A regex typed in one normalization form never matches a line stored in
+      // the other, even though both render identically. Fold BOTH sides into a
+      // second matcher and consult it only after the raw one misses, gated on a
+      // non-ASCII matcher so an ASCII grep over a 2 GB log pays nothing.
+      // toMatcher already stripped g/y, so neither regex carries lastIndex
+      // between lines. The hit text below is always the RAW line: boundLine's
+      // byte accounting has to describe what is actually on disk.
+      //
+      // FILE CONTENT is a different contract from a filename, so this is
+      // disclosed and reversible rather than silently global: folding can only
+      // ADD a match, never move a line number or change a returned byte, the
+      // effective policy is reported on .scope, and normalize:false restores
+      // byte-exact matching for a caller who is deliberately searching for one
+      // normalization form.
+      const folded = normalize && hasNonAscii(re.source) ? new RegExp(nfc(re.source), re.flags) : null;
+      const matches = (line) => re.test(line) || (folded !== null && folded.test(nfc(line)));
       const hits = [];
       const before = [];
       let pendingAfter = [];
@@ -123,7 +140,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
         }
         pendingAfter = pendingAfter.filter((o) => o.remaining > 0);
 
-        if (hits.length < max && re.test(line)) {
+        if (hits.length < max && matches(line)) {
           const hit = { line: lineNo, text: boundLine(line, maxLineBytes) };
           if (context > 0) {
             const open = {
@@ -135,7 +152,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
             hit._open = open;
           }
           hits.push(hit);
-        } else if (hits.length >= max && !extraMatch && re.test(line)) {
+        } else if (hits.length >= max && !extraMatch && matches(line)) {
           extraMatch = true;
           return pendingAfter.length > 0;
         }
@@ -156,7 +173,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       return decorateSearchResult(hits.slice(0, max), {
         truncated: extraMatch,
         complete: !extraMatch,
-        scope: { kind: 'grepFile', max, context, ignoreCase },
+        scope: { kind: 'grepFile', max, context, ignoreCase, normalize: folded !== null },
       });
     },
 

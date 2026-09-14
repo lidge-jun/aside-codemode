@@ -11,6 +11,7 @@ import { execFileRg } from './child-opts.js';
 import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
 import { decorateSearchResult } from './search-result.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
+import { includesText } from './unicode.js';
 
 const execFileP = promisify(execFile);
 const isWindows = process.platform === 'win32';
@@ -203,7 +204,12 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
         delimiter: '\0',
         onLine: (line) => {
-          if (pattern && !line.includes(pattern)) return false;
+          // A SUBSTRING filter, not a glob — search-schema.js refuses '*' and '?'
+          // rather than letting them match nothing in silence. The comparison is
+          // NFC-folded because macOS hands us decomposed filenames while a guest
+          // types composed ones, and `nfd.includes(nfc)` is false for the same
+          // visible name. What gets pushed is the ORIGINAL path, so it still opens.
+          if (pattern && !includesText(line, pattern)) return false;
           out.push(line);
           return true;
         },

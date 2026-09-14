@@ -53,6 +53,17 @@ without `noIgnore` (use `hidden: true` for dotfiles) before concluding it is abs
 An inclusive `glob` can match gitignored or hidden files even when `noIgnore`
 and `hidden` are false (ripgrep `-g` precedence, not `-uuu`). Do not treat
 `glob: "**/*.js"` as an extension filter that still honors ignore.
+`pattern` and `glob` are different things. `pattern` is a case-sensitive
+SUBSTRING filter on the returned paths; `glob` is the glob. `pattern: "*.pdf"`
+is refused (no path contains `*`), so use `glob: "**/*.pdf"` and filter the rows.
+Filenames come back as the bytes on disk. macOS stores them decomposed while you
+type them composed, so a composed needle is not found inside a decomposed name
+even though both render identically, and the file looks absent when it is right
+there. `pattern` and `fs.grepFile` fold that for you; when you filter rows
+yourself, compare `p.normalize("NFC")` against a composed needle and still open
+the ORIGINAL path. Return the candidates and a status, not a bare `.find()` —
+`undefined` from `.find()` and "no such file" are not the same answer.
+Directory listing is `fs.list`, not `fs.readdir`; `search.files` requires `path`.
 Default home-wide roots prune `Library`, `node_modules`, and caches. Use
 `includeExcluded: true` only when you need those paths. If resolution looks wrong,
 run `{{NODE}} {{CLI}} --doctor`.

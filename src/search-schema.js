@@ -70,7 +70,7 @@ const OPTS = {
   pattern: {
     type: 'string',
     required: false,
-    description: 'Case-sensitive substring filter applied to the returned paths',
+    description: "Case-sensitive SUBSTRING filter on the returned paths — not a glob. '*' and '?' are refused, because no path contains them and the call would return an empty result with no error; use `glob` instead. Compared with Unicode NFC folding, so a decomposed (macOS) filename still matches a composed needle.",
     validate: (v) => nonEmptyString('pattern', v),
   },
   glob: {
@@ -111,6 +111,16 @@ const OPTS = {
     },
   },
   ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive search (-i)' },
+  // fs.grepFile's option, not a search.* one. It is absent from every *_ORDER, so
+  // search.files/content/count still reject it as unknown; it lives here because
+  // host/actions.js validates grepFile values through this same table, and an
+  // option that existed only in the catalog is exactly the drift this module was
+  // written to stop.
+  normalize: {
+    type: 'boolean',
+    required: false,
+    description: 'fs.grepFile only. When the pattern itself is non-ASCII, retry a missed line against its NFC-folded form (default true). Returned text, line numbers and byte bounds are always the raw file — only the match decision is folded. Set false for byte-exact matching.',
+  },
   fixedStrings: { type: 'boolean', required: false, description: 'Treat query as a literal string (-F)' },
   wordRegexp: { type: 'boolean', required: false, description: 'Match whole words only (-w)' },
   multiline: { type: 'boolean', required: false, description: 'Allow matches to span lines (-U --multiline-dotall)' },
@@ -161,7 +171,7 @@ export const SEARCH_ACTIONS = [
     path: 'search.files',
     description: 'List file paths under a directory (ripgrep --files). Streams and stops at `max`, so a large tree is safe.',
     signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
-    notes: 'Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
+    notes: "Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. `pattern` is a substring filter and `glob` is the glob: pattern:'*.pdf' is rejected with the glob you probably meant, instead of returning zero rows. Paths come back as the bytes on disk; the pattern comparison is NFC-folded so a decomposed macOS filename still matches. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).",
     inputs: inputsFor(FILES_ORDER),
   },
   {
@@ -194,6 +204,44 @@ function typeOf(v) {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
   return typeof v;
+}
+
+// Rules that belong to ONE entry point, not to the option name.
+//
+// `pattern` is shared with fs.grepFile, where it is a REGEX and 'a*' is a legal
+// quantifier. The glob refusal below therefore cannot live in OPTS.pattern:
+// host/actions.js routes fs.grepFile through the same checkOptionValue, so
+// discovery would start calling a working grepFile regex invalid while the real
+// call still ran it — the exact catalog/execution drift this module exists to
+// prevent.
+const GLOB_METACHARS = /[*?]/;
+
+function globPatternMessage(v) {
+  const suggestion = v.includes('/') ? v : `**/${v}`;
+  return 'pattern is a case-sensitive substring filter on the returned paths, not a glob '
+    + `(got ${JSON.stringify(v)}). No path contains '*' or '?', so this matches nothing and `
+    + `would come back as an empty result with no error. Use glob: ${JSON.stringify(suggestion)} `
+    + 'for glob matching, or pass the literal substring to look for. A name that really does '
+    + "contain '*' or '?' is possible on POSIX only: list it with `glob` and filter the returned "
+    + 'rows yourself, which keeps the filter visible in your code instead of hidden in an option.';
+}
+
+const ENTRY_RULES = {
+  'search.files': {
+    pattern: (v) => (GLOB_METACHARS.test(v) ? globPatternMessage(v) : null),
+  },
+};
+
+/**
+ * checkOptionValue plus any rule that applies to one entry point only. Discovery
+ * (actions.check) and execution (validateSearchOptions) both go through this, so
+ * they cannot disagree about what search.files({ pattern }) accepts.
+ */
+export function checkEntryOptionValue(fn, name, value) {
+  const problem = checkOptionValue(name, value);
+  if (problem) return problem;
+  const message = ENTRY_RULES[fn]?.[name]?.(value) ?? null;
+  return message ? { name, code: 'EBADVAL', message } : null;
 }
 
 /**
@@ -246,7 +294,7 @@ export function validateSearchOptions(fn, opts) {
       }
       continue;
     }
-    const problem = checkOptionValue(name, opts[name]);
+    const problem = checkEntryOptionValue(fn, name, opts[name]);
     if (problem) throw new SearchOptionError(`${fn}: ${problem.message}`, problem.code);
   }
   return opts;

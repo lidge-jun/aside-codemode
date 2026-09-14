@@ -32,6 +32,10 @@ const DEFAULTS = {
   maxResultBytes: 65536,
   maxTimeoutMs: 120000,
   searchCaps: { files: 5000, content: 500 },
+  asidePath: null,
+  // Opt-in. `timeoutMs` is the INNER script deadline and sits below Aside's measured
+  // ~30s internal screenshot timeout; the host deadline is derived as inner + slack.
+  browseCaps: { enabled: false, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 
@@ -109,6 +113,17 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
     if (obj.searchCaps && typeof obj.searchCaps === 'object') {
       if ('files' in obj.searchCaps) cfg.searchCaps.files = requireInteger('searchCaps.files', obj.searchCaps.files);
       if ('content' in obj.searchCaps) cfg.searchCaps.content = requireInteger('searchCaps.content', obj.searchCaps.content);
+    }
+    if ('asidePath' in obj && (typeof obj.asidePath === 'string' || obj.asidePath === null)) {
+      cfg.asidePath = obj.asidePath;
+    }
+    // Field-wise, exactly like searchCaps: a later layer adds keys instead of replacing
+    // the object, so one config file cannot silently drop another's browse settings.
+    if (obj.browseCaps && typeof obj.browseCaps === 'object') {
+      if ('enabled' in obj.browseCaps) cfg.browseCaps.enabled = obj.browseCaps.enabled === true;
+      if ('timeoutMs' in obj.browseCaps) cfg.browseCaps.timeoutMs = requireInteger('browseCaps.timeoutMs', obj.browseCaps.timeoutMs);
+      if ('maxTabs' in obj.browseCaps) cfg.browseCaps.maxTabs = requireInteger('browseCaps.maxTabs', obj.browseCaps.maxTabs);
+      if ('concurrency' in obj.browseCaps) cfg.browseCaps.concurrency = requireInteger('browseCaps.concurrency', obj.browseCaps.concurrency);
     }
     cfg._sources.push(source);
   };

@@ -53,6 +53,18 @@ npm install -g --prefix=/opt/homebrew .
 | `apply_patch(text)` | 게스트 헬퍼. Codex `*** Begin Patch` 텍스트를 `write_file` / `edit_file`로 바꿉니다. 성공은 `{}`. AGENTS 동사가 아닙니다 |
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | 묶음 헬퍼. `fs.read` / `fs.write`는 바이트/덮어쓰기용 구형 별칭입니다 |
 | `actions.list` / `find` / `describe` / `check` | 샌드박스 안 탐색 |
+| `browse.probe()` | 설치된 Aside 빌드를 실제로 재서 만든 기능표. 어떤 page 메서드가 있는지, 어떤 옵션이 조용히 무시되는지, 왜 거절되는지를 돌려줍니다 |
+| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. `browseCaps.enabled`로 켜야 동작하고, `{ items, partial, leakedUrls }`를 돌려줍니다. 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
+
+**브라우징은 옵트인이고, Aside가 못 하는 일은 못 한다고 말합니다.** `page.route`, 스크린샷
+`maxWidth`, `pdf({format:'A4'})`, `file://` 주소, `networkidle`은 프로세스를 띄우기 전에
+`ENOTSUP`으로 막습니다. 전부 받아들여지는 척하고 조용히 무시되거나 바뀌는 것을 직접 재서
+확인했기 때문입니다. `format:'A4'`는 레터를 만들고, `maxWidth`는 원본 크기를 그대로 돌려줍니다.
+Aside CLI는 실패해도 종료코드가 `0`이라, 성공 판정은 끝줄 `[ok | Nms]` 마커와 만들었다는 파일을
+직접 확인하는 것뿐입니다. CLI를 죽이면 그 탭은 영구히 남고 이후 세션에서 닫을 수 없어서,
+스크립트 자체 데드라인이 호스트 데드라인보다 항상 먼저 끝나도록 잡았습니다. 강제 종료가 나면
+깨끗한 결과인 척하지 않고 `partial: ['host-kill']`과 해당 URL을 함께 돌려줍니다.
+`codemode --doctor --browse`로 전체 표를 볼 수 있습니다.
 
 **기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
 

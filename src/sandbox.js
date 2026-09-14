@@ -4,7 +4,7 @@ import { Worker, MessageChannel } from 'node:worker_threads';
 import { errorFields, fitEnvelope, requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
 
 const HOST_DRAIN_MS = 1000;
-const ROOTS = ['search', 'fs', 'actions', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
+const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
 
 function hostMethods(globals) {
   const methods = new Map();

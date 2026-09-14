@@ -4,6 +4,7 @@ import { createSearch } from './search.js';
 import { createFs } from './fs.js';
 import { createApplyPatch } from './patch.js';
 import { createActions } from './actions.js';
+import { createBrowse } from './browse/browse.js';
 
 export function createHostGlobals(config, assertInside, signal) {
   const rgRunner = createRgRunner(createRgResolver(config, process.env, { signal }), { excludeGlobs: config.excludeGlobs, signal });
@@ -16,5 +17,9 @@ export function createHostGlobals(config, assertInside, signal) {
     edit_file: hostFs.edit_file,
     apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
     actions: createActions(),
+    browse: createBrowse({ config, signal }),
+    // wp2 ships the namespace frozen and empty so the guest surface is stable before
+    // wp5 fills it in. An absent root would make `report` a ReferenceError instead.
+    report: Object.freeze({}),
   };
 }

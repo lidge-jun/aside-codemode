@@ -53,6 +53,18 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `apply_patch(text)` | Guest helper. Codex `*** Begin Patch` text → `write_file` / `edit_file`. Success `{}`. Not an AGENTS verb |
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
+| `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
+| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+
+**Browsing is opt-in and honest about what Aside cannot do.** `page.route`, screenshot
+`maxWidth`, `pdf({format:'A4'})`, `file://` URLs and `networkidle` all throw `ENOTSUP` before
+anything spawns, because each was measured to be accepted and then silently ignored or
+downgraded — `format:'A4'` produces US Letter, and `maxWidth` returns the full-size image.
+The Aside CLI also exits `0` on failure, so success is the trailing `[ok | Nms]` marker plus
+inspection of the files a run claims to have written. A killed CLI leaks its tabs permanently
+and no later session can close them, so the script's own deadline always fires before the host
+deadline, and a host kill is reported as `partial: ['host-kill']` with the affected URLs rather
+than as a clean result. `codemode --doctor --browse` prints the whole matrix.
 
 **`.gitignore` is on by default** and can hide a whole project. A parent ignore once dropped 126 of 356 hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
 

@@ -74,6 +74,12 @@ if (has('--doctor')) {
     report.rgError = e.message;
     if (e.candidates) report.rgCandidates = e.candidates;
   }
+  // `--doctor --browse` answers "what will Aside actually do" from measurements rather
+  // than from its documentation, so a refused option is explainable before it is debugged.
+  if (has('--browse')) {
+    const { doctorPayload } = await import('./host/browse/probe.js');
+    report.browse = doctorPayload(config, null, null);
+  }
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
   process.exit(report.ok ? 0 : 1);
 }

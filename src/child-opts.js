@@ -27,3 +27,15 @@ export function createRgProcessFns({ spawnImpl = spawn, execFileImpl = execFile 
 }
 
 export const { spawnRg, execFileRg } = createRgProcessFns();
+
+// Aside goes through the SAME windowsHide policy as rg. A second hide flag would be a
+// second place for issue #5 to come back, so there is deliberately only one owner.
+export function createAsideProcessFns({ spawnImpl = spawn } = {}) {
+  return {
+    spawnAsideChild(bin, args, extra = {}, env = process.env) {
+      return spawnImpl(bin, args, rgChildOpts(extra, env));
+    },
+  };
+}
+
+export const { spawnAsideChild } = createAsideProcessFns();

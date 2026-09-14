@@ -7,7 +7,7 @@ Use this absolute node/CLI pair. Do not look up `node` or `codemode` on PATH.
 Do not invoke `src/cli.js`. The CLI path above is `bin/codemode.mjs`.
 
 Code is an async function body. Use `await` for tool operations and `return` for
-the answer. Available tools: `search.files|content|count`,
+the answer. Available tools: `browse.probe|exec`, `search.files|content|count`,
 `read_file({path, offset?, limit?})` (1-indexed lines),
 `write_file({file_path, content})` (create-only),
 `edit_file({path, edits, appendText?})`, and compound `fs.*` helpers.

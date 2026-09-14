@@ -86,3 +86,43 @@ fixture 경로에 공백·한글·작은따옴표·`&`·`$`·CRLF를 넣는다.
 - 실기 2기기: clean install → `doctor` → upgrade → 파일 하나 삭제 후 `repair` → uninstall → rollback.
   각 단계의 종료 코드와 manifest diff를 이 문서에 기록한다.
 - hosted CI 5조합 success at head.
+
+## 착수 후 바뀐 결정과 실측 (2026-09-15)
+
+**프로젝트 사본을 만들지 않는다.** 080의 파일 목록에는 `<projectRoot>/.aside/codemode/cm.js`가 조건부로 들어 있었다. 조건은 "REPL fs가 계정 루트를 거절할 때"였는데, [070](070_wp8_native_helper.md)에서 실제로 프로브해보니 계정 루트는 양 OS에서 읽힌다. 조건이 성립하지 않으므로 사본도 없다. manifest가 소유하는 파일은 다섯 개다.
+
+    <accountRoot>/codemode/manifest.json
+    <accountRoot>/codemode/cm.js
+    <accountRoot>/codemode/catalog.json
+    <accountRoot>/skills/user/aside-codemode/SKILL.md
+    <accountRoot>/skills/user/aside-codemode/references/execution-paths.md
+    <accountRoot>/skills/user/aside-codemode/references/windows-invocation.md
+
+AGENTS.md는 목록에 없다. 우리가 소유하는 것은 표시자 사이의 블록뿐이고, 파일 자체는 사용자 것이다. uninstall은 블록만 걷어내고 문서는 남긴다.
+
+**AGENTS 블록에 rg 금지와 Windows 셸 문장을 남겼다.** 080의 예시 본문은 그 둘을 스킬로 내보냈지만, 블록은 매 턴 읽히고 스킬은 불러야 읽힌다. "직접 rg/find/grep을 돌리지 마라"와 "`src/cli.js`를 부르지 마라"는 라우팅 규칙이라 블록에 있어야 하고, 긴 설명은 스킬로 갔다. 결과는 32줄이다. `test/readme-51x.test.js`가 블록 길이 상한과 "블록에서 뺀 내용이 스킬에 실제로 들어갔는지"를 둘 다 검사한다.
+
+**바이트가 같은 기존 파일은 보존이 아니라 채택이다.** 처음 구현은 manifest가 모르는 파일을 전부 사용자 것으로 보고 건드리지 않았다. 그런데 wp8 프로브가 이미 `codemode/cm.js`를 깔아둔 기기에서는, 첫 설치가 자기가 쓰려던 것과 한 바이트도 다르지 않은 파일을 "사용자 수정"이라며 비켜간다. manifest는 맞는 파일을 두고 틀린 말을 하게 되고, 그 뒤 repair는 고칠 게 없다고 답한다. 해시가 같으면 채택해 manifest에 기록하고 `adopted`로 보고한다. 이 판정은 repair 필터 다음에 오므로 repair는 여전히 멀쩡한 파일을 skipped로 센다.
+
+**manifest는 해시만 들고, 내용은 직전 세대 하나만 갖는다.** rollback 묶음은 업그레이드하는 순간 디스크에서 읽는다. 해시로 되살릴 수는 없고, 세대마다 내용을 쌓으면 manifest가 끝없이 자란다. 사용자가 고친 파일은 고친 그대로 기록된다 — 덮어쓰지 않고 보존했으니 그게 되돌아갈 상태다.
+
+## 실기 검증 (mac + ssh mini)
+
+임시 aside home에 계정 두 개(u/0, u/1)와 CRLF AGENTS.md를 두고 전 수명주기를 돌렸다. 양쪽 결과가 한 글자도 다르지 않다.
+
+| 단계 | mac (darwin) | mini (win32) |
+|---|---|---|
+| install | exit=0 | exit=0 |
+| doctor | exit=0, ok=false인 파일 0개 | exit=0, ok=false인 파일 0개 |
+| upgrade (사용자 수정 뒤) | exit=0, 수정 보존됨 | exit=0, 수정 보존됨 |
+| repair (cm.js 삭제 뒤) | exit=0, cm.js 복원, 수정은 그대로 | exit=0, cm.js 복원, 수정은 그대로 |
+| rollback (cm.js 훼손 뒤) | exit=0, 원본 복원 | exit=0, 원본 복원 |
+| uninstall | exit=0, 남은 파일 2개(AGENTS.md와 사용자가 고친 SKILL.md), 사용자 메모 보존, 블록 0개 | 동일 |
+| 지정하지 않은 계정 u/1 | 파일 0개 | 파일 0개 |
+| 설치 3회 뒤 표시자 수 | uninstall 후 0 | uninstall 후 0 |
+
+실제 계정 루트에는 읽기 전용 `doctor`만 돌렸다. 계정 열거가 실기에서도 맞는다:
+mac `/Users/jun/.aside/u/0`, mini `C:\Users\super\.aside\u\0`, 둘 다 `installed:false`.
+wp8 프로브가 남긴 `codemode/probe.js`는 양쪽에서 지웠다.
+
+로컬 단언: `test/install-manifest.test.js` 11건, `test/install-paths.test.js` 8건. 경로에 공백·한글·작은따옴표·`&`·`$`가 들어간 홈에서도 설치와 doctor가 통과하고, `accounts.json`의 토큰과 이메일은 manifest에도 반환값에도 들어가지 않는다.

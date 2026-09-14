@@ -121,6 +121,26 @@ Migration: callers parsing a directly returned search array must now read `resul
 - Search, multi-file read, summarize: one bash call to the CLI. That shows as a bash card.
 - Do not call `rg`, `find`, `grep`, or `Get-ChildItem -Recurse` directly.
 
+### Choosing a path
+
+Native is the default, and staying native is the right answer more often than not. Reach for a
+batch only when all three hold: the steps repeat, the items do not share state with each other,
+and you can say in one sentence what a finished item looks like. A first look at an unfamiliar
+page, a single click, a fresh visual judgement, or anything that needs an account or an
+approval stays native — batching those trades a correct answer for a faster wrong one.
+
+When the work does qualify, the cost of doing it by hand is real. Six independent pages read
+and closed, measured over ten alternating pairs on one machine: 8420 ms median one tab at a
+time, 4441 ms median through the batch helper holding two, no failures on either path. That is
+one workload on one machine, and the numbers behind it are in
+[eval/out/independent-reads.jsonl](eval/out/independent-reads.jsonl) rather than summarised out
+of reach.
+
+A batch result is not a boolean. `completed` means every requested item came back and no tab
+was left open; `partial`, `indeterminate` and `needs_input` are answers too, and each one has
+a different correct response. Rerunning an `indeterminate` side effect is how a second order
+gets placed.
+
 Agent recipe (absolute paths; replace with the values register printed):
 
 ```

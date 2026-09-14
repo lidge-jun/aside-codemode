@@ -1,0 +1,18 @@
+{
+  "id": "independent-reads",
+  "note": "Six independent pages, read and closed. The comparison that matters for batching: one tab at a time by hand, against the helper holding two. Pages are data: urls because the Aside browser cannot reach this machine loopback and the daemon refuses file://.",
+  "pairs": 10,
+  "expect": {
+    "count": 6
+  },
+  "paths": [
+    {
+      "id": "native-sequential",
+      "program": "const page = (i) => 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>p' + i + '</title><main><p id=marker>page-' + i + '-body</p></main>');\nconst markers = [];\nfor (let i = 0; i < 6; i++) {\n  const tab = await openTab(page(i));\n  markers.push(await tab.evaluate(() => document.querySelector('#marker').textContent));\n  await tab.close();\n}\nconsole.log('EVAL_JSON ' + JSON.stringify({ count: markers.length, markers }));"
+    },
+    {
+      "id": "cm-batch-limit2",
+      "program": "const src = await fs.readFile('../../codemode/cm.js', 'utf8');\n(0, eval)(src);\nconst page = (i) => 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>p' + i + '</title><main><p id=marker>page-' + i + '-body</p></main>');\nconst out = await cm.run({\n  items: [0,1,2,3,4,5].map((i) => ({ url: page(i) })),\n  limit: 2, maxTabs: 2, deadlineMs: 60000,\n  onItem: async (tab) => tab.evaluate(() => document.querySelector('#marker').textContent),\n});\nconsole.log('EVAL_JSON ' + JSON.stringify({ count: out.items.length, status: out.status, markers: out.items.map((i) => i.value) }));"
+    }
+  ]
+}

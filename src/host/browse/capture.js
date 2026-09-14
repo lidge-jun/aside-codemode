@@ -61,11 +61,58 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     const outDir = assertInside ? assertInside(opts.outDir) : opts.outDir;
     await (deps.mkdirImpl || mkdir)(outDir, { recursive: true });
 
+    // The ledger is the only thing that says which name was issued for which request.
+    // Rebuilding it from the order results came back in is exactly the bug this join
+    // replaces: workers finish out of order, so items[i] and names[i] are different urls.
+    // The ledger has to be a one-to-one map or it is not a ledger. Two rows sharing an
+    // index hand the same file to two requests, and an index outside the issued names
+    // silently drops one. Both keep the run looking completed, which is the failure this
+    // whole phase exists to stop.
+    const ledgerBroken = !Array.isArray(res.ledger)
+      || res.ledger.length !== names.length
+      || res.ledger.some((r) => !r || typeof r.jobId !== 'string'
+        || !Number.isInteger(r.index) || r.index < 0 || r.index >= names.length)
+      || new Set(res.ledger.map((r) => r.jobId)).size !== res.ledger.length
+      || new Set(res.ledger.map((r) => r.index)).size !== res.ledger.length;
+    if (ledgerBroken) {
+      const refused = res.items.map((it) => ({
+        ...it, ok: false, status: 'failed', code: 'ECONTRACT',
+        error: 'the run returned no issuing ledger, so artifacts cannot be attributed',
+      }));
+      return {
+        ...res, items: refused, status: 'failed', ok: false, complete: false, completed: 0,
+        partial: res.partial.concat(['no-ledger']),
+      };
+    }
+    const nameByJob = new Map(res.ledger.map((r) => [r.jobId, names[r.index]]));
+
     const items = [];
-    for (let i = 0; i < res.items.length; i++) {
-      const item = { ...res.items[i] };
-      const name = names[i];
-      if (item.ok && item.artifactName) {
+    for (const source of res.items) {
+      const item = { ...source };
+      const name = nameByJob.get(item.jobId);
+      // A request nobody answered, or a run we lost track of, has no file to fetch. Reading
+      // one anyway would turn a known unknown into an artifact error and hide the cause.
+      if (item.status === 'unreturned' || item.status === 'indeterminate') { items.push(item); continue; }
+      // The script echoes the name the host issued. If it echoes a different one, the
+      // result and the file disagree about whose page this is; say so instead of repairing it.
+      if (item.status === 'completed' && !name) {
+        // A result that claims success under an id we never issued has no file of its own.
+        item.ok = false;
+        item.status = 'failed';
+        item.code = 'EPROVENANCE';
+        item.error = 'no artifact name was issued for ' + String(item.jobId);
+        items.push(item);
+        continue;
+      }
+      if (item.status === 'completed' && item.artifactName !== name) {
+        item.ok = false;
+        item.status = 'failed';
+        item.code = 'EPROVENANCE';
+        item.error = 'artifact ' + String(item.artifactName) + ' does not match the name issued for ' + item.jobId;
+        items.push(item);
+        continue;
+      }
+      if (item.status === 'completed') {
         try {
           const buf = await containedRead(res.pwd, name, deps);
           const dest = assertInside ? assertInside(path.join(outDir, name)) : path.join(outDir, name);

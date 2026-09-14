@@ -5,6 +5,11 @@
 ## 결정
 
 - **capture는 `jobId`를 발행하지 않는다.** session이 돌려준 `res.ledger`와 `item.jobId`만 쓴다.
+- **원장은 쓰기 전에 무결성을 검사한다(착수 후 추가).** 배열 여부만으로는 부족하다. 길이가 발급한 이름 수와 같아야 하고,
+  `jobId`와 `index`가 각각 중복 없이 일대일이어야 하며, `index`는 0 이상 이름 수 미만의 정수여야 한다.
+  두 행이 같은 `index`를 가리키면 한 파일이 두 요청에 붙고 run은 여전히 completed로 보인다. 그 경우 전 항목을 `ECONTRACT`로 거절한다.
+- **completed인데 발행된 이름을 못 찾으면 `EPROVENANCE`다(착수 후 추가).** 원장에 없는 `jobId`로 성공을 주장하는 결과는
+  자기 파일이 없다. 이름이 없다고 읽기를 건너뛰고 completed로 두면 아티팩트 없는 성공이 된다.
 - 조인 키는 `jobId`, 이중 방어는 `artifactName` 대조다. 불일치는 조용히 고치지 않고 `EPROVENANCE`로 떨어뜨린다.
 - 이름이 발급됐는데 항목에 `artifactName`이 없으면 그것도 `EPROVENANCE`다(감사 지적: 침묵 구멍).
 - **`indeterminate`는 강등되지 않는다.** 아티팩트 성공/실패가 host-kill 판정을 덮지 못한다.

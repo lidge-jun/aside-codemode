@@ -297,6 +297,19 @@ test('refsFingerprint without a way to recompute it reports the weaker guard', a
   assert.equal(r.steps[0].refGuard, 'url-only', 'it must not claim the strong guard it cannot run');
 });
 
+test('a ref step measures how stale its authorisation already was', async () => {
+  // The check and the verb are not atomic and cannot be made so. Reporting zero, or
+  // reporting nothing, would imply otherwise.
+  const page = fakePage();
+  const r = await runActions(page, steps([{ ref: 'e1', click: true }]), {
+    refsFingerprint: 'f',
+    fingerprintOf: async () => { await new Promise((res) => setTimeout(res, 25)); return { full: 'f' }; },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(typeof r.steps[0].guardAgeMs, 'number');
+  assert.ok(r.steps[0].guardAgeMs >= 0, 'the window is measured, not assumed away');
+});
+
 test('the guard names its own strength instead of implying a guarantee', async () => {
   const weak = await runActions(fakePage(), steps([{ ref: 'e1', click: true }]), { urlAtSnapshot: 'https://a.test/one' });
   assert.equal(weak.refGuard, 'url-only');

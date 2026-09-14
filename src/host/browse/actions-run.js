@@ -21,6 +21,12 @@
 //
 // Aside has its own error for a ref whose element was REMOVED. It cannot see the dangerous
 // case, where the ref still resolves and now names a different element.
+//
+// The guarantee is POINT IN TIME and nothing can make it otherwise: the fingerprint is
+// verified, then a snapshot round trip later the verb runs, and a page that re-renders on
+// its own in that window - or, on an attached tab, the user - moves the refs after the
+// check passed. So every ref step reports guardAgeMs, the measured width of that window,
+// instead of the code implying the check and the click were atomic.
 
 // ONE source of truth: injected into the generated REPL scripts and evaluated below, so the
 // tests exercise the shipped code rather than a copy.
@@ -121,6 +127,7 @@ async function runActions(page, steps, ctx) {
   // The tree is clean until something that could change it has run.
   var dirty = false;
   var verifiedClean = false;
+  var guardAt = null;
   function budgetLeft() { return deadlineAt - Date.now(); }
   function readUrl() {
     return __withTimeout(Promise.resolve().then(function () { return page.evaluate('location.href'); }),
@@ -154,9 +161,10 @@ async function runActions(page, steps, ctx) {
       }
       verifiedClean = true;
       dirty = false;
+      guardAt = Date.now();
       return true;
     }
-    if (!urlAtSnapshot) { rec.refGuard = 'none'; return true; }
+    if (!urlAtSnapshot) { rec.refGuard = 'none'; guardAt = Date.now(); return true; }
     rec.refGuard = 'url-only';
     var nowUrl;
     try { nowUrl = await readUrl(); }
@@ -172,6 +180,7 @@ async function runActions(page, steps, ctx) {
         + '; take a new snapshot, pass refsFingerprint, or set allowStaleRefs';
       return false;
     }
+    guardAt = Date.now();
     return true;
   }
   for (var i = 0; i < steps.length; i++) {
@@ -216,6 +225,9 @@ async function runActions(page, steps, ctx) {
     var ownTimeout = Boolean(s.timeoutMs && s.timeoutMs < budgetLeft());
     var stepMs = ownTimeout ? s.timeoutMs : Math.max(1, budgetLeft());
     var t0 = Date.now();
+    // How stale the authorisation already was when the verb finally ran. Zero would be a
+    // lie; this is the real window a page had to move underneath the check.
+    if (rec.targetKind === 'ref' && guardAt !== null) rec.guardAgeMs = t0 - guardAt;
     try {
       await __withTimeout(__applyStep(page, s, stepMs), stepMs, s.verb);
       rec.ok = true;

@@ -19,7 +19,7 @@ export const CAPABILITY_MATRIX = Object.freeze({
     present: ['click', 'dblclick', 'fill', 'type', 'press', 'hover', 'focus', 'check', 'uncheck', 'selectOption', 'scrollIntoViewIfNeeded', 'boundingBox', 'textContent', 'innerText', 'isVisible'],
     note: 'a locator enumerates as [] via getOwnPropertyNames while every method on it works, so detect capability by calling and catching, never by property check',
     refs: 'locator accepts an accessibility ref from the snapshot tree. A child frame element arrives as an f-prefixed ref (f1e1) and resolves from the top-level page, so iframe interaction needs no frame API',
-    staleness: 'a ref belongs to the snapshot that produced it; one measured click grew a tree from 3126 to 23530 chars and renumbered it, so a ref step after a navigation is refused with EREFSTALE unless allowStaleRefs is set',
+    staleness: 'a ref belongs to the snapshot that produced it; one measured click grew a tree from 3126 to 23530 chars and renumbered it. Pass snapshot.fingerprint as refsFingerprint and every ref step is re-validated against the live tree; without it the guard can only compare urls and says so per step in refGuard. The check is point-in-time and each step reports guardAgeMs, the window between the check passing and the verb running. fingerprintStructure compares ref and role only, so a list that reorders under stable refs is invisible to it - do not use it to click anything destructive.',
   },
   refused: UNSUPPORTED,
   waitStates: WAIT_STATES,

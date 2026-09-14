@@ -165,3 +165,124 @@ inner deadline and asserts the page is still closed. Grepping the compiled sourc
 [000](000_plan.md) did not list `src/register.js`, but 010 patches it to seed browse defaults.
 Registering defaults is in the spirit of the unit, so the write scope is amended to include
 `src/register.js`. This is recorded rather than silently taken.
+
+## C8 — wp2 implementation spec (the only thing to build from)
+
+Everything wp2 needs is here. 010 is background; do not open it to implement.
+
+### Files
+
+| Path | Kind | Exports |
+| --- | --- | --- |
+| `src/host/browse/schema.js` | NEW | `validateJob`, `BrowseOptionError`, `UNSUPPORTED`, `ASIDE_REPL_CAP_MS`, `A4_INCHES` |
+| `src/host/browse/script.js` | NEW | `compile`, `deadlineMath`, `SLACK_MS` |
+| `src/host/browse/session.js` | NEW | `createBrowseSession`, `parseMarker` |
+| `src/host/browse/result.js` | NEW | `buildEnvelope` |
+| `src/host/browse/probe.js` | NEW | `CAPABILITY_MATRIX`, `doctorPayload` |
+| `src/host/browse/browse.js` | NEW | `createBrowse` |
+| `src/host/globals.js` | MODIFY | add `browse`, and `report: Object.freeze({})` |
+| `src/sandbox.js` | MODIFY | `ROOTS` gains `'browse'`, `'report'` |
+| `src/execution-worker.js` | MODIFY | pre-create and freeze `injected.browse`, `injected.report` |
+| `src/host/actions.js` | MODIFY | splice `BROWSE_ACTIONS` from `browse/schema.js` |
+| `src/config.js` | MODIFY | `asidePath` + `browseCaps` per C3, field-wise merge |
+| `src/cli.js` | MODIFY | `--doctor --browse` |
+| `src/child-opts.js` | MODIFY | `createAsideProcessFns({ spawnImpl, execFileImpl })` |
+| `src/tools.js` | MODIFY | one `GUEST_API_DOC` bullet |
+| `test/browse-*.test.js` | NEW | see Tests |
+
+### `deadlineMath` — one definition, used everywhere
+
+```js
+export const SLACK_MS = 1500;
+export const ASIDE_REPL_CAP_MS = 120000;
+
+// requestedMs is the caller's timeout. browseCaps supplies the inner cap.
+// innerMs is what the compiled script races; hostMs is the process deadline.
+// C2: inner < host, always. Never the other way round.
+export function deadlineMath(requestedMs, browseCaps = {}) {
+  const cap = Math.min(browseCaps.timeoutMs ?? 25000, ASIDE_REPL_CAP_MS);
+  const innerMs = Math.max(1, Math.min(requestedMs ?? cap, cap));
+  return { innerMs, hostMs: innerMs + SLACK_MS };
+}
+```
+
+### `session.run` — one signature
+
+```js
+createBrowseSession({ spawnAside, resolveAside, readFile, stat, now, signal })
+// signal is closed over by the factory, exactly like createFs/createRgRunner.
+// The second argument exists only so a caller can pass a narrower per-call signal.
+session.run(job, { signal } = {}) -> Promise<SessionResult>
+
+SessionResult = {
+  ok: boolean,
+  items: Array<{ url, ok, source, error, code, artifact, capture, timings }>,
+  timings: { steps, totalMs },
+  partial: string[],      // reasons; [] means nothing was degraded
+  leakedUrls: string[],
+  raw: { stdout, marker },
+}
+```
+
+`run` does, in order: `validateJob(job)` -> `deadlineMath` -> `compile(job)` ->
+`resolveAside()` -> `spawnAside(bin, ['repl', source], childOpts)` with `hostMs` ->
+`parseMarker(stdout)` -> parse the JSON payload -> inspect every claimed file
+(exists, bytes, PNG IHDR / JPEG SOF, PDF MediaBox) -> build `SessionResult`.
+
+Success is the trailing `[ok | Nms]` marker **and** the file inspection. A missing marker is a
+failure even at exit 0. No caller parses `raw.stdout` to decide success.
+
+### Compiled script shape (C5-compliant, this is the template)
+
+```js
+"use strict";
+const JOB = /* JSON literal, includes the per-item plan from policy.js (C4) */;
+const opened = [];   // { targetId, url, page }
+const pending = [];  // every openTab promise, registered BEFORE it is awaited
+let deadlineHit = false;
+
+async function one(item) {
+  if (deadlineHit || item.skip) return { url: item.url, ok: false, code: 'ESKIP' };
+  const pr = openTab(item.url);   // register first (C5.2)
+  pending.push(pr);
+  const page = await pr;          // E7: openTab RETURNS the page
+  opened.push({ targetId: page.targetId, url: item.url, page });
+  // ... waits, snapshot(page), page.screenshot(...), page.pdf({ paperWidth, paperHeight })
+  return { url: item.url, ok: true /* , ... */ };
+}
+
+async function main() {
+  const limit = JOB.concurrency;
+  // bounded parallelism over JOB.items; never more than `limit` in flight
+}
+
+async function cleanup() {
+  // C5.3: await EVERY registered promise, settled or not, and close what resolved.
+  const settled = await Promise.allSettled(pending);
+  for (const s of settled) {
+    if (s.status === 'fulfilled' && s.value) { try { await s.value.close(); } catch (_) {} }
+  }
+  const leaked = opened.filter((o) => !o.closed).map((o) => o.url);
+  return leaked;
+}
+
+const timer = new Promise((r) => setTimeout(() => { deadlineHit = true; r('deadline'); }, JOB.innerMs));
+let out;
+try { out = await Promise.race([main(), timer]); }
+finally { const leakedUrls = await cleanup(); console.log(JSON.stringify({ type: 'final', items, leakedUrls, partial: deadlineHit ? ['inner-deadline'] : [] })); }
+```
+
+Close with `page.close()`. `closeTab` is not used and must not be asserted against.
+
+### Tests (never launch a browser)
+
+| File | Proves |
+| --- | --- |
+| `test/browse-schema.test.js` | unknown key rejected with the valid list; `page.route`, `maxWidth`, `pdf.format` throw `ENOTSUP`; `waitUntil`/`waitForLoadState` allowlist rejects `networkidle` and garbage; `timeoutMs` above the cap is clamped |
+| `test/browse-script.test.js` | compiled source contains `paperWidth`/`paperHeight` and never `page.route`, `maxWidth`, `closeTab`, `tab.page`, `tab.id`; contains `pending.push` before `await`; `deadlineMath` returns `inner < host` |
+| `test/browse-session.test.js` | injected `spawnAside` fake (a `process.execPath -e` child) printing JSON + `[ok | 12ms]` parses; exit 0 with `[error | 3ms]` is a FAILURE; missing marker is a failure; a claimed-but-absent file fails the item |
+| `test/browse-pagebox.test.js` | committed 2-page PDF fixture: MediaBox `612x792` fails an A4 request, `595.92x841.92` passes |
+| `test/browse-doctor.test.js` | spawn `src/cli.js --doctor --browse` like `test/cwd.test.js:68`; asserts the matrix keys |
+
+Fixtures under `test/fixtures/browse/`. No network, no timing oracle, no real `aside.exe`.
+Live checks go behind `CODEMODE_ASIDE_LIVE=1` and never run in CI.

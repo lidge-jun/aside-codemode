@@ -1,6 +1,18 @@
 # 050 — wp6 repetition savings (closes #19, #13, #15, #7, #9, #16)
 
-> **Read [003_locked_contracts.md](003_locked_contracts.md) first; it overrides this file.**
+> # NON-NORMATIVE DESIGN NOTES — DO NOT IMPLEMENT FROM THIS FILE
+>
+> **The implementation contract is [003_locked_contracts.md](003_locked_contracts.md). This file
+> is background only.** Three independent audit rounds found that the six phase documents,
+> written in parallel by separate agents, disagree with each other on the `session.run`
+> signature, the `deadlineMath` return shape, the `partial` type, the slack constant and the
+> `browseCaps` defaults. Two repair passes each closed some contradictions and introduced
+> others, and a scripted normalization broke four paste-ready snippets outright. The corpus is
+> not repairable by editing, so it has been demoted rather than trusted.
+>
+> Nothing here is deleted: the reasoning, the option analysis and the activation-scenario
+> tables remain useful for understanding *why* a decision was made. But a code block in this
+> file is a draft, not a specification, and must not be copied into the repository.
 > The wp1 audit found that these phase docs, written in parallel, disagreed with each other on
 > the `session.run` signature, the `browseCaps` defaults, the spawn/batch model, the deadline
 > ordering, and several Aside call forms that had never been measured. 003 settles all of them

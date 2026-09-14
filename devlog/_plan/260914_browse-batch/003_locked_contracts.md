@@ -313,3 +313,24 @@ Close with `page.close()`. `closeTab` is not used and must not be asserted again
 
 Fixtures under `test/fixtures/browse/`. No network, no timing oracle, no real `aside.exe`.
 Live checks go behind `CODEMODE_ASIDE_LIVE=1` and never run in CI.
+
+### C8 stale check at wp2 P (against dev 89d6606)
+
+LOOP-CONTINUITY-01 requires the pre-written spec to be re-verified against the tree before it
+is executed. Every seam C8 depends on was read at HEAD and matches:
+
+| Seam | HEAD | Status |
+| --- | --- | --- |
+| `src/sandbox.js:7` | `const ROOTS = ['search','fs','actions','read_file','write_file','edit_file','apply_patch'];` | append `'browse'`, `'report'` |
+| `src/sandbox.js:9-21` | `hostMethods` walks ONE level via `Object.entries` | confirmed: `browse.x.y` can never register |
+| `src/execution-worker.js:50` | `const injected = { search: {}, fs: {}, actions: {} };` | add `browse: {}`, `report: {}` |
+| `src/execution-worker.js:56` | `for (const key of ['search','fs','actions']) Object.freeze(injected[key]);` | add both keys |
+| `src/child-opts.js:13` | `createRgProcessFns({ spawnImpl, execFileImpl })` | copy shape for `createAsideProcessFns` |
+| `src/config.js:29-36` | `DEFAULTS` has no `asidePath`/`browseCaps` | add per C3 |
+| `src/config.js:109-112` | `searchCaps` merged field-wise | copy exactly for `browseCaps` |
+| `src/cli.js:57` | `if (has('--doctor')) {` builds one report object | extend in place, no second CLI |
+
+No amendment needed: C8 is current. One ordering note for B — `src/cli.js:57` sits AFTER
+`makeRootGuard`, so `--doctor --browse` still will not print on a machine whose every root is
+missing. That is accepted for wp2 rather than moving the guard, because moving it changes
+existing doctor behaviour that `test/cwd.test.js:68` pins.

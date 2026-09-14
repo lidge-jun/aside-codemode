@@ -19,6 +19,18 @@ export function hostOf(url) {
   try { return new URL(url).host.toLowerCase(); } catch (_) { return null; }
 }
 
+// The compiled REPL script cannot import this module, so the patterns travel as DATA and
+// the script rebuilds them. That keeps one source of truth for the signals while still
+// letting detection happen inside the script, BEFORE a screenshot is paid for.
+export function detectionPatterns() {
+  return {
+    captcha: CAPTCHA.source,
+    hardBlock: HARD_BLOCK.source,
+    loginPath: LOGIN_PATH.source,
+    password: PASSWORD_HINT.source,
+  };
+}
+
 export function detect({ requestedUrl, finalUrl, title = '', tree = '' }) {
   const hay = `${title}\n${tree}`;
   if (CAPTCHA.test(hay)) {

@@ -4,6 +4,7 @@ import { CAPABILITY_MATRIX, doctorPayload } from './probe.js';
 import { createBrowseSession } from './session.js';
 import { createAsideResolver } from './resolve.js';
 import { createAsideSpawner } from './spawn.js';
+import { createBreaker } from './policy.js';
 
 export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env } = {}) {
   const caps = config.browseCaps || {};
@@ -11,7 +12,13 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // namespace works on a machine nobody developed on.
   const resolver = resolveAside || createAsideResolver(config, env);
   const spawner = spawnAside || createAsideSpawner();
-  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal });
+  // One breaker per host-globals instance: state has to outlive a single call to be worth
+  // anything, and it must never cross into the guest.
+  const breaker = createBreaker({
+    failures: Number.isSafeInteger(caps.breakerFailures) ? caps.breakerFailures : 3,
+    cooldownMs: Number.isSafeInteger(caps.breakerCooldownMs) ? caps.breakerCooldownMs : 30000,
+  });
+  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker });
 
   async function probe() {
     let resolved = null;

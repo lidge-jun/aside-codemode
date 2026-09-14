@@ -27,6 +27,13 @@ test('--doctor --browse reports the measured capability matrix', () => {
   assert.ok(b.caps.timeoutMs <= 25000, 'the inner cap must stay under the measured ~30s screenshot timeout');
 });
 
+test('the live timing probe is explicitly skipped rather than reported as zeros', () => {
+  // Printing zeroed step timings would read as a very fast page. CI must also never
+  // launch a browser, so the absence has to be stated rather than faked.
+  const b = doctor(['--doctor', '--browse']).browse;
+  assert.equal(b.liveProbe, 'skipped (set CODEMODE_ASIDE_LIVE=1)');
+});
+
 test('browse config defaults are opt-in and merge field-wise like searchCaps', () => {
   const cfg = loadConfig([], { XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') });
   assert.equal(cfg.browseCaps.enabled, false);

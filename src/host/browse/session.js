@@ -41,7 +41,29 @@ export function parseFinal(stdout) {
   return null;
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal } = {}) {
+// Aggregating per step is what turns a pile of item timings into an answer to "what is
+// slow" — issue #20 asks for a bottleneck report, not a transcript.
+export function aggregateSteps(items = []) {
+  const byStep = {};
+  for (const item of items) {
+    const t = item && item.timings;
+    if (!t) continue;
+    for (const [step, ms] of Object.entries(t)) {
+      if (typeof ms !== 'number') continue;
+      if (!byStep[step]) byStep[step] = { totalMs: 0, maxMs: 0, count: 0 };
+      byStep[step].totalMs += ms;
+      byStep[step].maxMs = Math.max(byStep[step].maxMs, ms);
+      byStep[step].count += 1;
+    }
+  }
+  let slowest = null;
+  for (const [step, v] of Object.entries(byStep)) {
+    if (!slowest || v.totalMs > byStep[slowest].totalMs) slowest = step;
+  }
+  return { byStep, slowest };
+}
+
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
 
@@ -54,7 +76,17 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     }
     const job = validateJob(rawJob, opts.browseCaps || {});
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
-    const source = compile(job);
+    const caps = opts.browseCaps || {};
+    // C4: the host decides, the script enforces. policy state never leaves this process.
+    const plan = breaker
+      ? breaker.plan(job.urls, {
+          domainTimeouts: caps.domainTimeouts || {},
+          defaultTimeoutMs: job.timeoutMs,
+          innerCapMs: innerMs,
+          waitSelector: job.waitSelector,
+        })
+      : null;
+    const source = compile(job, plan);
     const bin = await resolveAside();
     const startedAt = now();
 
@@ -84,14 +116,19 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const partial = final && Array.isArray(final.partial) ? final.partial.slice() : [];
     if (marker === 'error') partial.push('script-error');
     if (leakedUrls.length) partial.push('tab-leak');
+    if (items.some((i) => i.code === 'EBLOCKED')) partial.push('blocked');
+    // Feed the outcomes back so the NEXT call sees a domain that keeps failing.
+    if (breaker) breaker.record(items);
+    const steps = aggregateSteps(items);
 
     return {
       ok: marker === 'ok' && items.length > 0 && items.every((i) => i.ok) && leakedUrls.length === 0,
       items,
-      timings: { steps: items.map((i) => i.timings || null), totalMs, replMs: ms },
+      timings: { byStep: steps.byStep, slowest: steps.slowest, totalMs, replMs: ms },
       partial,
       leakedUrls,
       raw: { stdout, marker },
+      breaker: breaker ? breaker.snapshot() : undefined,
     };
   }
 

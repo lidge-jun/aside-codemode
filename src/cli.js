@@ -90,6 +90,33 @@ if (has('--doctor')) {
       asideError = { code: e.code, message: e.message, candidates: e.candidates || [] };
     }
     report.browse = doctorPayload(config, resolved, asideError);
+    // Issue #20 asks for a navigate/snapshot/screenshot bottleneck report. A static matrix
+    // is not that, and printing zeros would read as a fast page — so the measurement is
+    // real or it is explicitly absent. Gated because CI must never launch a browser.
+    if (process.env.CODEMODE_ASIDE_LIVE === '1' && resolved) {
+      const probeUrl = process.env.CODEMODE_ASIDE_LIVE_URL || 'https://example.com';
+      try {
+        const { createBrowse } = await import('./host/browse/browse.js');
+        const live = createBrowse({
+          config: { ...config, browseCaps: { ...config.browseCaps, enabled: true } },
+        });
+        const res = await live.exec({ urls: [probeUrl], snapshot: true, screenshot: {}, timeoutMs: 20000 });
+        report.browse.liveProbe = {
+          url: probeUrl,
+          ok: res.ok,
+          byStep: res.timings.byStep,
+          slowest: res.timings.slowest,
+          totalMs: res.timings.totalMs,
+          replMs: res.timings.replMs,
+          partial: res.partial,
+          leakedUrls: res.leakedUrls,
+        };
+      } catch (e) {
+        report.browse.liveProbe = { url: probeUrl, error: e.message, code: e.code };
+      }
+    } else {
+      report.browse.liveProbe = 'skipped (set CODEMODE_ASIDE_LIVE=1)';
+    }
   }
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
   process.exit(report.ok ? 0 : 1);

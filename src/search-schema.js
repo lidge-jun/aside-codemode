@@ -76,7 +76,7 @@ const OPTS = {
   glob: {
     type: 'string',
     required: false,
-    description: "ripgrep -g glob, e.g. '**/*.ts'",
+    description: "ripgrep -g glob, e.g. '**/*.ts'. Inclusive globs can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep glob precedence, not a root escape, and not -uuu).",
     validate: (v) => nonEmptyString('glob', v),
   },
   max: {
@@ -161,14 +161,14 @@ export const SEARCH_ACTIONS = [
     path: 'search.files',
     description: 'List file paths under a directory (ripgrep --files). Streams and stops at `max`, so a large tree is safe.',
     signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
-    notes: 'Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete.',
+    notes: 'Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
     inputs: inputsFor(FILES_ORDER),
   },
   {
     path: 'search.content',
     description: 'Search file contents with ripgrep. Returns matching lines with file, line number and optional context.',
     signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text,context?}[]>',
-    notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Unknown options and invalid values are rejected rather than ignored.',
+    notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Unknown options and invalid values are rejected rather than ignored. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
     inputs: inputsFor(CONTENT_ORDER),
   },
   {

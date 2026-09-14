@@ -15,6 +15,7 @@ import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
 import { applyLineEdits } from './line-edit.js';
+import { decorateSearchResult } from '../search-result.js';
 
 // A single returned line is bounded so one pathological minified file cannot
 // blow the result budget. The bound is the same 256 KB read cap rather than a
@@ -99,11 +100,18 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
     // spending the whole result budget on a file to find three lines. Streams,
     // so a 2 GB log does not become a 2 GB allocation, and stops at `max`.
     async grepFile(p, pattern, { context = 0, max = 100, ignoreCase = false, maxLineBytes = MAX_LINE_BYTES } = {}) {
+      if (!Number.isSafeInteger(max) || max <= 0) {
+        throw new Error(`fs.grepFile: max must be a positive integer (got ${JSON.stringify(max)})`);
+      }
+      if (!Number.isSafeInteger(context) || context < 0) {
+        throw new Error(`fs.grepFile: context must be a non-negative integer (got ${JSON.stringify(context)})`);
+      }
       const target = assertInside(p);
       const re = toMatcher(pattern, ignoreCase);
       const hits = [];
       const before = [];
       let pendingAfter = [];
+      let extraMatch = false;
 
       await eachLine(target, (line, lineNo) => {
         // Finish the trailing context of the previous hit first.
@@ -127,13 +135,16 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
             hit._open = open;
           }
           hits.push(hit);
+        } else if (hits.length >= max && !extraMatch && re.test(line)) {
+          extraMatch = true;
+          return pendingAfter.length > 0;
         }
 
         if (context > 0) {
           before.push(line);
           if (before.length > context) before.shift();
         }
-        return hits.length < max || pendingAfter.length > 0;
+        return !extraMatch || pendingAfter.length > 0;
       }, { signal, maxLineBytes: MAX_GREP_LINE_BYTES });
 
       for (const hit of hits) {
@@ -142,7 +153,11 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
           delete hit._open;
         }
       }
-      return hits.slice(0, max);
+      return decorateSearchResult(hits.slice(0, max), {
+        truncated: extraMatch,
+        complete: !extraMatch,
+        scope: { kind: 'grepFile', max, context, ignoreCase },
+      });
     },
 
     async write(p, content) {

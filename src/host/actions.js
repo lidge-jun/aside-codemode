@@ -73,11 +73,12 @@ const REGISTRY = [
     path: 'fs.grepFile',
     description: 'Return only matching lines (with optional context) from ONE file. Use instead of fs.read on a large file.',
     signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase? }?) => Promise<{line,text,context?}[]>',
+    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100).',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
       pattern: { type: 'string', required: true, description: 'Regex source or literal' },
       context: { type: 'number', required: false, description: 'Lines of context to include' },
-      max: { type: 'number', required: false, description: 'Max matches (default 100)' },
+      max: { type: 'number', required: false, description: 'Max matches (default 100). Positive integer; invalid values throw. Hitting max sets .truncated after a one-match lookahead.' },
       ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive' },
     },
   },
@@ -186,7 +187,7 @@ export function createActions() {
         if (spec.required && !(name in args)) missing.push(name);
         else if (name in args && typeOf(args[name]) !== spec.type) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
-        } else if (name in args && isSearch) {
+        } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
           const problem = checkOptionValue(name, args[name]);
           if (problem) invalid.push(problem);
         }

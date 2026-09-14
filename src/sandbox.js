@@ -107,7 +107,8 @@ export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResult
           const value = await fn(...msg.args);
           if (settled) return;
           // Array metadata is deliberately transferred, not lost to structuredClone.
-          const search = msg.name.startsWith('search.') && typeof value?.toJSON === 'function';
+          const search = typeof value?.toJSON === 'function'
+            && (msg.name.startsWith('search.') || msg.name === 'fs.grepFile');
           worker.postMessage({ type: 'reply', id: msg.id, value: search ? value.toJSON() : value, search });
         } catch (e) {
           if (!settled) worker.postMessage({ type: 'reply', id: msg.id, error: errorFields(e) });

@@ -23,6 +23,9 @@ projecting it. A partial or truncated search is not proof that a file is absent.
 Search honors `.gitignore` unless `noIgnore: true`. A parent ignore can hide a
 whole project directory. If a file should exist, compare `search.count` with and
 without `noIgnore` (use `hidden: true` for dotfiles) before concluding it is absent.
+An inclusive `glob` can match gitignored or hidden files even when `noIgnore`
+and `hidden` are false (ripgrep `-g` precedence, not `-uuu`). Do not treat
+`glob: "**/*.js"` as an extension filter that still honors ignore.
 Default home-wide roots prune `Library`, `node_modules`, and caches. Use
 `includeExcluded: true` only when you need those paths. If resolution looks wrong,
 run `{{NODE}} {{CLI}} --doctor`.

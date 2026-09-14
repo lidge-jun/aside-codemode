@@ -2,6 +2,18 @@
 
 Re-verify at P: `decorateSearchResult` and `fs.grepFile` line numbers.
 
+## WP2 P revalidation (2026-09-14)
+
+Previous D (WP1): line-based `apply_patch` shipped at `1196d1a`; 218/218; CLI foobar refused. Direction unchanged — helper search completeness next; do not edit `patch.js` / `line-edit.js`.
+
+Live after WP1:
+- `src/host/fs.js:101-146` `grepFile` still returns a bare array; stop condition `:136` is `hits.length < max || pendingAfter.length > 0` (the gap-stop 020 already forbids).
+- `src/sandbox.js:110` still `search.*` only.
+- `src/host/actions.js:189` still `isSearch` only for value checks.
+- `decorateSearchResult` still at `src/search-result.js:56`.
+
+No amendment to D5/D6/D10. Execute this file as written (including test 5b + `createActions`).
+
 ## Loop spec
 
 - Archetype: satisfy-spec.

@@ -56,6 +56,8 @@ npm install -g --prefix=/opt/homebrew .
 
 **기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
 
+포함형 `glob`(예: `**/*.js`)은 ripgrep `-g` / `--glob`입니다. `noIgnore`와 `hidden`이 false여도 gitignore나 숨김 파일 일부가 맞을 수 있습니다. 워크스페이스 탈출이 아니라 ripgrep의 glob 우선순위이며, `-uuu`와는 다릅니다. 제외 glob(`-g '!…'`)은 여전히 가립니다. ignore/점파일을 glob 없이 다루려면 `noIgnore` / `hidden`을 직접 켜세요.
+
 **`max`는 전체 행 상한**입니다. 파일마다 자르는 ripgrep `--max-count`가 아닙니다. 한 행을 추가로 확인해 정확히 `max`개인 완전한 결과와 그보다 많은 결과를 구분한 뒤 중단합니다.
 
 게스트 안에서는 검색 결과에 `.map`, `.filter`, `.length`를 그대로 사용할 수 있습니다. 검색 결과를 직접 또는 다른 객체 안에 넣어 반환하면 `{ rows, complete, truncated, partial, scope }` 형태로 직렬화됩니다. count는 `{ matches, files }`에 같은 메타데이터를 담아 반환합니다. `complete`는 선택한 검색 범위를 잘림·읽기 오류 없이 확인했다는 뜻이지, ignore나 제외 설정 밖의 파일까지 찾았다는 뜻이 아닙니다. 실제 범위는 `scope`로 확인합니다. `.length`나 가공한 배열만 반환할 때는 필요한 메타데이터를 명시적으로 함께 반환하세요.

@@ -259,7 +259,7 @@ function markClosed(rec) { rec.closed = true; }
 async function one(item) {
   if (deadlineHit || item.skip) { items.push({ url: item.url, ok: false, code: 'ESKIP' }); return; }
   const pr = openTab(item.url);   // C5.2: register the PROMISE before awaiting it
-  pending.push(pr);
+  pending.push({ url: item.url, pr }); // carry the url so a late failure can name it
   const page = await pr;          // E7: openTab RETURNS the page
   const rec = { targetId: page.targetId, url: item.url, page, closed: false };
   opened.push(rec);
@@ -279,12 +279,19 @@ async function main() {
 async function cleanup() {
   // C5.3: await EVERY registered promise, settled or not, and close what resolved —
   // including a page that resolves AFTER the deadline, which never reached `one`.
-  const settled = await Promise.allSettled(pending);
-  for (const s of settled) {
+  const settled = await Promise.allSettled(pending.map((x) => x.pr));
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i];
     if (s.status !== 'fulfilled' || !s.value) continue;
     const page = s.value;
     let rec = opened.find((o) => o.page === page);
-    if (!rec) { rec = { targetId: page.targetId, url: null, page, closed: false }; opened.push(rec); }
+    if (!rec) {
+      // A page that resolved after the deadline never reached `one`, so it is not in
+      // `opened`. Take its url from `pending` — a null here would report a real leak
+      // as an anonymous one, which is exactly the silent-loss failure C5 exists to stop.
+      rec = { targetId: page.targetId, url: pending[i].url, page, closed: false };
+      opened.push(rec);
+    }
     if (!rec.closed) { try { await page.close(); markClosed(rec); } catch (_) {} }
   }
   return opened.filter((o) => !o.closed).map((o) => o.url);
@@ -321,10 +328,10 @@ is executed. Every seam C8 depends on was read at HEAD and matches:
 
 | Seam | HEAD | Status |
 | --- | --- | --- |
-| `src/sandbox.js:7` | `const ROOTS = ['search','fs','actions','read_file','write_file','edit_file','apply_patch'];` | append `'browse'`, `'report'` |
+| `src/sandbox.js:7` | `const ROOTS = ['search', 'fs', 'actions', 'read_file', 'write_file', 'edit_file', 'apply_patch'];` (note the space after each comma — patch context must match byte for byte) | append `'browse'`, `'report'` |
 | `src/sandbox.js:9-21` | `hostMethods` walks ONE level via `Object.entries` | confirmed: `browse.x.y` can never register |
 | `src/execution-worker.js:50` | `const injected = { search: {}, fs: {}, actions: {} };` | add `browse: {}`, `report: {}` |
-| `src/execution-worker.js:56` | `for (const key of ['search','fs','actions']) Object.freeze(injected[key]);` | add both keys |
+| `src/execution-worker.js:56` | `for (const key of ['search', 'fs', 'actions']) Object.freeze(injected[key]);` (space after each comma) | add both keys |
 | `src/child-opts.js:13` | `createRgProcessFns({ spawnImpl, execFileImpl })` | copy shape for `createAsideProcessFns` |
 | `src/config.js:29-36` | `DEFAULTS` has no `asidePath`/`browseCaps` | add per C3 |
 | `src/config.js:109-112` | `searchCaps` merged field-wise | copy exactly for `browseCaps` |

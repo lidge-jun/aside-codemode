@@ -49,13 +49,16 @@
 | `test/helper-bundle.test.js` | 상대 경로 단언을 CLI 전용으로 표시하고 절대 경로 헬퍼 단언을 더한다 |
 | `test/install-paths.test.js`, `test/register.test.js` | 렌더된 SKILL/AGENTS가 계정별 절대 경로를 담는지 단언 |
 | `eval/workloads/*.json` | CLI 워크로드임을 명시하거나 절대 경로로 옮긴다 |
+| `scripts/probe-native-helper.mjs` | `HELPER_LOAD_RELPATH`를 쓰는 실제 소비자다. PROGRAM의 로더를 절대 경로로 바꾸고, 상대 경로는 CLI 전용 부가 검사로 남긴다 |
 
 ## Windows 문자열
 
 `path.win32.join`이 만드는 역슬래시 경로를 작은따옴표 JS에 그대로 넣으면
-`Invalid Unicode escape sequence`로 파싱이 죽는다. `{{HELPER}}`는 POSIX 슬래시로
-정규화하거나 `JSON.stringify`한 형태로 넣고, 렌더 결과가 실제로 `eval` 가능한지 테스트가
-확인한다.
+`Invalid Unicode escape sequence`로 파싱이 죽는다. **방식은 하나로 고정한다: POSIX
+슬래시.** `{{HELPER}}`는 항상 `/`로 정규화된 경로를 넣는다(`C:/Users/super/.aside/u/0/codemode/cm.js`).
+`JSON.stringify`는 쓰지 않는다 — 템플릿이 placeholder를 이미 작은따옴표 안에 두고 있어서
+따옴표가 중첩된다. 070의 CLI 프로브도 슬래시 형태가 Windows에서 읽히는 것을 보였다.
+테스트는 렌더된 줄을 실제로 파싱해 `fs.readFile`의 첫 인자가 그 경로 문자열인지까지 본다.
 
 ## 먼저 실패해야 하는 반례
 

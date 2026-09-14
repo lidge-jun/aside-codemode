@@ -1,58 +1,63 @@
-# 020 — wp2: G3 네 fixture의 산 판정 (감사 1차 반영본)
+# 020 — wp2: G3 fixture의 산 판정 (감사 2차 반영본)
 
 로드맵 G3의 합격은 "선택한 fixture의 실제 화면/DOM 결과와 일치"다. 문자열 트리 단언은
-이 칸을 닫지 못한다. 네 항목 각각에 산 fixture, 조작 전후의 DOM 읽기, 양 OS 명령이
-있어야 한다.
+이 칸을 닫지 못한다. 구현은 `scripts/probe-g3.mjs` 하나로 모으고 mac과 ssh mini에서
+같은 명령으로 돌린다.
 
-## 이미 닫힌 것은 인용만 한다
+    node scripts/probe-g3.mjs --account-root <path> --label <host> --json
 
-070의 프로브 5a~5c는 이미 연 탭과 배치가 공존하고, 콜백 안에서 snapshot이 돌고, 배치
-뒤에도 사용자 탭이 살아 있음을 mac·mini 양쪽에서 보였다. 새 반례는 그 세 줄이 아니라
-**native 조작 → 배치 → native 재관찰**의 순서다.
+070의 프로브 5a~5c(이미 연 탭과 배치 공존, 콜백 안 snapshot, 배치 뒤 탭 생존)는 이미
+닫힌 증거로 **인용만** 한다.
 
-## 네 항목
+## 1. iframe 안의 ref
 
-### 1. iframe 안의 ref
+fixture: `data:` 페이지에 `srcdoc` iframe을 넣고, 메인과 iframe에 같은 글자의 버튼을
+하나씩 둔다. 각 버튼은 자기 문서의 `#out`에 표식을 쓴다.
 
-260914_a11y-actions의 산 프로브에서 `page.locator('f1e1').click()`이 자식 문서의 `#out`을
-바꿨다. 프레임 API는 필요 없었다. 그러니 통과 조건은 "프레임 ref를 거절한다"가 아니라
-**상위 page의 locator로 `f*` ref를 눌렀을 때 자식 문서만 바뀐다**이다. 같은 글자의 버튼을
-메인과 iframe에 하나씩 두고, 누른 쪽의 DOM만 바뀌는 것을 읽는다. 거절은 다른 문서·다른
-관찰의 ref 재사용(`ESTALEREF`)에만 건다.
+    oracle:  iframe 쪽 f* ref를 상위 page.locator로 눌렀을 때
+             iframe 문서의 #out === 'child-clicked' 이고 메인 문서의 #out 은 빈 채로 남는다
 
-fixture는 `data:` + `srcdoc`로 만든다. loopback http는 이 환경에서 이미 실패했다
-(브라우저가 이 기계의 루프백에 닿지 못한다). `srcdoc`가 안 되면 안 된다고 적고 넘어간다.
+거절은 다른 문서·다른 관찰의 ref 재사용(`ESTALEREF`)에만 건다. `srcdoc`가 이 표면에서
+안 되면 "fixture 자체가 불가능"으로 적고 다른 자극을 찾지 않는다.
 
-### 2. native → 배치 → native
+## 2. native → 배치 → native
 
-같은 REPL에서 탭 하나를 열어 native로 조작하고, 배치를 돌리고, 다시 그 탭을 관찰한다.
-통과는 배치가 그 탭의 관찰을 덮지 않고, native 조작의 결과가 배치 뒤에도 남아 있는 것이다.
+    1) openTab(A)에서 native로 버튼을 눌러 #out을 'native-1'로 만든다
+    2) cm.run으로 다른 URL 3개를 배치 처리한다
+    3) 다시 A를 snapshot한다
 
-### 3. display로 넘긴 이미지
+    oracle:  3)의 #out 이 여전히 'native-1' 이고, A가 열려 있고(leaked 아님),
+             배치 결과 3건이 각자 jobId를 갖는다
 
-원문은 "축소해서 보여줬으면 그 변환까지 좌표 매핑에 포함한다"이다. 지금 표면에는 **축소
-자극을 만드는 API가 없다** — `screenshot.maxWidth`는 받고 무시하고, 호스트 resize는
-ENOTSUP이며, `page.setViewportSize`는 absent다. 그래서 이 칸은 둘로 나눈다.
+## 3. display로 넘긴 이미지
 
-- 할 수 있는 것: 에이전트 REPL에서 `display`가 실제 이미지 입력으로 들어가는 산 사례 하나.
-- 할 수 없는 것: 축소 변환의 좌표 매핑, DPI 100/125/150/200%, zoom·clip. 만들 자극이
-  없으므로 **미실행**으로 적는다. "변환을 모르면 거절한다"는 문장 하나로 이 칸을 닫지
-  않는다.
+    oracle:  에이전트 REPL에서 screenshot → display 호출이 성공하고,
+             돌려받은 기술자에 실제 이미지 바이트 길이와 형식이 실려 있다
 
-### 4. 공유 page를 두 호출이 동시에 바꾸는 경쟁
+이건 "이미지가 모델 입력으로 들어가는 경로가 산다"까지만 증명한다. **축소 변환의 좌표
+매핑, DPI 100/125/150/200%, zoom·clip은 자극을 만들 API가 없어 미실행이다** —
+`screenshot.maxWidth`는 받고 무시되고, 호스트 resize는 ENOTSUP, `page.setViewportSize`는
+absent다. 이 넷은 000의 c-3 미실행 목록에 이름으로 남고 DONE에 들어가지 않는다.
 
-원문의 위험은 서로 다른 페이지의 두 worker가 아니라 **같은 page를 두 호출이 동시에**
-건드리는 것이다. 자극을 그렇게 만든다. 경쟁이 직렬화로 막히면 막혔다는 산 로그를 남기고,
-"명시적으로 선택된 page의 native mouse/keyboard 동등성"은 별도 fixture가 필요하므로
-미실행으로 남긴다.
+## 4. 공유 page를 두 호출이 동시에 바꾸는 경쟁
+
+자극은 **같은 page 객체**에 대한 두 호출이다. 동시성은 우연에 맡기지 않는다.
+
+    barrier: 두 호출을 Promise.all 로 띄우되, 각 호출이 시작 시각을 기록하고
+             페이지가 자기 호출을 100ms 붙잡게 해서 구간이 실제로 겹치는지 확인한다
+    oracle:  겹쳤다면 최종 DOM이 두 조작 중 하나의 완전한 결과여야 하고
+             (섞인 중간 상태가 아니어야 하고), 겹치지 않았다면 직렬화됐다는 로그가 남는다
+
+겹침이 확인되지 않은 실행은 통과로 세지 않는다. "명시적으로 선택된 page의 native
+mouse/keyboard 동등성"은 별도 fixture가 필요하므로 미실행으로 남긴다. `cua`는
+`browse.probe()`의 행렬에 아예 없다.
 
 ## probe() 표를 근거로 쓰지 않는다
 
-`browse.probe()`가 돌려주는 present/absent는 2026-09-14에 얼린 `CAPABILITY_MATRIX`다.
-산 호출이 아니다. wp2의 프로브는 쓰는 메서드를 그 자리에서 호출해 확인하고, 행렬을
-인용할 때는 과거 측정이라고 밝힌다. `cua`는 이 행렬에 아예 없다.
+`browse.probe()`의 present/absent는 2026-09-14에 얼린 `CAPABILITY_MATRIX`다. 산 호출이
+아니다. `probe-g3.mjs`는 쓰는 메서드를 그 자리에서 호출하고, 행렬을 인용할 때는 과거
+측정이라고 밝힌다.
 
 ## 범위 밖
 
-캡차 실해결과 금고 자동입력. 로드맵도 하지 않은 것으로 남겼다. 이 루프가 닫는 것은
-G3 네 fixture이고 R4 전체가 아니다.
+캡차 실해결과 금고 자동입력. 이 루프가 닫는 것은 G3 중 실행 가능한 부분이다.

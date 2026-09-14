@@ -46,7 +46,17 @@ test('an already-cancelled search does not resolve or spawn a binary', async t=>
 test('cancelling an active stream kills its child instead of waiting for the rg deadline', async()=>{
   const controller=new AbortController();
   await assert.rejects(runStream(process.execPath,['-e',"process.stdout.write('ready\\n');setInterval(()=>{},1000)"],{
-    signal:controller.signal,timeoutMs:300,max:10,
+    // Not a time oracle. The claim is that cancellation kills the child through the
+    // ECANCELLED path, not that abort can outrun a deadline. A 300ms deadline made the
+    // two race, and under `node --test` file concurrency the deadline won on loaded
+    // machines: the assertion then saw RgFailedError 'rg timed out' instead of
+    // ECANCELLED (reproduced 3/3 in the full suite here, while passing 3/3 in
+    // isolation, and it also failed a windows-latest CI job). The deadline is now far
+    // out of reach, so ECANCELLED can only come from real cancellation; if cancellation
+    // regressed, this hangs to 30s and fails on outcome rather than on timing luck.
+    // Convention: test/write-hardening.test.js:4-7 — settle races on a handshake, never
+    // on elapsed time.
+    signal:controller.signal,timeoutMs:30000,max:10,
     onLine:()=>{controller.abort();return true;},
   }),e=>e.code==='ECANCELLED');
 });

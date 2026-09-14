@@ -6,7 +6,7 @@
 
 ## 결정
 
-- **식별자는 session.js가 유일하게 발행한다(A1).** 근거: 이미 여기서 `artifactName`을 plan에 주입한다(`session.js:107`).
+- **식별자는 session.js가 유일하게 발행한다(A1).** 근거: 이미 여기서 `artifactName`을 plan에 주입한다(`session.js:109`).
 - **`jobId`는 요청 위치 키다.** 형식은 `j000`, `j001`. run 사이의 전역 고유성은 `runId`와 함께 볼 때만 성립한다.
   중복 URL을 구분하는 것이 목적이고, 그 목적에는 위치 키로 충분하다.
 - **대조는 session.js에서 하고 키는 `jobId`다(A2).** 미반환은 `EUNRETURNED`.
@@ -35,6 +35,7 @@
         export function itemStatus(item) {
           if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
           if (item.code === 'EUNRETURNED') return 'unreturned';
+          if (item.actionsOk === false) return 'failed';
           if (item.ok) return 'completed';
           if (item.code === 'ESKIP' || item.code === 'ETABBUDGET') return 'skipped';
           if (item.code === 'EBLOCKED') return 'blocked';
@@ -54,8 +55,9 @@
         }
 
    `effects` 인자는 이 phase에서 항상 `[]`로 들어온다. 030이 실제 값을 넣는 순간 규칙이 자동으로 발효된다.
-   `runStatus`는 **`item.ok`가 아니라 `item.status`만 본다.** `stopOnError:false`에서 step이 실패해도 `out.ok`가 참으로 남는
-   경로(`script.js:404`)는 그래서 `completed`를 만들지 못한다. 그 경로의 항목은 `actionsOk:false`로 오고 030이 effect를 붙인다.
+   `runStatus`는 `item.status`만 본다. 그런데 `script.js:404`는 `stopOnError`일 때만 `out.ok`를 내리므로,
+   `stopOnError:false`에서 step이 실패한 항목은 `ok:true`로 온다. 그래서 `itemStatus`가 `actionsOk === false`를
+   `ok`보다 먼저 보고 `failed`로 내린다. 이 한 줄이 없으면 반쯤 실패한 액션 배치가 `completed`가 된다.
    `needs_input`은 이 phase가 **생산하지 않는다.** 반환 타입에만 존재하고 매핑은 [060](060_wp7_p1_batch.md)이 넣는다.
 5. host-kill 반환(138-148행)을 원장 기반으로 바꾼다. `finalize()` 같은 새 함수를 만들지 않고 기존 return 리터럴을 그대로 고친다:
 
@@ -81,10 +83,12 @@
           if (!hit) return { jobId: r.jobId, url: r.url, ok: false, code: 'EUNRETURNED', status: 'unreturned' };
           return { ...hit, jobId: r.jobId, url: hit.url || r.url, status: itemStatus(hit) };
         });
-        const extra = items.filter((it) => !it || !it.jobId || !requested.some((r) => r.jobId === it.jobId));
+        // jobId가 있는데 원장에 없는 것만 extra다. jobId가 없는 반환분은 위치 대조(정상)거나 unreconciled다.
+        const extra = items.filter((it) => it && it.jobId && !requested.some((r) => r.jobId === it.jobId));
+        const orphans = unreconciled ? items.slice() : [];
         if (reconciled.some((i) => i.status === 'unreturned')) partial.push('unreturned');
         if (unreconciled) partial.push('unreconciled');
-        else if (extra.length) partial.push('extra-items');
+        if (extra.length) partial.push('extra-items');
 
 7. 최종 return에 필드를 더한다. 기존 키(`actionLog`, `contentVerified`, `timings`, `partial`, `leakedUrls`, `tabs`, `raw`, `breaker`, `pwd`)는 전부 유지한다:
 
@@ -108,19 +112,21 @@
 
 | 값 | 생성 | 직렬화 | 역직렬화 | 소비자 |
 |---|---|---|---|---|
-| `runId` | session.js 원장 | `compile({...job, runId})` → JOB payload | script 안 `JOB.runId` | 030 operationId, envelope |
-| `jobId` | session.js 원장 | planIds → `JOB.items[].jobId` | script `one(item)` | 모든 items.push, session 대조, capture 조인 |
+| `runId` | session.js 원장(호스트 지역변수) | `compile()`의 JOB payload에 **명시 필드로 추가**(script.js:115-141은 나열된 키만 싣는다) | script 안 `JOB.runId` | 030 operationId. envelope의 `runId`는 stdout을 거치지 않고 호스트 변수에서 바로 나간다 |
+| `jobId` | session.js 원장 | planIds → `JOB.items[].jobId` → `one(item)`의 push → `type:final` 줄 | `parseFinal`(session.js:151)이 읽는 `items[].jobId` | session 대조, capture 조인. host-kill 경로는 직렬화 없이 원장에서 직접 복사한다 |
 | `status`(item) | session `itemStatus` | N/A (호스트 산출) | N/A | `runStatus`, capture, 게스트 |
-| `ledger` | session 원장 | N/A | N/A | capture 이름 조인 |
-| `effects` | 030 | 030 stdout 줄 | 030 `parseEffects` | `runStatus` (규칙은 여기) |
+| `ledger` | session 원장 | N/A (호스트 변수) | N/A | capture 이름 조인. **없으면 조인을 거절한다**(020) |
+| `effects` | 030 actions-run | 030의 `type:effect` 줄 | 030 `parseEffects` | `runStatus`. 액션이 없는 run과 host-kill 직전에 줄이 하나도 없으면 `[]`이고 그것은 정상이다 |
 
 ## MODIFY src/host/browse/script.js
 
-`one()`이 만드는 **모든** push 지점에 `jobId: item.jobId`를 넣는다. 현재 지점(줄 번호는 착수 시 재확인):
-237-238 `ESKIP`(inner-deadline), 248 `ETABBUDGET`, 271 부근 `EOPEN` catch, 301 `EBLOCKED`, 360 `EUNRENDERED`,
-490 부근 일반 catch, 그리고 정상 성공 경로. 하나라도 빠지면 그 항목은 호스트에서 `EUNRETURNED`로 보인다.
+`one()`이 만드는 **모든** push 지점에 `jobId: item.jobId`를 넣는다. 실제 지점은 아홉 곳이다(착수 시 재확인):
+237(`ESKIP` 큐 진입), 238(inner-deadline), 251(`ETABBUDGET`), 262(동기 open 실패), 272(`EOPEN` catch),
+301(`EBLOCKED`), 360(`EUNRENDERED`), 488(정상 성공), 490(일반 catch).
+하나라도 빠지면 그 항목은 호스트에서 `EUNRETURNED`로 보인다.
 스크립트는 `jobId`를 **생성하지 않는다.** 없으면 없는 채로 둔다.
-`JOB.runId`를 payload에 싣는 것도 여기서 한다(compile의 JOB 직렬화에 필드 추가).
+`JOB.runId`도 여기서 싣는다. `compile()`의 payload(script.js:115-141)는 나열된 키만 직렬화하므로,
+`{ ...job, runId }`를 넘기는 것만으로는 부족하고 payload 필드 목록에 `runId`를 추가해야 한다.
 
 ## TESTS
 

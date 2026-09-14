@@ -13,6 +13,10 @@
 | G4 배포 | 임시 accountRoot | `node scripts/install-codemode.mjs <sub> --account-root <tmp>` | 사용자 수리 없이 성공 |
 | G5 사용성 | 아래 측정 설계 | 수동 세션 + 기록 | 정답 유지, 불필요한 우회 없음 |
 
+표의 fixture는 전부 **NEW**다. 저장소에 현재 있는 것은 `test/fixtures/browse/*.pdf`뿐이다.
+`test/fixtures/serve.mjs`, `test/fixtures/batch/`, `test/fixtures/discovery/keys.json`, `test/fixtures/slow-click/`는
+각각 그것을 처음 쓰는 phase가 만든다(batch와 serve는 [070](070_wp8_native_helper.md), slow-click은 [030](030_wp4_effect_lifecycle.md),
+discovery는 [060](060_wp7_p1_batch.md)).
 fixture 서버는 `node test/fixtures/serve.mjs --port 0`으로 띄우고 포트를 프로브에 전달한다.
 스크립트가 `file://`를 거절하므로 정적 파일을 직접 열지 않는다.
 

@@ -17,6 +17,8 @@
 
 ## NEW templates/native-helper/cm.js (본문)
 
+`templates/native-helper/`는 저장소에 아직 없다. 이 phase가 만든다. `test/fixtures/batch/`와 `test/fixtures/serve.mjs`도 NEW다.
+
 크기 예산 8KB. 네이티브 API를 복제하지 않는다. 결과 계약은 wp2와 **같은 키**를 쓴다.
 
         globalThis.cm = (function () {
@@ -49,7 +51,14 @@
               requested += 1; if (owned() > peak) peak = owned();
               var tab = null;
               try {
-                tab = await openTab(item.url);
+                try { tab = await openTab(item.url); }
+                catch (openErr) {
+                  // 요청은 세었지만 탭이 되지 못했다. 환불하지 않으면 owned()가 내려가지 않아
+                  // 뒤 항목이 전부 ETABBUDGET으로 죽는다(script.js:262,272가 같은 이유로 환불한다).
+                  requested -= 1;
+                  return { jobId: jobId, status: 'failed', code: 'EOPEN',
+                    error: String(openErr && openErr.message || openErr).slice(0, 300) };
+                }
                 var value = await cfg.onItem(tab, item, jobId);
                 effects.push({ operationId: opId, jobId: jobId, state: 'confirmed' });
                 done.push(jobId);
@@ -58,9 +67,11 @@
                 return { jobId: jobId, status: 'failed', error: String(e && e.message || e).slice(0, 300) };
               } finally {
                 if (tab) {
-                  var r = await Promise.race([tab.close().then(function () { return 'closed'; }),
-                    sleep(1500).then(function () { return 'capped'; })]);
-                  if (r === 'closed') closed += 1; else leaked.push(item.url);
+                  // close()의 reject를 삼킨다. finally에서 throw하면 이 항목의 결과 자체가 사라진다.
+                  var closer = Promise.resolve().then(function () { return tab.close(); })
+                    .then(function () { return 'closed'; }, function () { return 'failed'; });
+                  var r = await Promise.race([closer, sleep(1500).then(function () { return 'capped'; })]);
+                  if (r === 'closed') closed += 1; else leaked.push({ jobId: jobId, url: item.url, why: r });
                 }
               }
             });
@@ -102,13 +113,22 @@ callback(`onItem`)은 원래 전역(`snapshot`, `page.locator`, `cua`, `display`
 `compile()`은 `job.helper === true`일 때만 `src`를 앞에 붙이고, 결과 envelope에 `helper: { version, sha256 }`을 싣는다.
 붙인 뒤 30000자를 넘으면 기존 `ESOURCETOOLONG`이 난다.
 
-## 앱 내부 경로
+## 앱 내부 경로 — 읽을 수 있는 위치는 프로젝트 루트뿐이다
 
-같은 파일을 프로젝트 루트 아래 `.aside/codemode/cm.js`로 설치하고 스킬이 두 줄을 안내한다:
+측정된 가드가 설치 위치를 결정한다. REPL의 `fs`는 **Project와 session 루트 밖을 거절**한다.
+그래서 `~/.aside/u/<id>/codemode/cm.js`(계정 루트)는 설치기가 쓰는 위치일 수는 있어도,
+에이전트 REPL이 읽을 수 있다는 보장이 없다. 앱 내부 로드용 사본은 **프로젝트 루트 아래**에 둔다:
+
+        <projectRoot>/.aside/codemode/cm.js      (앱 내부 REPL이 읽는 사본)
+        <accountRoot>/codemode/cm.js             (설치기 원본과 해시 기준)
+
+두 파일은 같은 바이트이고 [080](080_wp9_packaging.md)의 manifest가 둘 다 소유한다.
+프로젝트 사본은 `--project <path>`를 준 설치에서만 만든다. 스킬이 안내하는 두 줄:
 
         const src = await fs.readFile('.aside/codemode/cm.js', 'utf8');
         (0, eval)(src);
 
+**착수 전 확인할 것:** 계정 루트가 REPL에서 읽히는지 실제로 프로브한다. 읽힌다면 사본을 하나로 줄인다.
 페이지에서 얻은 문자열을 평가하지 않는다. 원격 스크립트를 내려받는 로더도 만들지 않는다.
 
 ## PROBE (합격 조건, mac + ssh mini 각 1회)

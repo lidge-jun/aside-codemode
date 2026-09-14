@@ -10,23 +10,31 @@
 
 ## 설치가 소유하는 파일 (manifest 목록)
 
-        <accountRoot>/codemode/manifest.json
-        <accountRoot>/codemode/cm.js                      (wp8 번들, 버전·해시 포함)
-        <accountRoot>/codemode/catalog.json               (생성물: actions 카탈로그 스냅샷)
-        <accountRoot>/skills/user/aside-codemode/SKILL.md
-        <accountRoot>/skills/user/aside-codemode/references/execution-paths.md
-        <accountRoot>/skills/user/aside-codemode/references/windows-invocation.md
-        <accountRoot>/AGENTS.md                           (관리 블록 구간만 치환)
+스킬 파일과 `codemode/` 아래 파일은 저장소에도 계정 루트에도 **아직 없다.** 전부 NEW다.
+
+        <accountRoot>/codemode/manifest.json              NEW
+        <accountRoot>/codemode/cm.js                      NEW  (wp8 번들, 버전·해시 포함)
+        <accountRoot>/codemode/catalog.json               NEW  (생성물: actions 카탈로그 스냅샷)
+        <accountRoot>/skills/user/aside-codemode/SKILL.md  NEW
+        <accountRoot>/skills/user/aside-codemode/references/execution-paths.md     NEW
+        <accountRoot>/skills/user/aside-codemode/references/windows-invocation.md  NEW
+        <accountRoot>/AGENTS.md                           MODIFY (관리 블록 구간만 치환)
+        <projectRoot>/.aside/codemode/cm.js               NEW, --project를 준 설치에서만
+                                                          (REPL fs가 계정 루트를 거절할 때의 읽기 사본, [070](070_wp8_native_helper.md))
 
 `<accountRoot>`는 `~/.aside/u/<id>`이고 `u/0`으로 추측하지 않는다. `~/.aside/u/*`를 열거해 후보를 만들고,
 어느 계정에 설치할지는 인자로 받는다. account 파일을 읽더라도 토큰·email은 receipt와 로그에서 제외한다.
 
 ## 관리 AGENTS 블록 (30줄 이하, 전문)
 
+**표시자는 새로 만들지 않는다.** `src/register.js:15-16`이 이미 `<!-- aside-codemode:start -->` /
+`<!-- aside-codemode:end -->`를 쓰고 있다. 다른 표시자를 도입하면 재설치 때 블록이 두 개가 된다.
+이 phase는 `src/register.js`를 MODIFY해서 **같은 표시자 안의 본문만** 아래 내용으로 바꾼다.
+
 현재 계정별 블록은 97줄/6.4KB다. 교체 후 본문은 다음 형태다:
 
-        <!-- BEGIN aside-codemode vX.Y.Z -->
-        ## code mode
+        <!-- aside-codemode:start -->
+        ## code mode  (vX.Y.Z)
 
         기본은 네이티브다. 처음 보는 페이지, 단일 클릭, 새 시각 판단, 계정·승인이 필요한 순간에는
         이 블록을 보지 말고 평소대로 조작한다.
@@ -40,7 +48,7 @@
         외부 CLI가 필요할 때: codemode --code <file>  (호스트 파일 계층과 구조화 결과)
 
         하지 않는 것: 같은 탭의 동시 조작, 낡은 ref 재사용, 불확실한 부작용의 자동 재시도.
-        <!-- END aside-codemode vX.Y.Z -->
+        <!-- aside-codemode:end -->
 
 블록은 표시자 사이를 **통째로 치환**한다. 재설치를 반복해도 블록이 늘어나지 않는 근거가 이것이다.
 
@@ -65,6 +73,7 @@ fixture 경로에 공백·한글·작은따옴표·`&`·`$`·CRLF를 넣는다.
 ## TESTS
 
 - NEW `test/install-manifest.test.js`: 해시 대조, 사용자 수정 보존, 멱등 설치(블록 1개 유지), manifest 소유 파일만 삭제, rollback 복원.
+- MODIFY `test/register.test.js`: 새 본문으로 두 번 설치해도 `aside-codemode:start` 표시자가 문서에 하나만 남는다.
 - NEW `test/install-paths.test.js`: 공백/한글/따옴표 경로, `u/0`·`u/1` 동시 존재 열거, 토큰 미기록.
 
 ## Verification (C)

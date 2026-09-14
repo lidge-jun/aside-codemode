@@ -16,8 +16,15 @@
         const names = urls.map((_, i) => artifactNameFor(i, screenshot));
         const res = await session.run(job, { browseCaps: opts.browseCaps || {}, artifactNames: names });
         if (!opts.outDir) return res;
-        const ledger = Array.isArray(res.ledger) ? res.ledger : res.items.map((it, i) => ({ jobId: it.jobId, index: i }));
-        const nameByJob = new Map(ledger.map((r) => [r.jobId, names[r.index]]));
+        if (!Array.isArray(res.ledger)) {
+          // 원장이 없으면 어떤 이름이 어떤 요청의 것인지 알 수 없다. res.items 순서로 재구성하면 F1이 그대로 돌아온다
+          // (완료 순서 i를 입력 순서 names[i]에 다시 묶는 것이기 때문이다). 추측하지 않고 거절한다.
+          return { ...res, status: 'failed', ok: false, complete: false,
+            partial: res.partial.concat('no-ledger'),
+            items: res.items.map((it) => ({ ...it, ok: false, status: 'failed', code: 'ECONTRACT',
+              error: 'the run returned no issuing ledger, so artifacts cannot be attributed' })) };
+        }
+        const nameByJob = new Map(res.ledger.map((r) => [r.jobId, names[r.index]]));
 
 2. 조인 루프(64-87행) 교체:
 
@@ -57,6 +64,7 @@
           : (items.every((i) => i.status === 'completed') ? res.status
             : (items.some((i) => i.status === 'completed') ? 'partial' : 'failed'));
         return { ...res, items, partial, status, ok: status === 'completed',
+          complete: status === 'completed',
           completed: items.filter((i) => i.status === 'completed').length };
 
 ## TESTS — MODIFY test/browse-capture.test.js
@@ -67,6 +75,9 @@
 - **이름 불일치:** item의 `artifactName`이 다른 jobId의 이름이면 `EPROVENANCE`, `status:'failed'`.
 - **이름 부재:** `status:'completed'`인데 `artifactName`이 없으면 `EPROVENANCE`.
 - **host-kill:** `res.status === 'indeterminate'`면 반환 status도 `indeterminate`다(강등 금지).
+- **원장 부재 + 역순 완료:** `res.ledger`가 없으면 파일을 하나도 읽지 않고 전 항목이 `ECONTRACT`다.
+  이름을 위치로 추측하지 않는다는 것을 이 케이스가 고정한다.
+- **complete 갱신:** capture 실패로 `status`가 `partial`이 되면 `complete`도 false다(`...res`의 값이 남지 않는다).
 
 ## Verification (C)
 

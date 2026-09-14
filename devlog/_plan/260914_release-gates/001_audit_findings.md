@@ -10,7 +10,7 @@
 `src/host/browse/script.js:498-502`의 워커 풀은 `queue.shift()`로 돌고 `items.push`는 완료 시점이라 순서가 입력과 다르다.
 기본 concurrency는 4다. 반례: `urls=[A,B]`에서 B가 먼저 끝나면 B의 결과에 A의 파일명이 붙는다.
 `urls=[A,A]`면 URL로도 교환을 감지할 수 없다. 호스트는 이미 이름을 발급해 plan에 주입한다
-(`capture.js:56`이 `artifactNames: names`로 넘기고 `session.js:107`이 `artifactName: names[i]`로 심는다)。 조인에 쓰지 않을 뿐이다.
+(`capture.js:56`이 `artifactNames: names`로 넘기고 `session.js:109`가 `artifactName: names[i]`로 심는다). 조인에 쓰지 않을 뿐이다.
 커버: `test/browse-capture.test.js`(현재 조인 케이스 없음).
 
 **F2 session 전체 성공 판정 — 재현.** `src/host/browse/session.js:171-183`의

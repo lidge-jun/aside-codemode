@@ -13,12 +13,17 @@
 
 1. 브라우저 폴백에서 빈 본문을 성공으로 내지 않는다(128-132행):
 
-        const body = item.ok ? (item.text || (item.render && item.render.sample) || '') : '';
+        const body = item.ok ? (item.text || '') : '';        // render.sample은 160자 요약이라 본문이 아니다
         const useBrowser = body.length >= Math.max(1, opts.minChars || 1);
         return useBrowser
           ? { url, source: 'browser', markdown: body, chars: body.length, fallbackReason: verdict.reason, browserOk: true, ok: true }
           : { url, source: 'browser', markdown, chars: markdown.length, fallbackReason: verdict.reason,
               browserOk: true, ok: false, degraded: true, degradedReason: 'browser returned no text' };
+
+**`item.text`를 만들 경로가 지금 없다.** `browse.exec({snapshot:true})`의 성공 항목은 `snapshot`과 160자 `render.sample`뿐이다
+(`script.js:331-341`). 그래서 이 phase는 `src/host/browse/script.js`도 MODIFY한다:
+readText가 요청할 때만(`JOB.fullText === true`) `visibleText`를 상한과 함께 `out.text`로 싣는다.
+요약을 본문으로 승격하지 않는 것이 F6의 핵심이므로, 본문 경로를 만들지 않으면 이 결함은 닫히지 않는다.
 
 2. fetch 경로(102-117행)에 상태와 로그인 감지를 넣는다. 현재는 `needsBrowser`만 본다:
 
@@ -28,11 +33,18 @@
             blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : 'auth'),
             fallbackReason: 'http-' + status };
         }
-        const wall = detect(html, { url, status });   // policy.js의 기존 감지기를 여기서 호출한다
-        if (wall && wall.kind === 'login') {
-          return { url, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
-            blockKind: 'login', fallbackReason: 'login-wall' };
+        // policy.js의 실제 시그니처는 객체 하나다: detect({ requestedUrl, finalUrl, title, tree }).
+        // 그리고 반환 kind는 'login-wall'이다. fetch는 redirect: 'follow'이므로 최종 URL은 res.url에서 읽는다.
+        const finalUrl = res.url || url;
+        const wall = detect({ requestedUrl: url, finalUrl, title: titleOf(html), tree: markdown });
+        if (wall && wall.kind === 'login-wall') {
+          return { url, finalUrl, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
+            blockKind: 'login-wall', fallbackReason: 'login-wall' };
         }
+
+   `LOGIN_PATH`는 `finalUrl`만 보므로 같은 URL에서 200으로 렌더되는 로그인 폼은 이 감지기로 잡히지 않는다.
+   그 경우는 `tree`(본문 마크다운)의 신호로만 걸리고, 놓칠 수 있다는 사실을 문서에 남긴다. 놓친 것을 성공으로 적지 않는 것이
+   이 절의 목표이지, 모든 로그인 벽을 잡는다고 주장하지 않는다.
         if (!verdict.needed) return { url, source: 'fetch', status, markdown, chars: markdown.length, ok: true, fallbackReason: null };
 
    `detect`는 `src/host/browse/policy.js`에서 import한다. 지금 이 경로에는 호출이 없다(감사 지적 18).
@@ -41,27 +53,43 @@
 
 [010](010_wp2_result_contract.md)이 슬롯만 두고 미룬 결정을 여기서 넣는다. 로그인 벽은 두 경로에서 같은 status를 쓴다:
 
+`EBLOCKED`는 캡차와 하드 블록도 포함하므로 그것을 통째로 `needs_input`으로 올리지 않는다.
+**사람이 로그인하면 풀리는 경우만** `needs_input`이다. 그 판별은 항목의 `blockKind`로 한다:
+
         export function itemStatus(item) {
-          ...
-          if (item.code === 'EBLOCKED' || item.blockKind === 'login') return 'blocked';
+          // 010의 순서를 유지하고, blocked 판정에 blockKind를 더한다
+          if (item.code === 'EBLOCKED' || item.blockKind === 'login-wall') return 'blocked';
           ...
         }
 
         export function runStatus({ marker, items, leakedUrls, killed, effects = [] }) {
           if (killed || marker === null) return 'indeterminate';
           if (items.some((i) => i.status === 'indeterminate')) return 'indeterminate';
-          if (items.some((i) => i.status === 'blocked')) return 'needs_input';   // 새 규칙
+          if (effects.some((e) => e.state === 'indeterminate')) {     // 010의 effect 분기를 먼저 둔다
+            return items.some((i) => i.status === 'completed') ? 'partial' : 'failed';
+          }
+          if (items.some((i) => i.blockKind === 'login-wall')) return 'needs_input';
           ... (나머지 010과 동일)
         }
 
-`needs_input`은 「사람이 로그인해야 진행된다」는 뜻이고 실패가 아니다. browse의 `EBLOCKED`와 readText의 `blockKind:'login'`이
-같은 값을 만들어야 호출자가 두 경로를 구분해 다루지 않아도 된다.
+순서가 중요하다. `needs_input`을 effect 분기보다 앞에 두면 불확실한 부작용이 로그인 안내에 가려진다.
+010의 테스트(`EBLOCKED` 한 건 → `partial`)는 그대로 유효하고, 여기서 추가되는 것은 `blockKind: 'login-wall'` 케이스다.
+
+**배선:** `readText`는 `session.js`의 envelope를 타지 않는다. 그래서 두 경로가 같은 status를 쓰게 하려면
+`readText`의 반환을 배치에서 해석하는 지점(`searchMany`/`prefetch`/`watch`의 호출부)이 `blockKind`를 그대로 올려야 한다.
+이 phase는 `readText` 반환에 `ok`/`blockKind`를 넣는 것까지만 하고, 단일 `readText` 호출의 반환 shape은 바꾸지 않는다.
 
 ## F7/F8 캐시 — MODIFY search.js, browse.js
 
-- `keyParts`(search.js:105)와 `cacheKey()`에 `since: since || null`을 넣는다.
-- `createReadText`에 `cache`를 주입하고(`browse.js:65`) 읽기 전에 조회한다.
-  `ok === false`인 관측은 **저장하지 않는다.** prefetch가 채운 값이 소비되는 경로가 이것이다.
+- `keyParts`(search.js:105)에 `since: since || null`을 넣고, **`cache.js`의 `cacheKey()`도 MODIFY한다.**
+  `cacheKey`는 알려진 키만 `parts`에 넣으므로(`cache.js:20-32`) 인자만 늘리면 키가 그대로다.
+  `parts`에 `'since:' + String(since || '')`를 추가한다.
+- `createReadText`의 시그니처를 MODIFY한다. 현재는 `{ fetchImpl, browse, timeoutMs }`뿐이라(`read-text.js:77`)
+  추가 프로퍼티가 버려진다. `{ fetchImpl, browse, timeoutMs, cache = null, accountRoot = '' }`로 넓히고
+  읽기 전 `cache.get({ namespace: 'readText', subject: url, accountRoot, locale })`를 조회한다.
+- `ok === false`인 관측은 **저장하지 않는다.** 이 규칙은 `watch.js:72-73`의 prefetch 쓰기에도 적용한다.
+  거기서 `read.ok`를 보지 않고 `{markdown, source}`만 저장하면, 403/로그인 워밍이 캐시 hit로 되살아나
+  F9의 `read.ok === false` 검사를 우회한다. 저장 값에 `ok`와 `blockKind`를 함께 넣는다.
 
 ## F9 watch — MODIFY watch.js
 
@@ -84,12 +112,17 @@
 
 그리고 값 검증을 browse에도 연결한다(현재는 `isSearch || fs.grepFile`만):
 
-        const isBrowse = rec.path.startsWith('browse.');
-        else if (name in args && (isSearch || isBrowse || rec.path === 'fs.grepFile')) {
+        const isBrowse = rec.path.startsWith('browse.');   // 루프 앞에서 한 번 계산한다
+        ...
+        } else if (name in args && (isSearch || isBrowse || rec.path === 'fs.grepFile')) {
           const problem = isSearch ? checkEntryOptionValue(rec.path, name, args[name])
             : (isBrowse ? checkBrowseOptionValue(rec.path, name, args[name]) : checkOptionValue(name, args[name]));
           if (problem) invalid.push(problem);
         }
+
+카탈로그의 타입도 같이 넓혀야 한다. `actions-schema.js:38`의 `requireSelector`는 `type: 'array'`라서
+문자열을 넘기면 값 검증에 **도달하기 전에** 타입 검사에서 거절된다. 런타임은 문자열을 배열로 승격하므로
+카탈로그를 `'array|string'`으로 바꾼다. union split은 그때 비로소 의미가 생긴다.
 
 `checkBrowseOptionValue`는 런타임 검증기(`schema.js`/`attach-schema.js`)를 호출해 같은 `EBADVAL`/`ENOTSUP`을 재사용한다.
 별도 정의를 만들면 두 표면이 다시 갈라진다. `requireSelector`, `waitUntil`, `screenshot.*`, `pdf.*`,
@@ -103,8 +136,37 @@ attach `refsFingerprint`, captureMany/readText `timeoutMs`, watch `locale`를 �
           out.truncated = true;
         } else { /* 기존 문자열 경로 */ }
 
-`shrinkStructured`는 배열을 뒤에서 잘라 `omittedItems` 수를 남기고, 긴 문자열 필드는 자르되 키를 유지한다.
-`status`, `runId`, `requested`, `completed`는 어떤 예산에서도 남긴다(그것이 잘리면 결과를 해석할 수 없다).
+`shrinkStructured` 본문:
+
+        const KEEP = ['schema', 'status', 'runId', 'requested', 'completed', 'unreturned', 'complete', 'truncated'];
+        function shrinkStructured(value, budget) {
+          if (!value || typeof value !== 'object') return value;
+          const out = {};
+          for (const k of KEEP) if (k in value) out[k] = value[k];
+          let room = budget - Buffer.byteLength(JSON.stringify(out));
+          for (const [k, v] of Object.entries(value)) {
+            if (k in out) continue;
+            if (Array.isArray(v)) {
+              const kept = [];
+              for (const el of v) {
+                const cost = Buffer.byteLength(JSON.stringify(el)) + 1;
+                if (cost > room) break;
+                room -= cost; kept.push(el);
+              }
+              out[k] = kept;
+              if (kept.length < v.length) out.omittedItems = (out.omittedItems || 0) + (v.length - kept.length);
+            } else {
+              const s = JSON.stringify(v);
+              const cost = Buffer.byteLength(s);
+              if (cost <= room) { out[k] = v; room -= cost; }
+              else if (typeof v === 'string') { out[k] = v.slice(0, Math.max(0, room)) + '…'; room = 0; }
+              else out.omittedKeys = (out.omittedKeys || []).concat(k);
+            }
+          }
+          return out;
+        }
+
+`KEEP` 목록은 어떤 예산에서도 남는다. 그것이 잘리면 결과를 해석할 수 없다.
 
 ## F10 compactTree — MODIFY snapshot-cache.js
 

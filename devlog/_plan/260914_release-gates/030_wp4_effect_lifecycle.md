@@ -8,7 +8,11 @@
 - `Promise.race`는 취소가 아니다. 취소를 주장하지 않고 **상태를 기록한다.**
 - `operationId`는 호스트가 발행한 두 값(`runId`, `jobId`)과 step 인덱스로 **합성**한다. 스크립트가 새 식별자를 만들지 않는다.
 - 기록은 기존 step 로그와 같은 채널(`console.log`의 한 줄 JSON)을 쓴다. 새 전송 수단을 만들지 않는다.
-- 부작용이 없는 verb(`__INERT`)는 효과를 남기지 않는다. 대기는 부작용이 아니다.
+- 효과 면제 집합은 `__INERT`와 **다른 집합**이다. `__INERT`는 `{ sleepMs: 1 }` 하나뿐이고(`actions-run.js:57`),
+  `waitFor`/`waitForLoadState`/`scroll`은 트리를 더럽힐 수 있다는 이유로 의도적으로 inert가 아니다.
+  그 집합을 효과 판정에 재사용하면 dirty-tree 가드가 흔들린다. 그래서 새 상수를 둔다:
+  `var __NOEFFECT = { sleepMs: 1, waitFor: 1, waitForLoadState: 1 };`
+  `scroll`/`hover`/`focus`는 페이지 상태를 바꿀 수 있으므로 효과를 남긴다.
 - 자동 재시도는 지금도 없다. 이 phase는 그것을 테스트로 고정한다.
 - close가 hang이면 `markClosed`를 부르지 않는다. `leakedUrls`가 `opened.filter(o => !o.closed)`에서 나오므로(script.js:531)
   그것만으로 누수가 이름과 함께 보고된다.
@@ -33,7 +37,7 @@
 
 변경 후:
 
-        var effectful = !__INERT[s.verb];
+        var effectful = !__NOEFFECT[s.verb];
         if (effectful) rec.operationId = String(cfg.runId || 'run') + '-' + String(cfg.jobId || 'j') + '-s' + String(rec.i);
         if (effectful && cfg.onEffect) cfg.onEffect(rec, 'started');
         try {
@@ -73,14 +77,38 @@
    throw 경로는 이미 `markClosed`를 건너뛰므로 그대로 둔다. 두 경우 모두 `opened[].closed`가 false로 남아 leaked로 보고된다.
 3. cleanup(511-529행)에서 pending이 cap돼도 이미 열린 탭을 포기하지 않는다:
 
+        // pending 항목은 { url, jobId, pr }이다(one()의 pending.push에 jobId를 추가한다).
+        // 중복 URL을 url로 식별하면 두 번째 in-flight open이 사라지므로 키는 jobId다.
         const settled = await withCap(Promise.allSettled(pending.map((x) => x.pr)), left());
-        if (settled === '__capped__') {
-          // 결과를 모르는 open 요청은 이름을 남긴다. opened[]에 없으므로 leakedUrls가 놓친다.
-          for (const p of pending) if (!opened.some((o) => o.url === p.url)) opened.push({ url: p.url, page: null, closed: false });
+        if (settled !== '__capped__') {
+          for (let i = 0; i < settled.length; i++) {
+            const s = settled[i];
+            if (s.status !== 'fulfilled' || !s.value) continue;   // reject는 EOPEN이고 탭이 없다
+            const page = s.value;
+            if (!opened.some((o) => o.page === page)) {
+              opened.push({ targetId: page.targetId, url: pending[i].url, jobId: pending[i].jobId, page, closed: false });
+            }
+          }
+        } else {
+          // 결과를 모르는 open만 남긴다. 이미 reject된 요청을 누수로 세면 가짜 누수가 된다.
+          for (const p of pending) {
+            if (p.settled === 'rejected') continue;              // one()의 open catch가 표시한다
+            if (!opened.some((o) => o.jobId === p.jobId)) {
+              opened.push({ url: p.url, jobId: p.jobId, page: null, closed: false });
+            }
+          }
         }
-        const targets = settled === '__capped__' ? opened.filter((o) => o.page && !o.closed) : /* 기존 settled 경로 */;
+        const closes = [];
+        for (const rec of opened) {
+          if (rec.closed || !rec.page) continue;                 // 핸들이 없으면 닫을 수 없다. leaked로 남는다
+          const r = rec;
+          closes.push(Promise.resolve().then(() => r.page.close()).then(() => markClosed(r), () => {}));
+        }
+        await withCap(Promise.allSettled(closes), left());
 
-   즉 close 루프는 `settled` 성공 여부와 무관하게 `opened[]`를 대상으로 한 번 돈다.
+   close 루프는 `settled`가 cap됐든 아니든 `opened[]`를 대상으로 한 번 돈다.
+   핸들이 없는 레코드(`page: null`)는 닫을 수 없으므로 `closed:false`로 남아 `leakedUrls`(531행)에 이름이 실린다.
+   `one()`의 `pending.push`에 `jobId`를, open catch에 `p.settled = 'rejected'` 표시를 추가하는 것도 이 phase의 변경이다.
 
 ## MODIFY src/host/browse/session.js
 
@@ -115,6 +143,12 @@
 
    host-kill 경로도 stdout에서 효과를 복구한다. 스크립트가 final을 못 찍었어도 step/effect 줄은 이미 나갔다.
 
+## 범위 밖으로 명시하는 것
+
+screenshot/pdf의 `fs.writeFile`은 `type:effect`를 남기지 않는다. 웹 상태를 바꾸는 동작이 아니라 세션 디렉터리 안의
+로컬 쓰기이고, 같은 `jobId`에 대해 같은 이름으로만 쓰이므로 재실행이 서로를 겹쳐 쓰지 않는다.
+A4의 수명 추적은 **웹 mutation**에 한정한다. 아티팩트 쓰기 실패는 기존 `EARTIFACT` 경로로 보고한다.
+
 ## PROBE (미해결 가정 해소)
 
 `test/fixtures/slow-click/`에 정적 페이지를 두고 로컬 http로 띄운 뒤(스크립트가 `file://`를 거절한다),
@@ -132,7 +166,10 @@ NEW `test/browse-effect-state.test.js`:
 - started만 있고 confirmed가 없으면 `effects[0].state === 'indeterminate'`이고 run status가 `completed`가 아니다.
 - started + confirmed면 `confirmed`이고 성공 경로에 영향이 없다.
 - killed면 confirmed가 있어도 전부 `indeterminate`.
-- `__INERT` verb(예: waitFor)는 효과 줄을 만들지 않는다.
+- `__NOEFFECT` verb(`sleepMs`, `waitFor`, `waitForLoadState`)는 효과 줄을 만들지 않는다.
+- `scroll`은 효과 줄을 만든다(면제 집합에 넣지 않는다).
+- 중복 URL 두 건의 open이 모두 cap되면 `leakedUrls`에 **두 건**이 실린다(jobId 키 고정).
+- `EOPEN`으로 reject된 요청은 `leakedUrls`에 실리지 않는다(가짜 누수 금지).
 - 실패한 step 뒤 같은 step을 다시 실행하지 않는다(스텁 호출 1회).
 - `stopOnError:false`에서 한 step이 실패해도 run status가 `completed`가 되지 않는다.
 

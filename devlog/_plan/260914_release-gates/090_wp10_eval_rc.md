@@ -37,6 +37,30 @@ fixture 서버는 `node test/fixtures/serve.mjs --port 0`으로 띄우고 포트
 - 목표안(합의 대상, 실측 아님): 대표 batch 중앙값 20% 이상 단축, 단일 native 경로 중앙값 회귀 10% 이내.
 - 시각·인증 혼합 흐름은 자동 측정에서 제외하고 사용자 개입 구간으로 따로 기록한다.
 
+## NEW / MODIFY 맵
+
+        NEW  eval/paired-run.mjs        범주별 순서 교차 실행기. 입력은 workload 정의 JSON, 출력은 실행별 raw JSONL
+        NEW  eval/workloads/*.json      위 표의 네 워크로드 정의(경로, 기대 정답, 반복 수)
+        NEW  eval/report.mjs            JSONL을 받아 중앙값, 각 실행값, 오류율을 표로 낸다. p95는 내지 않는다
+        NEW  devlog/_plan/260914_release-gates/100_rc_record.md   RC 후보 커밋, digest, 게이트별 증거 링크
+        MODIFY README.md                코드모드 경로 선택 규칙 한 절(네이티브 우선, 배치 전환 조건)
+
+`eval/` 디렉터리는 저장소에 이미 있다(현재는 bench 스크립트용). 새 파일은 그 아래에 둔다.
+
+## TESTS
+
+- NEW `test/eval-paired-run.test.js`: 워크로드 정의가 잘못되면(반복 수 0, 경로 없음) 실행 전에 거절한다.
+  같은 seed로 두 번 돌리면 실행 순서가 교차(ABBA)되고, 중앙값 계산이 홀수/짝수 표본 모두에서 맞다.
+- NEW `test/eval-report.test.js`: 표본이 30 미만이면 리포트가 p95를 만들지 않고 그 사실을 본문에 적는다.
+  실패한 실행이 중앙값 계산에서 제외되지 않고 오류율로 보고된다.
+
+## Verification (C)
+
+- `node --test test/eval-paired-run.test.js test/eval-report.test.js` — exit 0.
+- `node eval/paired-run.mjs --workload eval/workloads/independent-reads.json --dry-run` — exit 0, 실행 계획만 출력.
+- G0-G4의 각 명령을 실제로 돌린 로그를 `100_rc_record.md`에 붙인다. 돌리지 않은 게이트는 비워 두고 통과로 적지 않는다.
+- hosted CI 5조합 success at RC 후보 head.
+
 ## RC 고정
 
 - G0–G5를 통과한 커밋을 RC로 고정하고 검증 중 `dev`의 최신 HEAD를 따라가지 않는다.

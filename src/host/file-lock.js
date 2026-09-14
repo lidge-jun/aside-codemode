@@ -116,7 +116,7 @@ export function isContendedLockError(code, platform = process.platform) {
  * Acquire the exclusive lock for `target`.
  * Resolves to a release function that is safe to call once, in a `finally`.
  */
-export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT_MS, signal } = {}) {
+export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT_MS, signal, openImpl = open } = {}) {
   throwIfAborted(signal);
   ensureLockDir();
   const lockPath = lockPathFor(target);
@@ -127,7 +127,7 @@ export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT
   for (;;) {
     let handle;
     try {
-      handle = await open(lockPath, 'wx');
+      handle = await openImpl(lockPath, 'wx');
     } catch (e) {
       if (!isContendedLockError(e.code)) throw e;
       const waited = Date.now() - startedAt;

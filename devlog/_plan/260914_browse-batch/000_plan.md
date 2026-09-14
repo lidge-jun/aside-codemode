@@ -40,9 +40,14 @@ Aside REPL is a real, already-installed execution surface that satisfies A's con
 
 Accepted architect decisions A1, A2, A3, A4, A6, A8, A9 as proposed.
 **Amended A5 and A7**: the architect assumed "process death is tab death" and made SIGKILL the
-cancel primitive. E5 falsifies that. Amendment: the host deadline is always set below the
-in-script deadline so the script's `finally` closes its own tabs and the CLI exits cleanly;
-kill is a last resort that MUST surface `partial` plus the leaked URLs.
+cancel primitive. E5 falsifies that. Amendment: the **in-script deadline fires first and the
+host deadline is the outer backstop** (host = inner + slack), so the script's `finally` closes
+its own tabs and the CLI exits cleanly under its own timer instead of being killed. Kill is a
+last resort that MUST surface `partial` plus the leaked URLs.
+
+Ordering, stated once so it cannot be read backwards: `inner script deadline < host process
+deadline`. The host must be the more patient of the two. An earlier draft of this document and
+of 001 said the opposite; 010 and 020 implement the correct order.
 
 Unresolved assumptions returned by the architect, now resolved by measurement:
 argv shape (1) confirmed `['repl', script]`; in-script multi-page (2) confirmed, 5 pages in

@@ -5,8 +5,12 @@ Unit: `devlog/_plan/260914_browse-batch/`. Research doc (000-range): observation
 Host: Windows 11, Aside CLI `1.26.906.1630` at
 `%LOCALAPPDATA%\Aside\CLI\current\aside.exe`. Every row below was produced by
 `aside.exe repl <script>` launched argv-only through `Start-Process -ArgumentList @('repl', $js)`
-under a `WaitForExit` deadline. Probe scripts are not committed; they are reproduced verbatim
-in each row's `how`.
+under a `WaitForExit` deadline.
+
+Reproducibility limit, stated plainly: the probe scripts were run from a scratch directory
+outside this checkout and are NOT committed, and the tables below record results only. A reader
+cannot replay these runs from the tree; they can only re-derive them by writing equivalent
+probes. Each row names the exact call it measured so that re-derivation is mechanical.
 
 ## E1 — Session and process contract
 
@@ -87,8 +91,9 @@ per-domain timeout (#21) must sit below to be meaningful.
 "process death is tab death" assumption. Design consequences are binding:
 
 1. The compiled script owns cleanup in a `finally`; that is the only reliable close.
-2. The host deadline must be set BELOW the in-script deadline so the script always
-   self-terminates and exits cleanly. Killing the child is a leak, not a cleanup.
+2. The in-script deadline must fire BEFORE the host process deadline
+   (`inner < host`, host = inner + slack) so the script always self-terminates and the CLI
+   exits cleanly. Killing the child is a leak, not a cleanup.
 3. When a kill does happen, the envelope must report `partial` and the leaked URLs.
    Silence here would turn a leak into a reported success.
 

@@ -17,9 +17,12 @@ it is one.
 `require`, no `process` and no `module`.
 
 `fs` is root-guarded. It reads the account root and the session directory; a repository
-path is refused with `Path escapes Project and session roots`. A relative path resolves
-from the session directory, not from the caller's working directory, which is why the
-helper loads as `../../codemode/cm.js`.
+path is refused with `Path escapes Project and session roots`. What a *relative* path is
+relative to depends on which surface is running the code, and the two do not agree: under
+`aside repl` it resolves from the session directory (two levels below the account root), so
+`../../codemode/cm.js` reaches the helper; under the in-app agent REPL it resolves from the
+account root, where that same line leaves the account root and is refused. Load the helper
+by its absolute path, `{{HELPER}}`, which both surfaces read.
 
 The browser cannot reach this machine's loopback, and the daemon refuses `file://` without
 local file access. For a fixture page, use a `data:text/html` url: it is a real document

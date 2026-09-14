@@ -15,7 +15,9 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { helperSource, HELPER_INSTALL_RELPATH, HELPER_LOAD_RELPATH, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
+import {
+  helperSource, helperLoadPathFor, HELPER_INSTALL_RELPATH, HELPER_LOAD_RELPATH, HELPER_VERSION,
+} from '../src/host/browse/helper-bundle.js';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -27,8 +29,16 @@ const label = arg('--label', os.hostname());
 const asJson = process.argv.includes('--json');
 
 const PROGRAM = `
-const src = await fs.readFile(${JSON.stringify(HELPER_LOAD_RELPATH)}, 'utf8');
+// The absolute path is what the installed skill now prints, and the only form both surfaces
+// read. The session-relative form is checked alongside it because 'aside repl' - the surface
+// this probe runs on - is the one place it works, and a regression there is worth catching.
+const src = await fs.readFile(${JSON.stringify(helperLoadPathFor(accountRoot))}, 'utf8');
 (0, eval)(src);
+let cliRelativeRead = null;
+try {
+  const rel = await fs.readFile(${JSON.stringify(HELPER_LOAD_RELPATH)}, 'utf8');
+  cliRelativeRead = rel === src ? 'same-bytes' : 'different-bytes';
+} catch (e) { cliRelativeRead = 'failed: ' + String(e && e.message).slice(0, 80); }
 const page = (i) => 'data:text/html;charset=utf-8,' + encodeURIComponent(
   '<!doctype html><title>batch page ' + i + '</title><main id="content" data-page="' + i + '">'
   + '<h1>batch page ' + i + '</h1><p id="marker">page-' + i + '-body</p></main>');
@@ -36,7 +46,7 @@ const read = async (tab, item, jobId) => {
   const marker = await tab.evaluate(() => document.querySelector('#marker').textContent);
   return { jobId: jobId, marker: marker };
 };
-const out = { version: cm.version };
+const out = { version: cm.version, cliRelativeRead: cliRelativeRead };
 out.budget = await cm.run({
   items: [0,1,2,3,4,5].map((i) => ({ url: page(i), i: i })),
   limit: 2, maxTabs: 2, deadlineMs: 45000, onItem: read,

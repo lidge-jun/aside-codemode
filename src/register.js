@@ -11,6 +11,9 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { userConfigPath } from './config.js';
+import { helperLoadPathFor } from './host/browse/helper-bundle.js';
+
+export { helperLoadPathFor };
 
 const START = '<!-- aside-codemode:start -->';
 const END = '<!-- aside-codemode:end -->';
@@ -252,12 +255,11 @@ export function applyRegister({
     } catch { /* EACCES or other - continue */ }
   } catch { /* continue to AGENTS */ }
 
-  let body;
+  // Read once, fill per account. The helper path is the account root's own, so a template
+  // filled once outside the loop would stamp one account's path onto every other account.
+  let template;
   try {
-    body = readFileSync(templatePath, 'utf8')
-      .replaceAll('{{NODE}}', node)
-      .replaceAll('{{CLI}}', cli)
-      .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
+    template = readFileSync(templatePath, 'utf8');
   } catch (e) {
     return {
       ok: false,
@@ -284,6 +286,11 @@ export function applyRegister({
     };
     try {
       mkdirSync(root, { recursive: true });
+      const body = template
+        .replaceAll('{{NODE}}', node)
+        .replaceAll('{{CLI}}', cli)
+        .replaceAll('{{HELPER}}', helperLoadPathFor(root))
+        .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
       const prev = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
       const next = upsertAgents(prev, body);
       writeFileSync(agentsPath, next);

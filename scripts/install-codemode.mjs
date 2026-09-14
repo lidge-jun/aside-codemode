@@ -19,7 +19,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { helperSource, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
+import { helperSource, helperLoadPathFor, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
 import { createActions } from '../src/host/actions.js';
 import { listAccountRoots, upsertAgents } from '../src/register.js';
 
@@ -37,17 +37,27 @@ function opt(name, fallback) {
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-function fill(text, { node, cli }) {
+// {{HELPER}} is the account root's own absolute path to cm.js. It is not one value for the
+// machine: each account root holds its own copy, and the line is pasted into code an agent
+// runs, so it goes in with forward slashes on every platform.
+function fill(text, { node, cli, accountRoot }) {
   return text
     .replaceAll('{{NODE}}', node)
     .replaceAll('{{CLI}}', cli)
+    .replaceAll('{{HELPER}}', helperLoadPathFor(accountRoot))
     .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
+}
+
+// The markered block, filled for one account. Exported so a test can read what an account
+// would actually be handed without writing to a real account root.
+export function agentsBody({ node, cli, accountRoot }) {
+  return fill(readFileSync(path.join(REPO_ROOT, 'templates', 'AGENTS.codemode.md'), 'utf8'), { node, cli, accountRoot });
 }
 
 // Every file the install owns, with its content already resolved. Keeping content and
 // ownership in one list is what lets install, repair and uninstall share a definition
 // instead of three that drift.
-export function plannedFiles({ node, cli, version = HELPER_VERSION } = {}) {
+export function plannedFiles({ node, cli, accountRoot, version = HELPER_VERSION } = {}) {
   const read = (rel) => readFileSync(path.join(REPO_ROOT, rel), 'utf8');
   const actions = createActions();
   const catalog = {
@@ -62,9 +72,9 @@ export function plannedFiles({ node, cli, version = HELPER_VERSION } = {}) {
   return [
     { path: 'codemode/cm.js', content: helperSource(version).src },
     { path: 'codemode/catalog.json', content: JSON.stringify(catalog, null, 2) + '\n' },
-    { path: SKILL_DIR + '/SKILL.md', content: fill(read('templates/skill/SKILL.md'), { node, cli }) },
-    { path: SKILL_DIR + '/references/execution-paths.md', content: fill(read('templates/skill/references/execution-paths.md'), { node, cli }) },
-    { path: SKILL_DIR + '/references/windows-invocation.md', content: fill(read('templates/skill/references/windows-invocation.md'), { node, cli }) },
+    { path: SKILL_DIR + '/SKILL.md', content: fill(read('templates/skill/SKILL.md'), { node, cli, accountRoot }) },
+    { path: SKILL_DIR + '/references/execution-paths.md', content: fill(read('templates/skill/references/execution-paths.md'), { node, cli, accountRoot }) },
+    { path: SKILL_DIR + '/references/windows-invocation.md', content: fill(read('templates/skill/references/windows-invocation.md'), { node, cli, accountRoot }) },
   ];
 }
 
@@ -141,8 +151,8 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
   const accountRoot = chosen.root;
   const node = process.execPath;
   const cli = path.join(REPO_ROOT, 'bin', 'codemode.mjs');
-  const body = fill(readFileSync(path.join(REPO_ROOT, 'templates', 'AGENTS.codemode.md'), 'utf8'), { node, cli });
-  const files = plannedFiles({ node, cli });
+  const body = agentsBody({ node, cli, accountRoot });
+  const files = plannedFiles({ node, cli, accountRoot });
   const manifest = readManifest(accountRoot);
   const manifestPath = path.join(accountRoot, MANIFEST_RELPATH);
 

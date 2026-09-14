@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import {
   helperSource, helperStamp, HELPER_URL, HELPER_VERSION, HELPER_MAX_BYTES,
   HELPER_INSTALL_RELPATH, HELPER_LOAD_RELPATH,
+  helperLoadPathFor,
 } from '../src/host/browse/helper-bundle.js';
 import { compile } from '../src/host/browse/script.js';
 import { validateJob } from '../src/host/browse/schema.js';
@@ -49,9 +50,19 @@ test('helper:false adds nothing at all to the generated script', () => {
   assert.ok(withHelper.length < 30000);
 });
 
-test('the install path and the load path name the same file from two places', () => {
-  // The REPL resolves a relative read from its session directory, which is two levels under
-  // the account root. Probed on macOS and Windows; this pins the pair so they cannot drift.
+test('the install path and the CLI-only load path name the same file from two places', () => {
+  // 'aside repl' resolves a relative read from its session directory, two levels under the
+  // account root, so this pair holds there. It does NOT hold on the in-app agent REPL, which
+  // resolves from the account root; that is why documents get the absolute form instead.
   assert.equal(HELPER_INSTALL_RELPATH, 'codemode/cm.js');
   assert.equal(HELPER_LOAD_RELPATH, '../../' + HELPER_INSTALL_RELPATH);
+});
+
+test('the absolute load path is per account and uses forward slashes everywhere', () => {
+  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/0'), '/Users/jun/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/1'), '/Users/jun/.aside/u/1/codemode/cm.js');
+  // A Windows root joined with backslashes is not a string literal: '\\u' is a parse error
+  // in the code an agent pastes. Forward slashes read the same file and survive parsing.
+  assert.equal(helperLoadPathFor('C:\\Users\\super\\.aside\\u\\0'), 'C:/Users/super/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/0/'), '/Users/jun/.aside/u/0/codemode/cm.js');
 });

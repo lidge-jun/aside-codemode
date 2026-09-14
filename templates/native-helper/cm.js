@@ -6,13 +6,15 @@
 // what the run is allowed to claim when it did not finish.
 //
 // The result uses the SAME keys and the same status set as the host batch (browse/2), so one
-// reader understands both. Loaded in a REPL session with:
+// reader understands both. Load it by the absolute path the installed skill prints for this
+// account:
 //
-//     const src = await fs.readFile('../../codemode/cm.js', 'utf8');
+//     const src = await fs.readFile('<accountRoot>/codemode/cm.js', 'utf8');
 //     (0, eval)(src);
 //
-// The relative path resolves from the session directory to the account root on both macOS
-// and Windows; it was probed on each rather than assumed.
+// The absolute form is the one measured to work on both surfaces that read the skill. A
+// session-relative '../../codemode/cm.js' works under 'aside repl' only; the in-app agent
+// REPL resolves from the account root and refuses it.
 globalThis.cm = (function () {
   var VERSION = '__CM_VERSION__';
 

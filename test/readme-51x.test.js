@@ -77,9 +77,11 @@ test('51x evidence names the companion bench and equality check', () => {
   assert.match(note, /equality/);
 });
 
-test('AGENTS template keeps three placeholders and Windows Git Bash', () => {
+test('AGENTS template keeps its placeholders and Windows Git Bash', () => {
   const names = [...agents.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
-  assert.deepEqual([...new Set(names)].sort(), ['{{CLI}}', '{{CWD_HINT}}', '{{NODE}}']);
+  // {{HELPER}} joined the set when the loader line stopped being session-relative: the path
+  // differs per account root, so it has to be filled rather than written once.
+  assert.deepEqual([...new Set(names)].sort(), ['{{CLI}}', '{{CWD_HINT}}', '{{HELPER}}', '{{NODE}}']);
   const flat = agents.replace(/\s+/g, ' ');
   assert.match(flat, /Git Bash/);
   assert.match(flat, /PowerShell/);

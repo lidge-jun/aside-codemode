@@ -21,7 +21,7 @@ one item natively, read what came back, then batch the rest.
 
 ## Running one, inside a REPL session
 
-    const src = await fs.readFile('../../codemode/cm.js', 'utf8'); (0, eval)(src);
+    const src = await fs.readFile('{{HELPER}}', 'utf8'); (0, eval)(src);
 
     const out = await cm.run({
       items: rows.map((r) => ({ url: r.href, row: r })),
@@ -38,8 +38,13 @@ one item natively, read what came back, then batch the rest.
 hand-written loop gets wrong: how many tabs are open at once, closing a tab whose item
 threw, and refusing to call the run finished when it was not.
 
-The relative path is resolved from the REPL's session directory, which is two levels below
-the account root. That was probed on macOS and Windows; it is not a guess.
+That path is this account's own copy, written by the installer. Use it as it stands rather
+than a relative one: the two surfaces that read this document do not agree on what a
+relative path is relative to. `aside repl` resolves from its session directory, two levels
+below the account root, so `../../codemode/cm.js` works there. The in-app agent REPL
+resolves from the account root itself, where the same line leaves the account root and the
+fs guard refuses it with `Path escapes Project and session roots`. The absolute path is the
+one form measured to work on both.
 
 ## Reading the result
 

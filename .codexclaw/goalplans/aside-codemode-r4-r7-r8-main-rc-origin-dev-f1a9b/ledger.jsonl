@@ -23,3 +23,12 @@
 {"ts":"2026-09-14T23:16:24.712Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"add-work-phase-06506b32873b: 1 op(s): add-work-phase — cxc loop add-work-phase"}
 {"ts":"2026-09-14T23:16:24.712Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"dependency_registered","detail":"wp8 dependsOn=wp1"}
 {"ts":"2026-09-14T23:16:25.048Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"add-criterion-cff44cf823a4: 1 op(s): add-criterion — cxc loop add-criterion"}
+{"ts":"2026-09-14T23:47:37.773Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"add-work-phase-08088e8243bd: 1 op(s): add-work-phase — cxc loop add-work-phase"}
+{"ts":"2026-09-14T23:47:37.773Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"dependency_registered","detail":"wp6a dependsOn=wp3"}
+{"ts":"2026-09-14T23:47:38.038Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"add-work-phase-68b248ea6a7e: 1 op(s): add-work-phase — cxc loop add-work-phase"}
+{"ts":"2026-09-14T23:47:38.038Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"dependency_registered","detail":"wp3b dependsOn=wp6a"}
+{"ts":"2026-09-14T23:47:53.568Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"criterion_met","detail":"devlog/_plan/260915_release-main/에 000_plan.md와 001_audit_findings.md, 그리고 각 work-phase의 diff-level 문서 7편(010 로더, 020 G3 fixture, 030 설치 수명, 040 카나리아, 050 G5, 060 기록, 070 승격)이 461줄로 존재한다. 커밋 7904d39(1차 감사 반영)와 e3a32d9(검증 반영). 감사 3명(grok-4.6) 전원 FAIL과 검증 2명(sol medium) 전원 FAIL을 받아 blocking 지적을 전부 문서에 반영했고, 각 문서는 변경 파일 목록, 먼저 실패해야 하는 반례, oracle, 통과 조건, 미실행 항목을 담는다."}
+{"ts":"2026-09-14T23:52:10.674Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"add-work-phase-3c0e86a49934: 1 op(s): add-work-phase — cxc loop add-work-phase"}
+{"ts":"2026-09-14T23:52:10.674Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"dependency_registered","detail":"wp9 dependsOn=wp1"}
+{"ts":"2026-09-14T23:52:24.500Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"workphase_done","detail":"closed wp1"}
+{"ts":"2026-09-14T23:52:24.500Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"workphase_started","detail":"started wp2"}

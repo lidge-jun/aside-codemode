@@ -547,7 +547,17 @@ Measured: `snapshot(page)` returns `{tree, refs, diff}`; a repeat call gave a 20
 against a 289-char tree. So the win is real but only on revisit.
 
 - `src/host/browse/snapshot-cache.js`: file-backed under `os.tmpdir()/codemode-browse-cache`,
-  keyed by a hash of url + viewport + roles + schema version, with a TTL.
+  keyed by a hash of **url + Aside account root + viewport + roles + waitSelector + schema
+  version**, with a TTL.
+
+  The account root is in the key because the browser carries a **signed-in profile**. Keying
+  on url alone would let one account's rendering of a page be served to a different context —
+  the cache would be a cross-account leak, not a speed-up. `waitSelector` is in the key
+  because waiting for a different element produces a genuinely different tree, so two callers
+  asking different questions must not share an entry.
+
+  TTL is the ONLY invalidation: nothing here watches the page for change. That is stated so
+  a caller does not mistake a hit for freshness.
 - Compact mode filters tree lines to requested roles before returning.
 - On a hit the caller gets `{ cached: true, diff }`; on a miss the full tree.
 - It is a cooperating-process cache, NOT a security boundary — same standing as the file
@@ -564,13 +574,27 @@ Resource blocking stays refused and the refusal is recorded in the code, not jus
 navigation. There is no interception surface to wrap, so a blocking option throws `ENOTSUP`
 naming that measurement.
 
+Both spellings are frozen: `route` AND `block`. `page.on` IS present, so the tempting move for
+a later implementer is to wrap `page.on('request')` and believe it works — it accepts the
+listener and never fires. Refusing only `route` would leave that door open.
+
 ### #22 — `report.build`, verified against the real page box
 
 `file://` is refused by Aside, so the assembled HTML is served over loopback:
 
 1. `src/host/report/html.js` assembles a paged HTML document from items and artifacts.
-2. `src/host/report/serve.js` binds a `node:http` server on `127.0.0.1:0` (ephemeral port),
-   serving exactly one document and the images it references, then closes.
+2. `src/host/report/serve.js` binds a `node:http` server on `127.0.0.1:0` (ephemeral port)
+   and serves exactly one document plus the images it references.
+
+   **Served paths are jailed**, the same way `capture.js` contains artifact reads. A figure
+   `src` is caller-controlled, so the server keeps an explicit allowlist built by the host:
+   each asset is registered under a generated name, the request path is looked up in that map,
+   and anything not in the map is a 404. No request path is ever joined onto a directory, so
+   there is no traversal to defend against. The listener is loopback-only and unauthenticated
+   for its lifetime, which is why the lifetime is as short as possible.
+
+   **The server closes in a `finally`, after `page.pdf()` resolves.** Images are fetched at
+   print time, so closing earlier produces a report with missing figures and no error.
 3. The browse session navigates to that URL and calls `page.pdf({ paperWidth, paperHeight })`
    in INCHES — never `format`, which was measured to yield US Letter.
 4. `pagebox.verifyPageBox` reads the real MediaBox. A mismatch fails the item.

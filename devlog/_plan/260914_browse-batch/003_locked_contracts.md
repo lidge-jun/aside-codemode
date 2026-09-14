@@ -631,19 +631,46 @@ Dedupe is on normalised URL (strip `utm_*`, trailing slash, fragment). The date 
 applied host-side to whatever the engine returned, and `filtered` counts what it dropped so
 a caller can tell an empty result from an over-aggressive filter.
 
+**Every result echoes its `engine`**, because DuckDuckGo is a different and weaker index than
+Google: a caller must never be left thinking they searched one when they searched the other.
+
+**The DuckDuckGo path gets the same bot-page detection as Google.** It is the DEFAULT engine,
+so if its challenge page parsed as "zero results" the default path would recreate exactly the
+empty-set lie that E8 made us refuse for Google. A response that parses to no rows while
+containing challenge markers is `EBLOCKED`, not an empty result.
+
 ### #13 — `browse.downloadMedia(urls, { outDir })`
 
 Direct host `fetch` of image URLs, no page capture. Each item is written through
-`assertInside` with a host-generated name, and the bytes are identified with the existing
-`imageDimensions`/`mimeOf` readers so a caller learns what actually arrived. A response
-whose content-type is not an image is an item failure, not a saved HTML error page.
+`assertInside` with a host-generated name.
+
+**The magic bytes gate the WRITE, not a label after it.** Content-Type is a claim the server
+makes; a block page or a login redirect can send `image/png` and still be HTML. So the order
+is sniff-then-write: `mimeOf`/`imageDimensions` must recognise PNG or JPEG bytes before
+anything reaches disk. Writing first and verifying second — the order `capture.js` uses for
+content Aside itself produced — would leave an HTML error page on disk under a host-generated
+`.png` name, which is precisely "a saved HTML error page".
+
+A `maxBytes` cap (default 8 MiB) bounds the download, because a remote url is not a bounded
+resource and an unbounded read is a denial of service on the caller's own disk.
 
 ### #15 — one shared TTL cache
 
-`snapshot-cache.js` generalises into `cache.js` with the same key discipline, reused by
-`readText`, `extract` and `searchMany`. Keyed by namespace + url/query + Aside account root
-+ locale + viewport + roles + waitSelector + schema version. Cooperating processes, TTL-only
-invalidation, not a security boundary — the same standing as the file locks.
+`snapshot-cache.js` generalises into `cache.js`, reused by `readText`, `extract`, `watch`
+and `searchMany`. The existing `cacheKey()` is NOT reused as-is: it hashes only
+schema+url+accountRoot+viewport+roles+waitSelector, so one file in a single cache directory
+could serve a readText entry to an extract caller.
+
+The key becomes **namespace + url-or-query + engine + Aside account root + locale + viewport
++ roles + waitSelector + schema version**.
+
+- `namespace` stops one feature's entry answering another's question.
+- `engine` stops a YouTube result set being served for the same query asked of DuckDuckGo —
+  different indexes, genuinely different answers.
+- `locale` because the same url returns different content per language.
+
+Cooperating processes, TTL-only invalidation, not a security boundary — the same standing as
+the file locks.
 
 ### #7 — `browse.watch(urls, { store })`
 

@@ -79,6 +79,38 @@ export function aggregateSteps(items = []) {
   return { byStep, slowest };
 }
 
+// Side effects are printed as they happen, on the same line-oriented channel as steps, so
+// a run whose final payload never arrived still leaves a record of what it touched.
+export function parseEffects(stdout) {
+  const rows = [];
+  for (const line of stripAnsi(stdout).split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    try {
+      const o = JSON.parse(t);
+      if (o && o.type === 'effect' && o.effect) rows.push(o.effect);
+    } catch (_) { /* not an effect line */ }
+  }
+  return rows;
+}
+
+// started with no confirmation is INDETERMINATE, not failed. Promise.race ends a wait; it
+// does not cancel a click that Aside already handed to the page. A killed process makes
+// every effect indeterminate, because the confirmation may simply never have been printed.
+export function settleEffects(rows = [], { killed = false } = {}) {
+  const byId = new Map();
+  for (const e of rows) {
+    if (!e || typeof e.operationId !== 'string') continue;
+    const cur = byId.get(e.operationId)
+      || { operationId: e.operationId, jobId: e.jobId, verb: e.verb, i: e.i, state: 'started' };
+    if (e.state === 'confirmed') cur.state = 'confirmed';
+    byId.set(e.operationId, cur);
+  }
+  return [...byId.values()].map((e) => (
+    !killed && e.state === 'confirmed' ? e : { ...e, state: 'indeterminate' }
+  ));
+}
+
 // The host issues every identifier and derives every status. The script echoes ids and
 // reports per-item facts; it never decides whether the RUN succeeded.
 //
@@ -195,7 +227,12 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
         })),
         ledger: requested,
         reconciledBy: 'ledger',
-        effects: [],
+        // The payload never arrived, but the effect lines did. Recovering them here is the
+        // difference between "we do not know what this run touched" and "it touched these
+        // four things and we never saw them confirmed". Only a real kill folds a printed
+        // confirmation back to unknown; a run that merely lost its marker still told the
+        // truth about what it confirmed.
+        effects: settleEffects(parseEffects(stdout), { killed }),
         complete: false,
         truncated: false,
         timings: { steps: [], totalMs },
@@ -227,6 +264,8 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // Feed the outcomes back so the NEXT call sees a domain that keeps failing.
     if (breaker) breaker.record(items);
     const steps = aggregateSteps(items);
+    const effects = settleEffects(parseEffects(stdout), { killed });
+    if (effects.some((e) => e.state === 'indeterminate')) partial.push('effect-indeterminate');
 
     // Reconcile what came back against what was asked for. Counting only the items that
     // arrived is how eight of nine urls used to report as a whole success.
@@ -254,7 +293,6 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (unreconciled) partial.push('unreconciled');
     if (extra.length) partial.push('extra-items');
     if (duplicates.length) partial.push('duplicate-jobid');
-    const effects = [];
     const status = runStatus({
       marker, items: reconciled, leakedUrls, killed, effects,
       extras: extra.length + duplicates.length,

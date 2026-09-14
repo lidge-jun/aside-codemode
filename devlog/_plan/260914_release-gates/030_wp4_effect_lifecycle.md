@@ -156,6 +156,21 @@
 
 ## 범위 밖으로 명시하는 것
 
+## 착수 후 바뀐 결정 (구현이 문서를 이긴 곳)
+
+- **줄 번호는 낡았다.** 이 문서의 `script.js:368-392/494/511-529/531`은 wp2/wp3가 줄을 옮기기 전 기준이다.
+  구현은 현재 트리 기준으로 같은 지점을 고쳤다.
+- **hang한 close는 cleanup이 다시 시도하지 않는다.** 문서 스니펫은 재시도하게 돼 있었지만,
+  `withCap`은 close를 취소하지 않으므로 두 번째 대기는 같은 hang을 남은 예산만큼 다시 기다린다.
+  그래서 hang에는 `rec.capped`를 세워 건너뛰고 누수로 보고한다. **throw한 close는 표시하지 않는다** —
+  거절은 두 번째 시도로 닫힐 수 있으므로 cleanup이 한 번 더 시도한다.
+- **`operationId`에 `opSeq`가 붙는다.** `jobId`가 없는 compile 경로(plan 없이 호출)에서 모든 항목의 step 0이
+  같은 id를 만들어 호스트가 서로 다른 효과를 하나로 접었다. 위치를 fallback 소유자로 쓴다.
+- **marker만 없는 종료는 kill로 접지 않는다.** `settleEffects(..., { killed })`에 실제 `killed`를 넘긴다.
+  run status는 어차피 `indeterminate`이지만, 실제로 confirmed를 본 효과까지 unknown으로 되돌릴 이유는 없다.
+- **대기 루프 뒤 deadline을 다시 본다.** `one()` 맨 위의 가드는 탭 예산 대기 전에 실행되므로,
+  줄을 서 있던 워커가 inner deadline을 한참 넘겨 탭을 열 수 있었다.
+
 screenshot/pdf의 `fs.writeFile`은 `type:effect`를 남기지 않는다. 웹 상태를 바꾸는 동작이 아니라 세션 디렉터리 안의
 로컬 쓰기이고, 같은 `jobId`에 대해 같은 이름으로만 쓰이므로 재실행이 서로를 겹쳐 쓰지 않는다.
 A4의 수명 추적은 **웹 mutation**에 한정한다. 아티팩트 쓰기 실패는 기존 `EARTIFACT` 경로로 보고한다.

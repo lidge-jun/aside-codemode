@@ -250,6 +250,9 @@ async function one(item) {
   while (owned() >= JOB.maxTabs && !deadlineHit && Date.now() < tabWaitUntil) {
     await napMs(50);
   }
+  // Re-check after waiting. The guard at the top of one() ran before the wait, so a worker
+  // that queued behind the budget could still open a tab well past the inner deadline.
+  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
   if (owned() >= JOB.maxTabs) {
     items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
     return;
@@ -265,7 +268,11 @@ async function one(item) {
     items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
-  pending.push({ url: item.url, pr });
+  // The record is held, not looked up later: two workers can be opening the same url, and
+  // matching them by url afterwards attributes one worker's tab to the other.
+  const pend = { url: item.url, jobId: item.jobId, pr, settled: null, rec: null };
+  pending.push(pend);
+  pr.then(function () { pend.settled = 'fulfilled'; }, function () { pend.settled = 'rejected'; });
   let page;
   try {
     page = await pr;
@@ -277,8 +284,9 @@ async function one(item) {
   }
   if (owned() > tabsPeak) tabsPeak = owned();
   t.navigate = lap();
-  const rec = { targetId: page && page.targetId, url: item.url, page, closed: false };
+  const rec = { targetId: page && page.targetId, url: item.url, jobId: item.jobId, page, closed: false };
   opened.push(rec);
+  pend.rec = rec;
   try {
     if (item.waitSelector) { await page.waitForSelector(item.waitSelector, { timeout: item.timeoutMs || JOB.innerMs }); }
     else if (typeof page.waitForLoadState === 'function') { await page.waitForLoadState(JOB.waitUntil); }
@@ -375,6 +383,22 @@ async function one(item) {
         deadlineAt: actionDeadlineNow(),
         refsFingerprint: JOB.refsFingerprint,
         guardTimeoutMs: 5000,
+        // Both ids come from the host. The script composes the operation id from them so a
+        // side effect can be traced back to the request that asked for it, but it never
+        // invents an identifier of its own.
+        runId: JOB.runId,
+        jobId: item.jobId,
+        // Position within the batch. Used only when no jobId was issued: without it every
+        // item's step 0 composes the same operationId and the host folds distinct effects
+        // into a single one.
+        opSeq: JOB.items.indexOf(item),
+        onEffect: function (rec, state) {
+          try {
+            console.log(JSON.stringify({ type: 'effect', effect: {
+              operationId: rec.operationId, runId: JOB.runId, jobId: item.jobId,
+              i: rec.i, verb: rec.verb, state: state, at: Date.now() } }));
+          } catch (e) {}
+        },
         onStep: function (rec) {
           var row = { url: item.url, i: rec.i, verb: rec.verb, target: rec.target, ok: rec.ok, code: rec.code };
           actionLog.push(row);
@@ -494,7 +518,15 @@ async function one(item) {
   } finally {
     // A close that HANGS used to cost this worker for the rest of the run, with its queued
     // urls silently never attempted. Capped so the worker returns to the pool.
-    try { await withCap(page.close(), 1500); markClosed(rec); } catch (_) {}
+    // withCap resolves with '__capped__' when the close hangs, so marking it closed here
+    // counted a tab that is still open and handed the worker a slot it does not have.
+    // A close that hangs is not a close. It is also not worth a second attempt: retrying it
+    // in cleanup spends the whole remaining budget waiting for the same hang, so the tab is
+    // marked as one we could not close and reported through leakedUrls instead.
+    try {
+      const closedOk = await withCap(page.close(), 1500);
+      if (closedOk !== '__capped__') markClosed(rec); else rec.capped = true;
+    } catch (_) { /* a close that REFUSED may still close on a second attempt, so cleanup keeps it */ }
   }
 }
 async function main() {
@@ -516,21 +548,33 @@ async function cleanup() {
   const left = () => Math.max(1, deadline - Date.now());
   const settled = await withCap(Promise.allSettled(pending.map((x) => x.pr)), left());
   if (settled !== '__capped__') {
-    const closes = [];
     for (let i = 0; i < settled.length; i++) {
       const s = settled[i];
       if (s.status !== 'fulfilled' || !s.value) continue;
       const page = s.value;
-      let rec = opened.find((o) => o.page === page);
-      if (!rec) { rec = { targetId: page.targetId, url: pending[i].url, page, closed: false }; opened.push(rec); }
-      if (rec.closed) continue;
-      const r = rec;
-      closes.push(Promise.resolve().then(() => page.close()).then(() => markClosed(r), () => {}));
+      if (opened.some((o) => o.page === page)) continue;
+      opened.push({ targetId: page.targetId, url: pending[i].url, jobId: pending[i].jobId, page, closed: false });
     }
-    // Concurrently, under the SAME budget. One timeout per tab multiplied out to sixteen
-    // seconds against 1500ms of host slack and lost the payload it was added to save.
-    await withCap(Promise.allSettled(closes), left());
+  } else {
+    // The budget ran out while some opens were still in flight. An open we never heard
+    // back from may well be a tab we own, so it is named. One that already rejected is
+    // not a tab at all, and counting it would invent a leak.
+    for (const p of pending) {
+      if (p.settled === 'rejected' || p.rec) continue;
+      opened.push({ targetId: null, url: p.url, jobId: p.jobId, page: null, closed: false });
+    }
   }
+  // One pass over everything we own, capped or not. Skipping this when the pending await
+  // was capped left already-open tabs behind for the sake of tabs we never got.
+  const closes = [];
+  for (const rec of opened) {
+    if (rec.closed || !rec.page || rec.capped) continue;
+    const r = rec;
+    closes.push(Promise.resolve().then(() => r.page.close()).then(() => markClosed(r), () => {}));
+  }
+  // Concurrently, under the SAME budget. One timeout per tab multiplied out to sixteen
+  // seconds against 1500ms of host slack and lost the payload it was added to save.
+  await withCap(Promise.allSettled(closes), left());
   return opened.filter((o) => !o.closed).map((o) => o.url);
 }
 const timer = (typeof sleep === 'function' ? sleep(JOB.innerMs) : new Promise((r) => setTimeout(r, JOB.innerMs))).then(() => { deadlineHit = true; });

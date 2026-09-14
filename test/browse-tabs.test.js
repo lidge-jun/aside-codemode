@@ -18,6 +18,9 @@ async function runCompiled(src, makePage, opts = {}) {
     (url) => {
       if (opts.openThrowsSync) throw new Error('synchronous openTab failure');
       if (opts.openRejects) return Promise.reject(new Error('EOPEN simulated'));
+      // An open that never answers: the tab may or may not exist, which is the case the
+      // cleanup cap has to report rather than guess at.
+      if (opts.openHangs) return new Promise(() => {});
       live.count += 1;
       if (live.count > live.peak) live.peak = live.count;
       return Promise.resolve(makePage(url, live));
@@ -93,6 +96,9 @@ test('a request that never became a tab gives its slot back', async () => {
   assert.equal(out.items.length, 3, 'without the rollback the pool wedges after the first failure');
   assert.ok(out.items.every((i) => i.code === 'EOPEN'));
   assert.equal(out.tabs.requested, 0, 'every request was rolled back');
+  // wp4: a request that was refused is not a tab, and calling it a leak would send the
+  // caller looking for something that never existed.
+  assert.deepEqual(out.leakedUrls, [], 'a refused open is not a leaked tab');
 });
 
 // wp2: the refusal is a result like any other, so it has to name the request it refused.
@@ -126,6 +132,27 @@ test('a close that hangs costs one tab, not the whole run', async () => {
   assert.ok(out, 'the payload must still be printed');
   assert.ok(Date.now() - t0 < 9000, 'the worker must be released by the per-close cap');
   assert.equal(out.items.length, 2, 'the second url must still be attempted');
+  // wp4: a hung close used to run markClosed anyway, so the counter said the tab was gone
+  // while it was still open and the next worker took the slot.
+  assert.equal(out.tabs.closed, 0, 'a hang is not a close');
+  assert.equal(out.leakedUrls.length, 2, 'a tab we could not close has to be named');
+});
+
+test('an open that never answers is named as a possible leak, once per request', async () => {
+  // Two requests for the SAME url, both still opening when the budget expires. Keying the
+  // report by url would collapse them into one and understate what may be open.
+  const src = compile(validateJob({ urls: ['https://a.test/0', 'https://a.test/0'], concurrency: 2, timeoutMs: 700 }, { maxTabs: 4, concurrency: 2 }));
+  const { out } = await runCompiled(src, makePage(), { openHangs: true });
+  assert.ok(out, 'the payload must still be printed');
+  assert.equal(out.leakedUrls.length, 2, 'two in-flight opens are two possible tabs');
+});
+
+test('a hung close leaves the tab open, and the run says so instead of counting it gone', async () => {
+  const src = compile(validateJob({ urls: urls(2), concurrency: 1, timeoutMs: 9000 }, { maxTabs: 4, concurrency: 1 }));
+  const { out, live } = await runCompiled(src, makePage({ closeHangs: true }));
+  assert.equal(live.count, 2, 'the fake browser still holds both tabs');
+  assert.equal(out.tabs.closed, 0);
+  assert.equal(out.leakedUrls.length, 2);
 });
 
 test('the cleanup budget is derived from the host deadline, not the script clock', () => {

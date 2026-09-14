@@ -55,6 +55,11 @@ function __withTimeout(promise, ms, label) {
 // arrive. Calling those inert was harmless only by accident today and becomes a hole the
 // moment a read-only ref verb exists.
 var __INERT = { sleepMs: 1 };
+// Separate from __INERT on purpose. __INERT answers "can this step dirty the tree", and
+// waitFor and scroll are deliberately outside it because they can. This set answers a
+// different question — "can this step change something on the far side" — and a wait
+// cannot. Reusing __INERT here would have quietly weakened the stale-ref guard.
+var __NOEFFECT = { sleepMs: 1, waitFor: 1, waitForLoadState: 1 };
 function __applyStep(page, s, stepMs) {
   var loc = (s.target === null || s.target === undefined) ? null : page.locator(s.target);
   switch (s.verb) {
@@ -224,9 +229,16 @@ async function runActions(page, steps, ctx) {
     // How stale the authorisation already was when the verb finally ran. Zero would be a
     // lie; this is the real window a page had to move underneath the check.
     if (rec.targetKind === 'ref' && guardAt !== null) rec.guardAgeMs = t0 - guardAt;
+    var effectful = !__NOEFFECT[s.verb];
+    if (effectful) {
+      var opOwner = cfg.jobId || ('i' + (cfg.opSeq === undefined || cfg.opSeq === null ? 'x' : cfg.opSeq));
+      rec.operationId = String(cfg.runId || 'run') + '-' + String(opOwner) + '-s' + String(rec.i);
+      if (cfg.onEffect) cfg.onEffect(rec, 'started');
+    }
     try {
       await __withTimeout(__applyStep(page, s, stepMs), stepMs, s.verb);
       rec.ok = true;
+      if (effectful && cfg.onEffect) cfg.onEffect(rec, 'confirmed');
     } catch (e) {
       rec.error = String((e && e.message) || e).slice(0, 300);
       rec.code = __classify(e, s.verb);
@@ -235,6 +247,11 @@ async function runActions(page, steps, ctx) {
         rec.error = 'the action budget ran out while this step was running';
       }
     }
+    // No 'failed' effect line on purpose. A timeout is a decision to stop waiting, not a
+    // cancellation: the click may already
+    // have landed. Record that the effect STARTED before awaiting and CONFIRMED only when
+    // the await returned. The host reads a missing confirmation as indeterminate rather
+    // than pretending the page is untouched.
     rec.ms = Date.now() - t0;
     rec.timeoutMs = stepMs;
     if (!__INERT[s.verb]) dirty = true;

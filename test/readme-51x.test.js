@@ -71,6 +71,12 @@ test('no Linux install recipe', () => {
   }
 });
 
+test('51x evidence names the companion bench and equality check', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'dev-folder-51x.md'), 'utf8');
+  assert.match(note, /eval\/bench-search\.mjs/);
+  assert.match(note, /equality/);
+});
+
 test('AGENTS template keeps three placeholders and Windows Git Bash', () => {
   const names = [...agents.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
   assert.deepEqual([...new Set(names)].sort(), ['{{CLI}}', '{{CWD_HINT}}', '{{NODE}}']);

@@ -12,10 +12,18 @@ Depends on WP1–WP2 so the new contracts exist. Does not reopen WP3 numbers or 
 - Stop: windowsHide is proven via `rgChildOpts`; grep/patch negatives already in WP1/WP2 stay; bench `--self-check` is in the suite (WP3). This phase only fills remaining holes.
 - Escalation: none.
 
+## WP5 P revalidation (2026-09-14)
+
+Previous D (WP4): LICENSE+CI at `d627916`; 229/229; pack lists LICENSE. Direction unchanged — injectable spawn/exec proofs, not new APIs.
+
+Live: `src/child-opts.js` is only `rgChildOpts` (10 lines). `rg-stream.js:18,70` still `spawn(..., rgChildOpts())`. `rg.js:15,74,99` still `promisify(execFile)` + `execFileP` for version probes; `where.exe:46` stays raw. `test/windows-hide.test.js:31-35` still locks `windowsHide: true` substring. `test/readme-51x.test.js` has no companion `eval/bench-search.mjs` / `equality` lock. `test/patch-line.test.js` and `test/grepfile-envelope.test.js` exist. Execute 050 as written.
+
 ## IN / OUT
 
-IN: `src/child-opts.js` (add injectable spawn/exec wrappers), `src/rg.js`, `src/rg-stream.js` (call those wrappers), `test/windows-hide.test.js`, `test/readme-51x.test.js` (add, do not remove).  
+IN: `src/child-opts.js` (add injectable spawn/exec wrappers), `src/rg.js`, `src/rg-stream.js` (call those wrappers), `test/windows-hide.test.js`, `test/readme-51x.test.js` (add, do not remove), `evidence/dev-folder-51x.md` (add the word `equality` so the 050 lock can observe it; do not change 55s/1s/51x).  
 OUT: new features, README 51x numbers, license copyright line.
+
+Architect fold (2026-09-14): 050's `/equality/` lock failed against “match sets are equal”. IN now includes the evidence note. B writes `equality` once in the companion paragraph.
 
 ## MODIFY `src/child-opts.js` — injectable process wrappers
 

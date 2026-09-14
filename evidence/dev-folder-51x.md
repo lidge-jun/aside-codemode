@@ -30,6 +30,6 @@ node eval/bench-search.mjs --dir /tmp/cm-corpus --query NEEDLE-A1 --repeats 3 --
 node eval/bench-search.mjs --self-check
 ```
 
-The companion builds a synthetic tree, runs a recorded baseline (`grep -R -n -- query root` when `grep` exists, otherwise a labeled `node-walk`) vs one `codemode --code` `search.content`, checks that the match sets are equal, and prints unrounded `performance.now()` milliseconds for each repeat. Its ratio is not the README 51x claim. Do not write `find`+`grep` as the companion baseline.
+The companion builds a synthetic tree, runs a recorded baseline (`grep -R -n -- query root` when `grep` exists, otherwise a labeled `node-walk`) vs one `codemode --code` `search.content`, checks that the match sets are equal (`equality`), and prints unrounded `performance.now()` milliseconds for each repeat. Its ratio is not the README 51x claim. Do not write `find`+`grep` as the companion baseline.
 
 See also [synthetic-search-bench.md](synthetic-search-bench.md).

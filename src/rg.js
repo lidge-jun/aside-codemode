@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { rgChildOpts } from './child-opts.js';
+import { execFileRg } from './child-opts.js';
 import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
 import { decorateSearchResult } from './search-result.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
@@ -71,7 +71,7 @@ export function createRgResolver(config, env = process.env, { signal } = {}) {
         // never a silent fall-through to whatever PATH happens to hold.
         if (!existsSync(abs)) throw new RgNotFoundError();
         try {
-          await execFileP(abs, ['--version'], rgChildOpts({ timeout: 5000, signal, killSignal: 'SIGKILL' }, env));
+          await execFileRg(abs, ['--version'], { timeout: 5000, signal, killSignal: 'SIGKILL' }, env);
           return (cached = abs);
         } catch (e) {
           signal?.throwIfAborted();
@@ -96,7 +96,7 @@ export function createRgResolver(config, env = process.env, { signal } = {}) {
       // passes it and then dies as spawn EINVAL/EACCES (measured via aside
       // exec's bash env, node v24, 2026-09-13). Prove each with --version.
       try {
-        await execFileP(cand, ['--version'], rgChildOpts({ timeout: 5000, signal, killSignal: 'SIGKILL' }, env));
+        await execFileRg(cand, ['--version'], { timeout: 5000, signal, killSignal: 'SIGKILL' }, env);
         return (cached = cand);
       } catch (e) {
         signal?.throwIfAborted();

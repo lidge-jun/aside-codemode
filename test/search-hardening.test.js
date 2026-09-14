@@ -54,7 +54,7 @@ test('a truncated array still carries truncated/complete through direct JSON', a
   assert.equal(wire.truncated, true);
   assert.equal(wire.complete, false);
   assert.deepEqual(wire.partial, []);
-  assert.equal(wire.scope.path, realpathSync(dir));
+  assert.equal(wire.scope.path, realpathSync.native(dir));
 });
 
 test('metadata survives a nested return value, not only a top-level one', async () => {
@@ -327,7 +327,7 @@ test('scope reports the effective ignore/hidden/exclude/path policy', async () =
   assert.equal(pruned.scope.noIgnore, false);
   assert.equal(pruned.scope.hidden, false);
   assert.equal(pruned.scope.followSymlinks, false);
-  assert.equal(pruned.scope.path, realpathSync(dir));
+  assert.equal(pruned.scope.path, realpathSync.native(dir));
 
   const opened = await search.content({ query: 'needle-hit', path: dir, includeExcluded: true, noIgnore: true, hidden: true });
   assert.equal(opened.length, 2);
@@ -337,15 +337,14 @@ test('scope reports the effective ignore/hidden/exclude/path policy', async () =
   assert.equal(opened.scope.hidden, true);
 });
 
-test("a '/' root accepts /tmp instead of rejecting every path", () => {
-  // Before: the prefix test was `target.startsWith(root + path.sep)`, which for
-  // root '/' compared against '//' and refused everything.
-  const guard = makeRootGuard(['/']);
-  const resolved = guard('/tmp');
-  assert.equal(resolved, realpathSync.native ? realpathSync.native('/tmp') : realpathSync('/tmp'));
-  assert.equal(guard('/'), '/');
-  const nested = mkdtempSync(path.join(tmpdir(), 'codemode-slash-'));
-  assert.equal(guard(nested), realpathSync(nested));
+test('a filesystem root accepts descendants instead of rejecting every path', () => {
+  // On POSIX this still covers root '/' (old prefix check compared against
+  // '//'). On Windows use the temp directory's actual drive, not a guessed /tmp.
+  const nested = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'codemode-slash-')));
+  const root = path.parse(nested).root;
+  const guard = makeRootGuard([root]);
+  assert.equal(guard(root), realpathSync.native(root));
+  assert.equal(guard(nested), nested);
 });
 
 test('a sibling directory sharing a root prefix is still outside the root', () => {
@@ -361,7 +360,7 @@ test('a sibling directory sharing a root prefix is still outside the root', () =
 
 test('unusual filenames are returned, not silently skipped', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-names-'));
-  const names = ['a b.txt', "we'ird[1]$x.txt", '한글 파일.txt', 'tab\tname.txt', 'new\nline.txt'];
+  const names = ['a b.txt', "we'ird[1]$x.txt", '한글 파일.txt', 'semi;name.txt', 'amp&name.txt', 'hash#name.txt', 'tab\tname.txt', 'new\nline.txt'];
   const created = [];
   for (const n of names) {
     try {
@@ -443,6 +442,6 @@ test('a search result round-trips through a structuredClone-style transport', as
   assert.equal(transported.length, 2);
   assert.equal(transported.truncated, true);
   assert.equal(transported.complete, false);
-  assert.equal(transported.scope.path, realpathSync(dir));
+  assert.equal(transported.scope.path, realpathSync.native(dir));
   assert.equal(transported[0].text, 'needle-hit');
 });

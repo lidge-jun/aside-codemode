@@ -42,7 +42,7 @@ function resolveGrep() {
 }
 
 function canon(p) {
-  try { return realpathSync(p); } catch { return path.resolve(p); }
+  try { return realpathSync.native(p); } catch { return path.resolve(p); }
 }
 
 function rel(root, abs) {

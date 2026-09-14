@@ -33,7 +33,7 @@ test('relative path resolves against guard cwd', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'codemode-cwd-'));
   writeFileSync(path.join(root, 'a.txt'), 'ok');
   const guard = makeRootGuard([root], { cwd: root });
-  assert.equal(guard('a.txt'), path.join(realpathSync(root), 'a.txt'));
+  assert.equal(guard('a.txt'), path.join(realpathSync.native(root), 'a.txt'));
   const fs = createFs({ assertInside: guard });
   assert.equal(await fs.read('a.txt'), 'ok');
 });

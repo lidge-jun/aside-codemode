@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\""
+    "test": "node scripts/run-tests.mjs"
   },
   "bin": {
     "codemode": "bin/codemode.mjs"

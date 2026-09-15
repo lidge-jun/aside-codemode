@@ -194,6 +194,13 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
   if (killed || marker === null) return 'indeterminate';
   if (items.some((i) => i.status === 'indeterminate')) return 'indeterminate';
   const done = items.filter((i) => i.status === 'completed').length;
+  // Ranked above the two below it. Both of those answer 'failed' when nothing completed,
+  // which is a definite claim that the run is over and the cause is terminal — and neither
+  // is true when a person signing in would unblock it. The contract calls an unconfirmed
+  // effect neither a failure nor a success and then used to return the definite one, and
+  // needs_input is the only signal that tells an agent to hand the run back rather than
+  // retry it. Both facts survive in effects[] and partial[] for a caller who needs them.
+  if (items.some((i) => i.status === 'needs_input')) return done > 0 ? 'partial' : 'needs_input';
   // An effect we started but never saw confirmed is not a failure and not a success. It
   // cannot raise the run to completed, and it must not erase the work that did finish.
   if (effects.some((e) => e.state === 'indeterminate')) return done > 0 ? 'partial' : 'failed';
@@ -201,10 +208,6 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
   // never issued — means the run and the ledger disagree. Every request may look answered
   // and the run still cannot be called clean.
   if (extras > 0) return done > 0 ? 'partial' : 'failed';
-  // Ranked below the two above on purpose. A run we cannot account for is not a run whose
-  // problem a person can fix by signing in, so 'we do not know' and 'the ledger disagrees'
-  // both outrank the invitation.
-  if (items.some((i) => i.status === 'needs_input')) return done > 0 ? 'partial' : 'needs_input';
   if (items.length > 0 && done === items.length && leakedUrls.length === 0 && marker === 'ok') return 'completed';
   if (done === 0) return 'failed';
   return 'partial';

@@ -60,13 +60,19 @@ test('a run stopped only by a sign-in wall asks rather than fails', () => {
   assert.equal(runStatus({ marker, items: [done, needs] }), 'partial');
 });
 
-test('not knowing outranks asking', () => {
+test('not knowing outranks asking, but a definite failure does not', () => {
   const marker = 'ok';
   const needs = { status: 'needs_input' };
   // A run we cannot account for is not a run a person fixes by signing in.
   assert.equal(runStatus({ marker, items: [needs, { status: 'indeterminate' }] }), 'indeterminate');
-  assert.equal(runStatus({ marker, items: [needs], effects: [{ state: 'indeterminate' }] }), 'failed');
-  assert.equal(runStatus({ marker, items: [needs], extras: 1 }), 'failed');
+  // These two used to answer 'failed', which is a definite claim that the run is over and
+  // the cause is terminal. Neither is true when a person signing in would unblock it, and
+  // needs_input is the only signal that tells an agent to hand the run back. Both facts
+  // stay visible where a caller can still read them.
+  assert.equal(runStatus({ marker, items: [needs], effects: [{ state: 'indeterminate' }] }), 'needs_input');
+  assert.equal(runStatus({ marker, items: [needs], extras: 1 }), 'needs_input');
+  // And work that finished is still work that finished.
+  assert.equal(runStatus({ marker, items: [{ status: 'completed' }, needs], extras: 1 }), 'partial');
 });
 
 test('runStatus can only answer in the vocabulary the contract publishes', () => {
@@ -89,4 +95,3 @@ test('runStatus can only answer in the vocabulary the contract publishes', () =>
   }
   assert.deepEqual(escaped, [], 'a run status left the vocabulary');
 });
-

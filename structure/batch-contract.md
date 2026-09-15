@@ -82,8 +82,14 @@ claim that human action unblocks the item, and a code that did not say so has no
 
 A run inherits the request. If nothing finished and something needs a person, the run is
 `needs_input`; if other items did finish, it is `partial` and the tag says which kind of block was
-met. Both rank below `indeterminate` and below a ledger that does not reconcile, because a run we
-cannot account for is not a run a person fixes by signing in.
+met.
+
+It ranks below `indeterminate`, because a run we cannot account for is genuinely not a run a person
+fixes by signing in. It ranks **above** an unconfirmed effect and above a ledger that does not
+reconcile. Both of those answer `failed` when nothing completed, and `failed` is a definite claim
+that the run is over and the cause is terminal — which is untrue when signing in would unblock it,
+and which hides the only status that tells a caller to hand the run back rather than retry. Both
+facts stay readable in `effects[]` and in the reasons.
 
 This is where `needs_input` finally has a producer. The installed skill has always told an agent
 that `needs_input` means a login wall and should be handed back rather than retried; until now the
@@ -117,8 +123,15 @@ inventing a rule for it would trade this false success for a false failure.
 `requireSelector` and `minTextChars` describe what the page must have. `requireContent` decides
 what a failed check costs, and it takes two shapes. A string is a regular expression the page must
 contain, and is itself the check, so it stands alone and produces a real verdict. `true` enforces
-the checks declared beside it, and is refused when there are none: a run cannot report that content
-was verified when nothing verified it, which is the same false success one field over.
+whatever checks apply, including the render heuristics that always run, and is legal with nothing
+beside it.
+
+`contentVerified` is `true` only when something was actually asked for: a required selector, a
+minimum length, or a pattern. A bare `true` never counts, so it cannot report verified with nothing
+verified. That is worth stating because an earlier revision refused the bare form to prevent
+exactly that, and the refusal was both unnecessary — the verdict already excluded the boolean — and
+ineffective, since `minTextChars: 1` satisfied it and then a single character read as verified.
+A weak check still returns what the caller asked for; choosing a meaningful one is theirs.
 
 The pattern is tested against the document's own text with script, style and template content
 removed. The rendered view is not used, because it collapses on a page the browser has not laid

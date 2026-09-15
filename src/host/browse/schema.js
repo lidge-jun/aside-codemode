@@ -361,12 +361,14 @@ export function validateJob(raw, browseCaps = {}) {
   } else if (raw.requireContent !== undefined && typeof raw.requireContent !== 'boolean') {
     throw new BrowseOptionError('requireContent must be true, or a regular expression source naming the text the page must contain', 'EBADVAL');
   }
-  if (raw.requireContent === true && requireSelector.length === 0 && minTextChars === null) {
-    throw new BrowseOptionError(
-      'requireContent: true enforces the render checks beside it, and none were given. Add requireSelector or minTextChars, or pass the expected text as requireContent itself',
-      'EBADVAL',
-    );
-  }
+  // There is deliberately no refusal for a bare `true` with no check beside it. An earlier
+  // revision added one, on the grounds that enforcing a check nobody described would report
+  // verified with nothing verified. That was wrong twice over. It could not close the hole,
+  // because minTextChars: 1 satisfies the refusal and then a single character reads as
+  // verified. And the hole was never open: `asked` in the script counts requireSelector,
+  // minTextChars and the pattern, never the bare boolean, so `true` alone already left
+  // contentVerified null. What the refusal did instead was break a caller who wants the
+  // skeleton heuristic to fail an item without describing a check of their own.
 
   // Separate from requireContent on purpose, because the two failures ask different things
   // of the caller. Content that is missing is a failure: the page did not hold what was

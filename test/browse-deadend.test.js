@@ -98,9 +98,12 @@ test('requireContent brings its own check, or names one beside it', () => {
   const withPattern = validateJob({ ...base, requireContent: 'Signed in as' });
   assert.equal(withPattern.requireContentPattern, 'Signed in as');
   assert.equal(withPattern.requireContent, true);
-  // true is a modifier, and a modifier with nothing to modify would assert that content
-  // was verified while nothing verified it.
-  refuses({ ...base, requireContent: true }, /none were given/);
+  // A bare true with nothing beside it is legal, and means: fail the item if the render
+  // heuristics fire. It does not claim verification, because `asked` never counts the
+  // boolean — an earlier revision refused this call on a hole that was never open, and
+  // broke a caller who wanted exactly that.
+  assert.equal(validateJob({ ...base, requireContent: true }).requireContent, true);
+  assert.equal(validateJob({ ...base, requireContent: true }).requireContentPattern, null);
   assert.equal(validateJob({ ...base, requireContent: true, minTextChars: 100 }).requireContent, true);
   assert.equal(validateJob({ ...base, requireContent: true, requireSelector: 'main' }).requireContent, true);
   // A pattern that cannot compile is a refusal, not a check that never matches.
@@ -111,4 +114,3 @@ test('requireContent brings its own check, or names one beside it', () => {
   assert.equal(validateJob(base).requireContent, false);
   assert.equal(validateJob(base).requireContentPattern, null);
 });
-

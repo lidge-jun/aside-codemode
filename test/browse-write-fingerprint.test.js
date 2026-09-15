@@ -11,7 +11,7 @@
 // the check that reads it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateJob, gatedVerbs } from '../src/host/browse/schema.js';
+import { validateJob, gatedVerbs, ACTION_VERBS } from '../src/host/browse/schema.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
 import { NO_EFFECT_VERBS } from '../src/host/browse/actions-run.js';
 
@@ -64,16 +64,30 @@ test('steps aimed some other way keep every option they had', () => {
   assert.ok(attach({ actions: [{ selector: '#go', click: true }] }));
 });
 
-test('every gated verb is covered, not just click', () => {
-  const byRef = ['click', 'dblclick', 'hover', 'focus', 'check', 'uncheck', 'scrollIntoView'];
-  assert.ok(byRef.length > 1, 'the sweep needs more than one verb to mean anything');
+test('every verb that can be aimed by ref is covered, on both paths', () => {
+  // Read out of the catalogue rather than listed here, so a verb added later is swept
+  // without anyone remembering to add it. The earlier version of this test named seven by
+  // hand and quietly left out type, press and selectOption - which is the same way the
+  // write gate lost goForward in its first draft.
+  // target 'required' is the catalogue's own word for a verb that takes a ref or a selector.
+  const byRef = Object.entries(ACTION_VERBS)
+    .filter(([, spec]) => spec.target === 'required')
+    .map(([verb]) => verb);
+  assert.ok(byRef.length >= 10, 'only ' + byRef.length + ' ref-aimable verbs were found: ' + byRef.join(', '));
+  const takesValue = new Set(['fill', 'type', 'press', 'selectOption']);
   for (const verb of byRef) {
-    assert.equal(NO_EFFECT_VERBS.includes(verb), false, verb + ' should be a gated verb for this sweep to be about anything');
-    refused(() => batch({ actions: [{ ref: 'e1', [verb]: true }] }), /refsFingerprint is required/);
+    // The claim the whole rule rests on: nothing aimable by ref is exempt from it.
+    assert.equal(NO_EFFECT_VERBS.includes(verb), false, verb + ' can be aimed by ref and is not an effect verb, which the rule assumes cannot happen');
+    const step = { ref: 'e1', [verb]: takesValue.has(verb) ? 'x' : true };
+    refused(() => batch({ actions: [step] }), /refsFingerprint is required/);
+    refused(() => attach({ actions: [step] }), /refsFingerprint is required/);
+    refused(() => batch({ refsFingerprint: 's3-abc', actions: [step] }), /fingerprintStructure cannot authorise/);
+    refused(() => batch({ refsFingerprint: 'r3-abc', allowStaleRefs: true, actions: [step] }), /allowStaleRefs turns off the check/);
+    // And the same step with a full fingerprint is accepted, so each refusal above is about
+    // the fingerprint and not about the verb being rejected for some other reason.
+    assert.ok(batch({ refsFingerprint: 'r3-abc', actions: [step] }), verb + ' must be legal with a full fingerprint');
   }
-  // A value verb takes the same route.
-  refused(() => batch({ actions: [{ ref: 'e1', fill: 'x' }] }), /refsFingerprint is required/);
-  // And a step that waits does not ask for one, whichever way it is aimed.
+  // A step that waits does not ask for one, whichever way it is aimed.
   const waiting = readBatch({ actions: [{ waitFor: '.ready' }, { sleepMs: 5 }] });
   assert.deepEqual(gatedVerbs(waiting.actions), [], 'waiting is not a gated verb');
 });

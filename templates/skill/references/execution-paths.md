@@ -59,8 +59,9 @@ Also absent, and worth knowing before the first call: `process`, `fetch`, `setTi
     read_file  write_file  edit_file  apply_patch  console
 
 Read a file with `read_file`, not with a module. Reach the network through `browse`,
-not through `fetch` - and note that `browse` is injected whether or not it is allowed to run:
-until `--enable-browse` has been run once, every call on it refuses with `EDISABLED`.
+not through `fetch`. `browse` is allowed to run by default, so there is nothing to switch on;
+a machine that set `browseCaps.enabled` to false answers every call with `EDISABLED` and the
+command that restores it.
 The sandbox is a shape, not a security boundary: it exists so a batch cannot quietly
 depend on something the host never promised.
 

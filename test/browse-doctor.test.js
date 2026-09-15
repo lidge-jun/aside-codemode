@@ -33,7 +33,7 @@ test('plain --doctor does not carry a browse section', () => {
 test('--doctor --browse reports the measured capability matrix', () => {
   const b = doctor(['--doctor', '--browse']).browse;
   assert.equal(typeof b, 'object');
-  assert.equal(b.enabled, false, 'browse is opt-in and must default to off');
+  assert.equal(b.enabled, true, 'browse is on by default; a fresh install can browse without a second step');
   assert.ok(b.capabilities.page.absent.includes('route'), 'route must be reported absent');
   assert.ok(b.capabilities.page.present.includes('screenshot'));
   for (const k of ['route', 'maxWidth', 'format', 'fileUrl', 'networkidle']) {
@@ -49,12 +49,12 @@ test('the live timing probe is explicitly skipped rather than reported as zeros'
   assert.equal(b.liveProbe, 'skipped (set CODEMODE_ASIDE_LIVE=1)');
 });
 
-test('browse config defaults are opt-in and merge field-wise like searchCaps', () => {
+test('browse config defaults are on and merge field-wise like searchCaps', () => {
   const cfg = loadConfig([], {
     XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config'),
     CODEMODE_IGNORE_REPO_CONFIG: '1',
   });
-  assert.equal(cfg.browseCaps.enabled, false);
+  assert.equal(cfg.browseCaps.enabled, true);
   assert.equal(cfg.browseCaps.timeoutMs, 25000);
   assert.equal(cfg.browseCaps.concurrency, 4);
   assert.equal(cfg.asidePath, null);
@@ -68,7 +68,9 @@ test('the repo config is read normally, and skipped when a test says to skip it'
   const dir = mkdtempSync(path.join(os.tmpdir(), 'acm-repo-cfg-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'codemode.config.json');
-  writeFileSync(file, JSON.stringify({ browseCaps: { enabled: true, maxTabs: 3 } }), 'utf8');
+  // enabled:false is the value that DIFFERS from the built-in default, so applying the file
+  // is observable. Writing the default would pass whether or not the file was read.
+  writeFileSync(file, JSON.stringify({ browseCaps: { enabled: false, maxTabs: 3 } }), 'utf8');
 
   const env = {
     XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config'),
@@ -76,12 +78,12 @@ test('the repo config is read normally, and skipped when a test says to skip it'
   };
 
   const read = loadConfig([], env);
-  assert.equal(read.browseCaps.enabled, true, 'the repo config stopped being read');
+  assert.equal(read.browseCaps.enabled, false, 'the repo config stopped being read');
   assert.equal(read.browseCaps.maxTabs, 3);
   assert.ok(read._sources.includes(file));
 
   const skipped = loadConfig([], { ...env, CODEMODE_IGNORE_REPO_CONFIG: '1' });
-  assert.equal(skipped.browseCaps.enabled, false, 'the file was applied despite the switch');
+  assert.equal(skipped.browseCaps.enabled, true, 'the file was applied despite the switch');
   assert.equal(skipped.browseCaps.maxTabs, 8, 'built-in default, not the file');
   assert.equal(skipped._sources.includes(file), false);
   assert.ok(skipped._sources.includes('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)'));
@@ -96,8 +98,15 @@ test('the guest sees a frozen browse namespace and a placeholder report namespac
   assert.equal(out.result.report, 'object');
 });
 
-test('browse.exec refuses while it is disabled instead of half-working', () => {
+// Browsing is on by default, but a machine can still switch it off, and the refusal that
+// follows has to be a refusal rather than a half-run.
+test('browse.exec refuses when a config turns it off, instead of half-working', (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'acm-browse-off-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'off.json');
+  writeFileSync(file, JSON.stringify({ browseCaps: { enabled: false } }), 'utf8');
+
   const code = "try { await browse.exec({ urls: ['https://a.test'] }); return 'NO THROW'; } catch (e) { return e.code; }";
-  const out = JSON.parse(execFileSync(process.execPath, [cli, '--code', code], hermetic));
+  const out = JSON.parse(execFileSync(process.execPath, [cli, '--config', file, '--code', code], hermetic));
   assert.equal(out.result, 'EDISABLED');
 });

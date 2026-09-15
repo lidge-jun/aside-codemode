@@ -51,7 +51,9 @@ Aside exec does not attach MCP servers on current builds. The working path is on
 - ripgrep (`rg`) on PATH, or `CODEMODE_RG` / `rgPath`. Windows may use vendored `bin/rg.exe`
 - macOS and Windows
 
-## Global install
+## Install
+
+Two steps. The first puts the CLI on your PATH; the second tells an Aside account it exists.
 
 ```sh
 npm install -g aside-codemode
@@ -67,7 +69,43 @@ npm install -g .        # or: npm link
 codemode --doctor
 ```
 
-`codemode` on PATH is for **you** (the operator). Aside agents must not look up `node` or `codemode` on PATH. They call the absolute pair written by register (`process.execPath` + this clone's `bin/codemode.mjs`).
+### Then install it into an Aside account
+
+The CLI alone does nothing for an agent: Aside has to be told the absolute node/CLI pair and
+given the skill that explains the call shapes. That is one command, and it names the account:
+
+```sh
+node scripts/install-codemode.mjs install --account 0 --json
+```
+
+It writes six files under that account root and one markered block inside its `AGENTS.md`:
+
+```
+codemode/cm.js                                     the batch helper an Aside REPL loads
+codemode/catalog.json                              the action catalog
+codemode/manifest.json                             what this install owns, by hash
+skills/user/aside-codemode/SKILL.md                when to batch, how to read a result
+skills/user/aside-codemode/references/*.md         call shapes, execution paths, Windows quoting
+AGENTS.md  <!-- aside-codemode:start … end -->     the block read on every turn
+```
+
+Nothing else in the account is touched. Settings, credentials, sessions, memory and other
+skills are not ours and are never opened. A file you edited is kept and named in `preserved`
+rather than overwritten, `doctor` tells you when a machine is behind a release, and
+`uninstall` removes only the files whose hashes still match and takes its block back out of
+`AGENTS.md` while leaving the rest of that file alone.
+
+Always pass `--account`. Without it the installer follows `accounts.json`'s `currentAccountId`,
+which can change under you. Run it again after every upgrade: a release that changes only the
+guidance still leaves an account stale, and `doctor` will say so.
+
+Browsing needs no third step. It is on by default.
+
+### Who uses the PATH command
+
+`codemode` on PATH is for **you**, the operator. Aside agents must not look up `node` or
+`codemode` on PATH; they call the absolute pair the installer wrote into the AGENTS block
+(`process.execPath` plus this install's `bin/codemode.mjs`).
 
 ```sh
 codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
@@ -98,15 +136,7 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
 | `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
-| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in: turn it on with `codemode --enable-browse`, which writes `browseCaps.enabled` into your user config and changes nothing else (uninstalling the account skill does not turn it back off). Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
-
-**`ok` is not "I read the page".** `ok` means the run completed; `contentVerified` means the
-content actually rendered. Threads returned `ok: true` with the correct title while the body
-was 530KB of server bootstrap JSON and no posts. Pass `requireSelector` and/or
-`minTextChars` to get a real verdict, and `requireContent: true` to make a failed check fail
-the item. Without them `contentVerified` is `null` — nobody asked, so nothing is claimed.
-`scriptRatio` is reported but never decides the verdict: every bundled SPA ships large inline
-scripts, so judging on it would trade a false success for a false failure.
+| `browse.exec(job)` | A batch of URLs through ONE Aside REPL session. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
 | `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
 | `browse.readText(url)` or `browse.readText({ url })` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. The body comes back as `text`, with `format` saying what it is (`markdown` from the fetch path, `text` from the browser's rendered body). Reports `source` and `fallbackReason` so you know which path answered |
 | `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |
@@ -119,15 +149,36 @@ scripts, so judging on it would trade a false success for a false failure.
 | `recipes.list / describe / run` | Site recipes as **data** (`{ url, waitSelector, extract }`), executed with no model turn. A `.js` recipe is refused: host-loaded code would bypass the guest sandbox |
 | `browse.prefetch(urls)` | Best-effort cache warm-up. Failures are reported, never thrown — a warm-up that breaks the real run is worse than a cold cache |
 
-**Browsing is opt-in and honest about what Aside cannot do.** `page.route`, screenshot
-`maxWidth`, `pdf({format:'A4'})`, `file://` URLs and `networkidle` all throw `ENOTSUP` before
-anything spawns, because each was measured to be accepted and then silently ignored or
-downgraded — `format:'A4'` produces US Letter, and `maxWidth` returns the full-size image.
-The Aside CLI also exits `0` on failure, so success is the trailing `[ok | Nms]` marker plus
-inspection of the files a run claims to have written. A killed CLI leaks its tabs permanently
-and no later session can close them, so the script's own deadline always fires before the host
-deadline, and a host kill is reported as `partial: ['host-kill']` with the affected URLs rather
-than as a clean result. `codemode --doctor --browse` prints the whole matrix.
+### Browsing is on by default
+
+A fresh install can call `browse` with no extra step. A machine that would rather it could not
+sets `browseCaps.enabled` to false in its config; every call then comes back `EDISABLED` naming
+the one command that restores it, `codemode --enable-browse`.
+
+### What `ok` does not mean
+
+`ok` says the run finished. It does not say the page rendered. Threads answered `ok: true` with
+the right title while the body was 530KB of bootstrap JSON and no posts. Ask for a verdict and
+you get one: `requireSelector` or `minTextChars` set `contentVerified`, and `requireContent: true` makes
+a failed check fail the item. Without them `contentVerified` is `null`, because nobody asked.
+`scriptRatio` is reported and never decides anything: every bundled SPA ships large inline scripts,
+so judging on it would trade a false success for a false failure.
+
+### What Aside cannot do, said before anything spawns
+
+Five options are refused with `ENOTSUP` instead of being accepted: `page.route`, screenshot
+`maxWidth`, `pdf({format:'A4'})`, `file://` URLs, and `networkidle`. Each was measured being
+taken and then quietly ignored or downgraded - `format:'A4'` produces US Letter, `maxWidth` returns
+the full-size image. A refusal you can read beats a result you cannot trust.
+
+Two more facts about the surface underneath. The Aside CLI exits `0` even when it failed, so a run
+counts as successful only on the trailing `[ok | Nms]` marker plus the files it claims to have
+written actually being there. And a killed CLI leaks its tabs permanently, with no later session
+able to close them, so every script sets its own deadline to fire before the host deadline; when
+the host kills one anyway it is reported as `partial: ['host-kill']` with the affected URLs rather
+than as a clean result.
+
+`codemode --doctor --browse` prints the whole matrix for the build you have installed.
 
 **`.gitignore` is on by default** and can hide a whole project. A parent ignore once dropped 126 of 356 hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
 

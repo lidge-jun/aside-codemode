@@ -69,7 +69,7 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.exec',
-    description: 'Run a batch of urls through ONE Aside REPL session. Opt-in: needs browseCaps.enabled.',
+    description: 'Run a batch of urls through ONE Aside REPL session. On by default; refused when browseCaps.enabled is false.',
     signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, snapshot?, screenshot?, pdf?, extract?, concurrency?, detect? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) url strings. file: is refused.' },

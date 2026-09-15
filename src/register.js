@@ -57,8 +57,9 @@ function mergeMachineConfig({ existing, homedir, accountRoot, repoRoot, enableBr
   const config = existing && typeof existing === 'object' ? { ...existing } : {};
   config.roots = roots;
   if (!Array.isArray(config.excludeGlobs)) config.excludeGlobs = DEFAULT_EXCLUDES.slice();
-  // Browsing stays opt-in per machine (browseCaps.enabled defaults to false), so a
-  // fleet install has to say so out loud rather than flip the default in code.
+  // Browsing is on by default now, so this flag is a no-op on a fresh config. It stays
+  // because a machine that deliberately turned browsing off should be switched back on by
+  // an explicit fleet install rather than silently on the next write of this file.
   if (enableBrowse) {
     const caps = config.browseCaps && typeof config.browseCaps === 'object' ? { ...config.browseCaps } : {};
     caps.enabled = true;

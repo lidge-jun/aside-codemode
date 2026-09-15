@@ -9,14 +9,18 @@ import { loadConfig } from '../src/config.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'codemode.mjs');
-// Point the spawned CLI at a config directory that does not exist. Without this the test
-// reads the developer's real ~/.config/codemode/config.json, so enabling browsing on your
-// own machine (register-aside.mjs --browse) turned "browse defaults to off" red locally
-// while CI stayed green. A test whose verdict depends on the machine it runs on is worse
-// than no test.
+// Point the spawned CLI at a config directory that does not exist, and tell it to ignore the
+// repository config too. Without either, the test reads files that describe the developer's
+// machine - ~/.config/codemode/config.json and the gitignored codemode.config.json that
+// register-aside.mjs writes - so "browse defaults to off" went red locally while CI stayed
+// green. A test whose verdict depends on the machine it runs on is worse than no test.
 const hermetic = {
   encoding: 'utf8',
-  env: { ...process.env, XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') },
+  env: {
+    ...process.env,
+    XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config'),
+    CODEMODE_IGNORE_REPO_CONFIG: '1',
+  },
 };
 const doctor = (args) => JSON.parse(execFileSync(process.execPath, [cli, ...args], hermetic));
 
@@ -44,11 +48,30 @@ test('the live timing probe is explicitly skipped rather than reported as zeros'
 });
 
 test('browse config defaults are opt-in and merge field-wise like searchCaps', () => {
-  const cfg = loadConfig([], { XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') });
+  const cfg = loadConfig([], {
+    XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config'),
+    CODEMODE_IGNORE_REPO_CONFIG: '1',
+  });
   assert.equal(cfg.browseCaps.enabled, false);
   assert.equal(cfg.browseCaps.timeoutMs, 25000);
   assert.equal(cfg.browseCaps.concurrency, 4);
   assert.equal(cfg.asidePath, null);
+});
+
+// The switch itself, pinned. If it stops working the three checks above go back to reporting
+// whatever this machine happens to be configured for, and nobody would notice until CI and a
+// laptop disagreed again.
+test('the repo config is read normally, and skipped when a test says to skip it', () => {
+  const env = { XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') };
+  const withRepo = loadConfig([], env);
+  const without = loadConfig([], { ...env, CODEMODE_IGNORE_REPO_CONFIG: '1' });
+
+  assert.ok(without._sources.includes('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)'));
+  assert.equal(without._sources.some((s) => String(s).endsWith('codemode.config.json')), false);
+  assert.equal(without.browseCaps.enabled, false, 'the built-in default is off');
+  // On a machine with no repo config the two agree; on one that has it they may not, and that
+  // difference is exactly what the switch exists to keep out of the assertions above.
+  assert.equal(typeof withRepo.browseCaps.enabled, 'boolean');
 });
 
 test('the guest sees a frozen browse namespace and a placeholder report namespace', () => {

@@ -128,8 +128,15 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
     cfg._sources.push(source);
   };
 
+  // The repository config is generated per machine by register-aside.mjs and is gitignored,
+  // so on a developer's checkout it says whatever that machine was set up for - typically
+  // browsing enabled. A test that asks "what is the default" must not read it, or the same
+  // assertion is green on CI and red on the machine that wrote the file. The switch is here
+  // rather than in the tests because the file is found relative to this module, not the cwd.
   const repoPath = repoConfigPath();
-  if (existsSync(repoPath)) apply(readJsonFile(repoPath), repoPath);
+  const ignoreRepo = env.CODEMODE_IGNORE_REPO_CONFIG === '1';
+  if (ignoreRepo) cfg._sources.push('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)');
+  else if (existsSync(repoPath)) apply(readJsonFile(repoPath), repoPath);
   const userPath = userConfigPath(env);
   if (existsSync(userPath)) apply(readJsonFile(userPath), userPath);
   if (env.CODEMODE_CONFIG) apply(readJsonFile(env.CODEMODE_CONFIG), env.CODEMODE_CONFIG);

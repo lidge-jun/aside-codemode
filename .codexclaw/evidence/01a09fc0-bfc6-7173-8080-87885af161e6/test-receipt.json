@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "a50edc2851503d09a8103e3dd1520c0e09b04475",
+    "commitSha": "67f63d2df57e022f0de8a6c10405be4bf58f28bb",
     "dirty": false,
-    "capturedAt": "2026-09-15T01:56:42.172Z"
+    "capturedAt": "2026-09-15T02:07:34.273Z"
   },
-  "command": "node --test test/install-lifecycle.test.js",
+  "command": "node scripts/run-tests.mjs",
   "exitCode": 0,
-  "createdAt": "2026-09-15T01:56:42.186Z",
+  "createdAt": "2026-09-15T02:07:34.293Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915015641-584c85"
+  "checkEpoch": "c-20260915020703-6d3ab2"
 }

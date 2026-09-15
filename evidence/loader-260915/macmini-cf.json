@@ -1,0 +1,14 @@
+{
+  "host": "juniui-Macmini.local",
+  "platform": "darwin",
+  "account": "1",
+  "accountRoot": "/Users/junny/.aside/u/1",
+  "loader": "const src = await fs.readFile(\"/Users/junny/.aside/u/1/codemode/cm.js\", 'utf8'); (0, eval)(src);",
+  "loaded": {
+    "version": "1.1.0",
+    "hasRun": "function"
+  },
+  "expected": "1.1.0",
+  "ok": true,
+  "error": null
+}

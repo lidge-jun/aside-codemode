@@ -9,8 +9,10 @@
 // capability-receipt.json what each surface was actually seen to do, when, and - by name -
 //                        what was not checked.
 //
-// Nothing here is typed in twice. The digest comes from helperSource(), the commit from git,
-// the surface results from the probe files this loop wrote.
+// The measurements are not typed in twice: the digest comes from helperSource(), the commit
+// from git, the surface results from the probe and loader files this loop wrote, and the
+// installs from a per-machine collection. The notVerified list IS written by hand, because
+// naming what was not measured is a judgement and no run produces it.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -24,6 +26,7 @@ const arg = (name, fallback) => {
 };
 const outDir = path.resolve(arg('--out', path.join(REPO, 'evidence', 'release-260915')));
 const probeFiles = process.argv.reduce((acc, v, i) => (v === '--probe' && process.argv[i + 1] ? acc.concat(process.argv[i + 1]) : acc), []);
+const loaderFiles = process.argv.reduce((acc, v, i) => (v === '--loader' && process.argv[i + 1] ? acc.concat(process.argv[i + 1]) : acc), []);
 // Where the installs were read. Collected per machine rather than guessed from this one:
 // two of the three hosts are only reachable over ssh, and a manifest that lists them from
 // memory is the thing this file exists to replace.
@@ -71,6 +74,8 @@ const receipt = {
   commit: manifest.commit,
   helperVersion: HELPER_VERSION,
   surfaces: {},
+  loaderChecks: [],
+  handWritten: ['notVerified'],
   notVerified: [
     'a downscaled image mapping coordinates back - no API produces the stimulus (screenshot.maxWidth is accepted and ignored, host resize is ENOTSUP, page.setViewportSize is absent)',
     'DPI 100/125/150/200%, zoom and clip - same reason',
@@ -99,6 +104,26 @@ for (const file of probeFiles) {
 }
 
 mkdirSync(outDir, { recursive: true });
+
+for (const file of loaderFiles) {
+  if (!existsSync(file)) { receipt.loaderChecks.push({ error: 'loader file missing: ' + file }); continue; }
+  const d = JSON.parse(readFileSync(file, 'utf8'));
+  receipt.loaderChecks.push({
+    host: d.host, account: d.account, accountRoot: d.accountRoot,
+    surface: 'aside repl (CLI), the line the installed skill prints',
+    line: d.loader, loaded: d.loaded, expected: d.expected, ok: d.ok, skipped: d.skipped || null,
+  });
+}
+
+// Every install this release touched, with what doctor said about it. A receipt that lists
+// only the hosts a probe ran on reads as if the others were never looked at.
+if (Array.isArray(manifest.installs)) {
+  receipt.installs = manifest.installs.map((i) => ({
+    host: i.host, account: i.account, accountRoot: i.accountRoot,
+    installedVersion: i.installedVersion, upToDate: i.upToDate,
+    agentsBlock: i.agentsBlock, allFilesOk: i.allFilesOk, helperSha256: i.helperSha256,
+  }));
+}
 writeFileSync(path.join(outDir, 'release-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 writeFileSync(path.join(outDir, 'capability-receipt.json'), JSON.stringify(receipt, null, 2) + '\n', 'utf8');
 console.log('wrote ' + path.join(outDir, 'release-manifest.json'));

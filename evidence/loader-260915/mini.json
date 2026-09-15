@@ -1,0 +1,14 @@
+{
+  "host": "MINI",
+  "platform": "win32",
+  "account": "0",
+  "accountRoot": "C:\\Users\\super\\.aside\\u\\0",
+  "loader": "const src = await fs.readFile(\"C:/Users/super/.aside/u/0/codemode/cm.js\", 'utf8'); (0, eval)(src);",
+  "loaded": {
+    "version": "1.1.0",
+    "hasRun": "function"
+  },
+  "expected": "1.1.0",
+  "ok": true,
+  "error": null
+}

@@ -32,12 +32,25 @@ This restores what the manifest's `previous` holds. Two warnings that matter:
 
 ## Getting the 1.0.0 helper back
 
-    mac u/1, u/2 backups:  ~/aside-codemode-backup-260915/mac-u{1,2}/codemode/cm.js
-                           sha256 63562408f207da2b...
+Three places hold those bytes:
 
-Those two are the only copies on disk. The bytes are not a git object: rebuild them from
-`c7bef2a:templates/native-helper/cm.js` with `__CM_VERSION__` replaced by `1.0.0`. Taking
-today's template and substituting `1.0.0` produces different bytes and is not that artifact.
+    backups            ~/aside-codemode-backup-260915/mac-u{1,2}/codemode/cm.js
+    live manifests     mac u/1 and u/2: codemode/manifest.json -> previous.files[cm.js].content
+    rebuilt from git   c7bef2a:templates/native-helper/cm.js with __CM_VERSION__ -> 1.0.0
+
+All three are `63562408f207da2bdaa88a289a3f547e63718178c435c9cfc151e39f47cb11f9`, 6317 bytes.
+On mac u/1 and u/2, `rollback` really does return 1.0.0. On mac u/0 and mini u/0 it does not,
+for the reason in the previous section.
+
+The bytes are not a git object of their own. Taking today's template and substituting
+`1.0.0` produces `f90180f9…`, which is a different file.
+
+The backup keeps the skill under `skill/`; the live path is
+`skills/user/aside-codemode/`. Copy accordingly:
+
+    cp -R ~/aside-codemode-backup-260915/mac-u1/skill/. ~/.aside/u/1/skills/user/aside-codemode/
+    cp -R ~/aside-codemode-backup-260915/mac-u1/codemode/. ~/.aside/u/1/codemode/
+    cp    ~/aside-codemode-backup-260915/mac-u1/AGENTS.md ~/.aside/u/1/AGENTS.md
 
 ## Removing the install entirely
 
@@ -50,10 +63,31 @@ installer-side way back: use the backup above.
 
 ## Re-verifying after any of this
 
-    node scripts/install-codemode.mjs doctor --account <id> --json    # upToDate, per-file reason
-    node scripts/verify-loader.mjs --account <id>                     # the documented line, actually run
-    node scripts/probe-g3.mjs --label <host>                          # the four live fixtures
-    node scripts/rehearse-install.mjs                                 # the whole lifecycle, on a copy
+**Read the next paragraph before running anything here.** Two of these commands are not
+read-only.
+
+`probe-g3.mjs` writes the **current** helper into the account root before it starts, because
+it is testing the real load path. Run it against a restored 1.0.0 account and it will replace
+that file with 1.1.0 - the same move that left two accounts ahead of their own manifest. Use
+`--no-install` there:
+
+    node scripts/probe-g3.mjs --label <host> --no-install
+
+`verify-loader.mjs` compares what it loaded against the `HELPER_VERSION` of the **checkout**
+it runs from. On an account you deliberately rolled back to 1.0.0, a checkout at 1.1.0 will
+report failure, and that failure is correct: the account is not running this build.
+
+    node scripts/install-codemode.mjs doctor --account <id> --json   # read-only: upToDate, per-file reason
+    node scripts/verify-loader.mjs --account <id>                    # reads the account, runs one REPL line
+    node scripts/probe-g3.mjs --label <host> --no-install            # live fixtures, without reinstalling
+    node scripts/rehearse-install.mjs                                # a throwaway account root; touches nothing real
 
 `verify-loader` only means something for the account the CLI is signed in as; for any other
 account it reports `skipped`.
+
+## One more thing about macmini-cf
+
+Accounts `u/0` and `u/2`–`u/6` there still carry the older managed block that
+`register-aside.mjs` wrote on 2026-09-14. This release installed into `u/1` only. Those six
+report `installed: false` and `agentsBlock: stale` from doctor, which is accurate: they have
+guidance text but no install.

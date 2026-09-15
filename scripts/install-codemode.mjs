@@ -225,7 +225,11 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     }
     const rolled = {
       ...previous, previous: null, rolledBackAt: new Date().toISOString(), accountRoot,
-      files: previous.files.map(({ path: p, sha256: h, content }) => ({ path: p, sha256: h || sha256(content) })),
+      // Hash the bytes being restored. Copying the snapshot's declared hash carries an old
+      // disagreement forward: two live accounts had a snapshot that named 1.0.0 while
+      // holding 1.1.0, and a rollback that repeated the claim would leave the current
+      // manifest lying about the file it had just written.
+      files: previous.files.map(({ path: p, content }) => ({ path: p, sha256: sha256(content) })),
     };
     if (!dryRun) writeFile(manifestPath, JSON.stringify(rolled, null, 2) + '\n', dryRun);
     return { ...base, ok: true, restored, version: previous.version };

@@ -138,3 +138,26 @@ test('a snapshot hashes the bytes it holds, and says when the manifest disagreed
   assert.equal(kept.sha256, sha256(outside), 'the snapshot declared a hash for bytes it is not holding');
   assert.equal(kept.disagreedWithManifest, sha256(OLD), 'the disagreement has to be recorded, not smoothed over');
 });
+
+// And a rollback must not carry an old disagreement forward. Two live accounts already hold
+// a snapshot that names 1.0.0 while holding 1.1.0; restoring from one has to leave a
+// manifest that describes what is now on disk.
+test('a rollback writes hashes for what it restored, not what the snapshot claimed', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  // Forge the mismatch the live accounts have: content is one thing, the entry claims another.
+  runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  const m = manifestOf(f);
+  const entry = m.previous.files.find((x) => x.path === 'codemode/cm.js');
+  entry.content = '// bytes that are really here\n';
+  entry.sha256 = sha256(OLD);
+  writeFileSync(f.manifestPath, JSON.stringify(m, null, 2) + '\n', 'utf8');
+
+  runInstaller({ verb: 'rollback', asideHome: f.home, account: '0' });
+  const after = manifestOf(f);
+  const recorded = after.files.find((x) => x.path === 'codemode/cm.js');
+  assert.equal(read(f.root, 'codemode/cm.js'), '// bytes that are really here\n');
+  assert.equal(recorded.sha256, sha256('// bytes that are really here\n'),
+    'the rolled manifest repeated a hash for bytes it did not write');
+});

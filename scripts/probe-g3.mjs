@@ -22,6 +22,11 @@ function arg(name, fallback) {
 const accountRoot = arg('--account-root', path.join(os.homedir(), '.aside', 'u', '0'));
 const label = arg('--label', os.hostname());
 const asJson = process.argv.includes('--json');
+// The probe installs the current helper into the account root so it exercises the real load
+// path. That is also a write to a live account, and it is how two accounts ended up ahead of
+// their own manifest. --no-install runs against whatever is already there, which is what a
+// recovery check needs.
+const noInstall = process.argv.includes('--no-install');
 // Where the raw answer goes. The release records have to cite what the machine said, not a
 // number retyped from a terminal.
 const outPath = arg('--out', null);
@@ -224,8 +229,10 @@ const check = (name, pass, detail) => { checks.push({ name, pass: Boolean(pass),
 const skip = (name, why) => { checks.push({ name, pass: null, detail: String(why) }); };
 
 const target = path.join(accountRoot, HELPER_INSTALL_RELPATH);
-await mkdir(path.dirname(target), { recursive: true });
-await writeFile(target, helperSource().src, 'utf8');
+if (!noInstall) {
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, helperSource().src, 'utf8');
+}
 
 const probe = await run('aside', ['repl', PROGRAM]);
 const line = probe.stdout.split('\n').find((l) => l.includes('PROBE_JSON '));

@@ -292,7 +292,15 @@ function snapshotForRollback(accountRoot, manifest) {
   for (const known of manifest.files || []) {
     const abs = path.join(accountRoot, known.path);
     if (!existsSync(abs)) continue;
-    files.push({ path: known.path, sha256: known.sha256, content: readFileSync(abs, 'utf8') });
+    const content = readFileSync(abs, 'utf8');
+    // Hash what we actually read. Copying the manifest's claim instead lets a snapshot
+    // declare bytes it is not carrying: that happened on two live accounts where something
+    // outside the installer had already replaced cm.js, and the rollback target silently
+    // became the new file under the old file's name.
+    const actual = sha256(content);
+    const entry = { path: known.path, sha256: actual, content };
+    if (actual !== known.sha256) entry.disagreedWithManifest = known.sha256;
+    files.push(entry);
   }
   return {
     schema: manifest.schema, version: manifest.version, installedAt: manifest.installedAt,

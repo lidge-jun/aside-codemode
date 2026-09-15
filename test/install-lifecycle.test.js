@@ -121,3 +121,20 @@ test('rollback overwrites an edit made after the upgrade, and the test says so',
   assert.equal(read(f.root, skill).includes('written after the upgrade'), false,
     'rollback is documented as restoring the snapshot whole; if it now preserves later edits, the note in 090 and operating-notes must change');
 });
+
+// Something outside the installer can replace a file: a probe writing the helper into an
+// account root is exactly how two live accounts got ahead of their own manifest. The
+// snapshot has to describe what it is carrying, not what the manifest hoped was there.
+test('a snapshot hashes the bytes it holds, and says when the manifest disagreed', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  const outside = '// written by something that is not the installer\n';
+  writeFileSync(path.join(f.root, 'codemode/cm.js'), outside, 'utf8');
+
+  runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  const kept = manifestOf(f).previous.files.find((x) => x.path === 'codemode/cm.js');
+  assert.equal(kept.content, outside);
+  assert.equal(kept.sha256, sha256(outside), 'the snapshot declared a hash for bytes it is not holding');
+  assert.equal(kept.disagreedWithManifest, sha256(OLD), 'the disagreement has to be recorded, not smoothed over');
+});

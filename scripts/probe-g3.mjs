@@ -117,15 +117,30 @@ try {
 try {
   const tab = await openTab(url(CLICKABLE));
   await sleep(400);
-  const shot = await tab.screenshot();
+  // Windows measured a CDP timeout capturing the viewport when the tab was not frontmost.
+  // Bring it forward and give it a second attempt before calling the surface unable.
+  let bringToFront = 'not-tried';
+  try { await tab.bringToFront(); bringToFront = 'ok'; }
+  catch (e0) { bringToFront = 'failed: ' + String(e0 && e0.message).slice(0, 120); }
+  await sleep(400);
+  let shot = null;
+  let firstError = null;
+  try { shot = await tab.screenshot(); }
+  catch (e1) {
+    firstError = String(e1 && e1.message).slice(0, 200);
+    await sleep(1500);
+    try { shot = await tab.screenshot(); } catch (e2) { firstError += ' | retry: ' + String(e2 && e2.message).slice(0, 200); }
+  }
   const shape = shot && typeof shot === 'object'
     ? { type: 'object', keys: Object.keys(shot).slice(0, 8), bytes: shot.length || (shot.data ? shot.data.length : null) }
     : { type: typeof shot, bytes: shot ? String(shot).length : 0 };
   let displayed = null;
-  try { const d = await display(shot); displayed = { ok: true, returned: d === undefined ? 'undefined' : typeof d }; }
-  catch (e2) { displayed = { ok: false, error: String(e2 && e2.message).slice(0, 200) }; }
+  if (shot) {
+    try { const d = await display(shot); displayed = { ok: true, returned: d === undefined ? 'undefined' : typeof d }; }
+    catch (e3) { displayed = { ok: false, error: String(e3 && e3.message).slice(0, 200) }; }
+  } else displayed = { ok: false, error: 'no image to hand over: ' + firstError };
   await tab.close();
-  out.image = { shot: shape, display: displayed, displayType: typeof display };
+  out.image = { shot: shape, display: displayed, displayType: typeof display, bringToFront: bringToFront, firstError: firstError };
 } catch (e) { out.image = { error: String(e && e.message).slice(0, 300) }; }
 
 // ---- 4. two calls racing on one page

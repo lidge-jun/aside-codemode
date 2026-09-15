@@ -17,6 +17,13 @@ Aside exec does not attach MCP servers on current builds. The working path is on
 ## Global install
 
 ```sh
+npm install -g aside-codemode
+codemode --doctor
+```
+
+From a clone instead, which is what you want if you are going to change it:
+
+```sh
 git clone https://github.com/lidge-jun/aside-codemode.git
 cd aside-codemode
 npm install -g .        # or: npm link

@@ -17,6 +17,13 @@
 ## Global install
 
 ```sh
+npm install -g aside-codemode
+codemode --doctor
+```
+
+고쳐 쓸 생각이면 클론에서 설치하세요.
+
+```sh
 git clone https://github.com/lidge-jun/aside-codemode.git
 cd aside-codemode
 npm install -g .        # or: npm link

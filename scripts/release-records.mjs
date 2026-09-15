@@ -45,11 +45,17 @@ const manifest = {
   // The tag this describes, when it exists. A record stamped with the commit it happened to
   // be generated on is not wrong, but it is not the artifact either: an auditor reading
   // 'commit' wants the thing that shipped.
+  // Newest tag by creation, resolved by name. 'git describe' only sees tags reachable from
+  // HEAD, and a release tag sits on the merge commit on main - not an ancestor of the branch
+  // these records are usually regenerated on.
   releaseTag: (() => {
-    try { return git('describe', '--tags', '--abbrev=0'); } catch { return null; }
+    try { return git('tag', '--sort=-creatordate').split('\n')[0] || null; } catch { return null; }
   })(),
   releaseTagCommit: (() => {
-    try { return git('rev-list', '-n1', git('describe', '--tags', '--abbrev=0')); } catch { return null; }
+    try {
+      const t = git('tag', '--sort=-creatordate').split('\n')[0];
+      return t ? git('rev-list', '-n1', t) : null;
+    } catch { return null; }
   })(),
   // Two axes on purpose. The package version moves with a release; the helper version moves
   // only when cm.js changes. One string cannot name both, and a receipt that names one is

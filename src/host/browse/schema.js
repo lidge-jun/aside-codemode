@@ -10,6 +10,22 @@
 //   waitUntil/waitForLoadState  Aside accepts ANY string, including garbage, so an
 //                         unsupported value can never be detected at runtime
 import { isLocalOrigin } from './policy.js';
+import { NO_EFFECT_VERBS } from './actions-run.js';
+
+// The verbs a caller has to declare before the run will send them. It is the effect ledger
+// exactly — every verb the run issues an operationId for — and not a second, hand-kept list
+// beside it. An earlier draft gated eleven and exempted four on the grounds that the four
+// could not commit anything; focus can blur an edited field into an autosave, so that was
+// simply untrue, and the draft's two lists between them had also lost goForward.
+export function gatedVerbs(actions) {
+  if (!actions || !actions.length) return [];
+  const seen = [];
+  for (const step of actions) {
+    if (NO_EFFECT_VERBS.includes(step.verb)) continue;
+    if (!seen.includes(step.verb)) seen.push(step.verb);
+  }
+  return seen;
+}
 
 export const ASIDE_REPL_CAP_MS = 120000;
 export const DEFAULT_INNER_CAP_MS = 25000;
@@ -63,7 +79,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'loggedInMarker', 'stopWhenLoggedOut', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'loggedInMarker', 'stopWhenLoggedOut', 'actions', 'approveWrites', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -291,6 +307,17 @@ export function validateJob(raw, browseCaps = {}) {
     : requirePositiveInt('concurrency', raw.concurrency);
 
   const actions = validateActions(raw.actions);
+  // Strictly a boolean. A truthy string would read as consent here, and consent is the one
+  // thing this option exists to make explicit.
+  if (raw.approveWrites !== undefined && typeof raw.approveWrites !== 'boolean') {
+    throw new BrowseOptionError('approveWrites must be a boolean: it is a statement that this job may change things, not a value to coerce', 'EBADVAL');
+  }
+  const approveWrites = raw.approveWrites === true;
+  // Turning it on for a job that cannot write is how it ends up on by habit, at which point
+  // it stops meaning anything on the job that can.
+  if (approveWrites && gatedVerbs(actions).length === 0) {
+    throw new BrowseOptionError('approveWrites is set on a job with no step that could change anything; drop it, or add the step you meant', 'EBADVAL');
+  }
   // A reserve is held back so the item still gets reported after the steps run. Below this
   // the action window is empty and every step would report EDEADLINE before anything moved,
   // which reads as a runtime failure when it is really an impossible configuration.
@@ -406,6 +433,7 @@ export function validateJob(raw, browseCaps = {}) {
     treeNodes: raw.treeNodes === true,
     actions,
     stopOnError: raw.stopOnError !== false,
+    approveWrites,
     allowStaleRefs: raw.allowStaleRefs === true,
     refsFingerprint,
     // Ask for the observation the actions left behind. Its fingerprint is what makes a

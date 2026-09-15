@@ -168,7 +168,7 @@ test('the run attaches the comparison to every item that carries an observation'
   });
   const res = await session.run({
     urls: ['https://a.test'], timeoutMs: 8000, snapshot: 'interactive', snapshotAfter: 'diff',
-    actions: [{ click: true, selector: '#go' }],
+    actions: [{ click: true, selector: '#go' }], approveWrites: true,
   });
   const d = res.items[0].snapshotAfter.diff;
   assert.equal(d.comparable, true);

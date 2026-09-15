@@ -8,7 +8,7 @@
 //      never printed its payload and the tabs are unrecoverable — that is reported as a
 //      host-kill leak rather than quietly dropped.
 import { randomUUID } from 'node:crypto';
-import { validateJob } from './schema.js';
+import { validateJob, gatedVerbs } from './schema.js';
 import { compile, deadlineMath, WIRE_LIMIT } from './script.js';
 import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
@@ -193,6 +193,9 @@ export function itemStatus(item) {
   // The caller said what proves a live session and the page did not have it. A person can
   // sign in again, which is the whole reason this is not a failure.
   if (item.code === 'ENOTLOGGEDIN') return 'needs_input';
+  // Nothing was sent. The job asked for a step that could change something and never said
+  // it meant to, so the answer waits on a person the same way a sign-in does.
+  if (item.code === 'EWRITEAPPROVAL') return 'needs_input';
   // Never started: the run had already stopped when this item came off the queue. Skipped
   // would be true and useless — nothing here is retryable until a person signs in.
   if (item.code === 'ELOGINREQUIRED') return 'needs_input';
@@ -233,6 +236,45 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
 // it rebuilt was missing the runId and the per-row jobId, so the suite called a job legal
 // that the host refused. A seam is cheaper than a comment asking the next person to
 // remember.
+// A settled run that never ran. It carries the same fields a finished run carries, because
+// a caller that has to tell two envelope shapes apart will eventually read the wrong one:
+// the counts are zero, the lists are empty, and the status is stamped rather than computed.
+// runStatus cannot compute it — with nothing spawned there is no marker, and a null marker
+// means "we never heard back", which is the opposite of what happened here.
+export function writeApprovalRefusal({ runId, requested, wants, job }) {
+  const items = requested.map((r) => ({
+    jobId: r.jobId, url: r.url, ok: false, status: 'needs_input', code: 'EWRITEAPPROVAL', wants,
+  }));
+  return {
+    schema: 'browse/2',
+    runId,
+    status: 'needs_input',
+    ok: false,
+    code: 'EWRITEAPPROVAL',
+    // Named in the order the job asked for them, once each, so the caller can read back the
+    // decision it is being asked to make instead of re-deriving it from its own input.
+    wants,
+    requested: requested.length,
+    helper: job && job.helper ? helperStamp() : undefined,
+    completed: 0,
+    unreturned: 0,
+    items,
+    ledger: requested,
+    reconciledBy: 'none',
+    effects: [],
+    complete: false,
+    truncated: false,
+    actionLog: [],
+    contentVerified: null,
+    partial: ['needs-input', 'write-approval'],
+    timings: { steps: [], totalMs: 0 },
+    leakedUrls: [],
+    tabs: null,
+    raw: null,
+    pwd: null,
+  };
+}
+
 export function buildRunSource(job, { plan = null, runId = null, requested = null, artifactNames = null, pdfNames = null } = {}) {
   const fallback = () => job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }));
   // Host-generated artifact names ride in the plan; the script never invents one.
@@ -259,6 +301,16 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // and two requests for one url have nothing else to tell them apart.
     const runId = 'run-' + randomUUID();
     const requested = job.urls.map((url, i) => ({ jobId: 'j' + String(i).padStart(3, '0'), url, index: i }));
+    // Before anything is compiled, resolved or spawned. A refusal here costs the caller
+    // nothing and leaves nothing behind, which is the only honest place to ask whether a
+    // batch that can change things was meant to.
+    //
+    // It answers with a result envelope rather than by throwing. An option error means the
+    // request was malformed; this request is well formed and waiting on a decision, and the
+    // two are not the same sentence. The RPC boundary keeps only a message and a code off a
+    // thrown error, so a throw could not carry which verbs were wanted anyway.
+    const wants = job.approveWrites ? [] : gatedVerbs(job.actions);
+    if (wants.length) return writeApprovalRefusal({ runId, requested, wants, job });
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
     const caps = opts.browseCaps || {};
     // C4: the host decides, the script enforces. policy state never leaves this process.

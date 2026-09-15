@@ -81,3 +81,4 @@ Not yet described, with the reason recorded in the manifest:
 - [`ADR-0003-session-proof-comes-from-the-caller.md`](decisions/ADR-0003-session-proof-comes-from-the-caller.md) — ADR-0003 — decision recorded under "Proof of a live session comes from the caller"
 - [`ADR-0004-skill-body-stays-out-of-the-system-prompt.md`](decisions/ADR-0004-skill-body-stays-out-of-the-system-prompt.md) — ADR-0004 — decision recorded under "The skill body stays out of the system prompt"
 - [`ADR-0005-the-wire-limit-is-the-platforms.md`](decisions/ADR-0005-the-wire-limit-is-the-platforms.md) — ADR-0005 — decision recorded under "Deadlines"
+- [`ADR-0006-the-write-gate-uses-the-effect-ledger.md`](decisions/ADR-0006-the-write-gate-uses-the-effect-ledger.md) — ADR-0006 — decision recorded under "Acting on a page"

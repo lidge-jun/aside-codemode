@@ -81,6 +81,25 @@ the item.
 child frame becomes reachable: its element arrives as an f-prefixed ref that resolves with no frame
 API.
 
+A job whose steps could change something does not travel until the caller has said so. `actions`
+carrying any verb other than `waitFor`, `waitForLoadState` and `sleepMs` needs `approveWrites: true`;
+without it the run is refused before anything is compiled, resolved or spawned, and answers
+`needs_input` with code `EWRITEAPPROVAL` and `wants` naming the verbs it wanted. The refusal is an
+ordinary result envelope rather than a thrown option error, because the request was well formed and
+is waiting on a decision, and because a thrown error keeps only a message and a code across the RPC
+boundary — there is nowhere to put the verbs.
+
+The line it draws is the effect ledger, not a second list beside it. Every verb the run issues an
+`operationId` for is a verb the caller approves, so the two cannot disagree about what counts as a
+change; the suite reads the shipped `__NOEFFECT` set back out of the script and compares it with the
+host's copy. Setting `approveWrites` on a job with no such verb is refused, so it cannot become a
+habit, and only a real boolean is accepted, because a truthy string reading as consent is the
+failure this gate exists to prevent.
+
+Two things it does not cover, both named rather than implied. `browse.attach` reaches the same verbs
+by its own path. And a URL whose GET changes state is a change this tool cannot see: the gate governs
+what the tool sends, not what the page does.
+
 Staleness is the hazard. The tree is marked dirty by any step that can change it, and a ref step
 following a dirty step is re-fingerprinted before it runs. The guarantee is point in time and
 nothing can make it otherwise, so every ref step reports `guardAgeMs`, the measured width of the

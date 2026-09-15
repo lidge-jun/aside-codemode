@@ -44,4 +44,7 @@ uses its default bash or zsh card. There is no Linux install path.
 Do not: drive one tab from two places at once, reuse a ref from an older observation, or
 retry a side effect whose outcome you do not know. A result that says `partial`,
 `indeterminate` or `needs_input` is an answer; report it rather than rerunning it.
-`needs_input` means a person has to sign in or clear a challenge: hand it back.
+`needs_input` means a person has to sign in, clear a challenge, or approve a write. A batch
+that can change something says so first: any `actions` verb but `waitFor`,
+`waitForLoadState` and `sleepMs` needs `approveWrites: true`, or nothing opens and the
+answer is `needs_input` with `wants` naming the verbs.

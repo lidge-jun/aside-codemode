@@ -302,3 +302,14 @@ async function runActions(page, steps, ctx) {
 }`.replace(/^ +/gm, '');
 
 export const runActions = new Function(ACTION_STEP_SRC + '; return runActions;')();
+
+// The host's copy of the set the shipped fragment calls __NOEFFECT. It cannot import that
+// one: it lives inside the source string, which is the point of the string. So the two are
+// kept in step by a test that reads the names back out of the fragment and compares them,
+// rather than by whoever edits one of them remembering the other.
+//
+// Everything outside this set is an effect verb: the run issues an operationId for it and
+// reports it as started and then confirmed. That is already this tool's judgement about
+// what might have changed something, and the write gate uses the same line rather than
+// drawing a second one beside it.
+export const NO_EFFECT_VERBS = Object.freeze(['sleepMs', 'waitFor', 'waitForLoadState']);

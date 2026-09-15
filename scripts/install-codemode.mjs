@@ -67,6 +67,7 @@ export function plannedFiles({ node, cli, accountRoot, version = HELPER_VERSION 
     { path: SKILL_DIR + '/SKILL.md', content: fill(read('templates/skill/SKILL.md'), { node, cli, accountRoot }) },
     { path: SKILL_DIR + '/references/execution-paths.md', content: fill(read('templates/skill/references/execution-paths.md'), { node, cli, accountRoot }) },
     { path: SKILL_DIR + '/references/windows-invocation.md', content: fill(read('templates/skill/references/windows-invocation.md'), { node, cli, accountRoot }) },
+    { path: SKILL_DIR + '/references/call-shapes.md', content: fill(read('templates/skill/references/call-shapes.md'), { node, cli, accountRoot }) },
   ];
 }
 

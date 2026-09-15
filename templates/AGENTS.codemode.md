@@ -20,9 +20,12 @@ Host file tree, structured results, or many files at once, from a shell. Do not 
 
 Use that absolute node/CLI pair; do not look up `node` or `codemode` on PATH. Do not
 invoke `src/cli.js`; the entry point is `bin/codemode.mjs`. Ask `actions.find`,
-`actions.describe` and `actions.check` for a call shape instead of guessing it or
-grepping for it. Resolve project-relative paths with `{{CWD_HINT}}`. If resolution looks
-wrong, run `{{NODE}} {{CLI}} --doctor`.
+`actions.describe` and `actions.check` for a call shape rather than guessing or grepping.
+Resolve project-relative paths with `{{CWD_HINT}}`; if it looks wrong, run `--doctor`.
+
+That code is a vm guest: no `import`, `require` or `process`, and a dynamic import
+comes back as `EGUESTIMPORT`. Injected instead: `search fs actions browse report api
+recipes read_file write_file edit_file apply_patch`. Browse is off until `--enable-browse`.
 
 Aside's default shell on Windows is Git Bash; PowerShell is fine for the same absolute
 call. macOS uses the default bash/zsh card. There is no Linux install path.

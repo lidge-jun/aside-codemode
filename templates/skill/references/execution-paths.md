@@ -44,6 +44,21 @@ were seen in real runs. `--code-file` and stdin do not have to survive quoting.
 Use the absolute node/CLI pair the AGENTS block gives you. Do not resolve `node` or
 `codemode` on PATH, and do not run `src/cli.js`; the entry point is `bin/codemode.mjs`.
 
+## What the guest is allowed to reach
+
+`--code` evaluates inside a vm context, not inside Node. There is no module loader, so
+`await import('node:fs')` and `require('fs')` do not resolve; neither does `process`,
+`fetch`, or building code from a string. A dynamic import is refused with
+`EGUESTIMPORT` and the list of names you actually have. Those names are injected before
+your code runs:
+
+    search  fs  actions  browse  report  api  recipes
+    read_file  write_file  edit_file  apply_patch  console
+
+Read a file with `read_file`, not with a module. Reach the network through `browse`,
+not through `fetch`. The sandbox is a shape, not a security boundary: it exists so a
+batch cannot quietly depend on something the host never promised.
+
 ## Discovering a call shape
 
 Ask the sandbox rather than guessing or grepping:

@@ -133,14 +133,15 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.captureMany',
-    description: 'Batch screenshot capture; artifacts are written to outDir and verified against the request.',
-    signature: 'browse.captureMany(urls, { outDir, screenshot?, snapshot?, timeoutMs?, concurrency? }) => Promise<{ok,items}>',
+    description: 'Batch screenshot or pdf capture; artifacts are written to outDir and verified against the request.',
+    signature: 'browse.captureMany(urls, { outDir, screenshot?, pdf?, snapshot?, timeoutMs?, concurrency? }) => Promise<{ok,items}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) url strings' },
       outDir: { type: 'string', required: false, description: 'Directory inside the configured roots; files are host-named' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality? }. clip is honoured exactly.' },
+      pdf: { type: 'object', required: false, description: '{ paperWidth?, paperHeight?, printBackground? } in INCHES, defaulting to A4. Prints the url to a file in outDir. A format name is refused: it was measured producing US Letter while reporting A4. Passing pdf without naming screenshot means a pdf and no screenshot; screenshot: false with no pdf is refused because nothing would come back.' },
     },
-    notes: 'Each item.artifact reports the REAL width/height read from the file, not the requested size.',
+    notes: 'Each item.artifact reports the REAL width/height read from the file, not the requested size, and item.pdf.pageBox reports the real MediaBox. A page that came back the wrong size is EPAGEBOX and fails the item; a file that exists is not a page of the size you asked for.',
   },
   {
     path: 'browse.readText',

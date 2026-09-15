@@ -9,6 +9,7 @@
 //   pdf.format:'A4'       silently produced US Letter (MediaBox 0 0 612 792)
 //   waitUntil/waitForLoadState  Aside accepts ANY string, including garbage, so an
 //                         unsupported value can never be detected at runtime
+import { isLocalOrigin } from './policy.js';
 
 export const ASIDE_REPL_CAP_MS = 120000;
 export const DEFAULT_INNER_CAP_MS = 25000;
@@ -424,7 +425,12 @@ export function validateJob(raw, browseCaps = {}) {
     // trips it: a report listing an EBLOCKED item rendered the word "blocked" and the
     // detector flagged the report itself. Content we generated is not a remote origin,
     // so the caller can turn detection off for it. Defaults on.
-    detect: raw.detect !== false,
+    // Defaults on, except for a page this machine generated and served to itself. Opening
+    // our own document used to answer EBLOCKED while reading its title perfectly well,
+    // because the detector reads the rendered page and a document that TALKS about being
+    // blocked trips it. A caller can still ask for detection on a local url by name; what
+    // changes is only what happens when nobody said.
+    detect: raw.detect === undefined ? !urls.every(isLocalOrigin) : raw.detect !== false,
     // Rendering checks. requireSelector/minTextChars say what "the content is there" MEANS
     // for this page; requireContent turns a failed check into a failed item instead of a
     // warning, for callers who would rather get nothing than get a bootstrap page.

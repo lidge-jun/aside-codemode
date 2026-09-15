@@ -36,6 +36,12 @@ host across calls and enforcement happens inside the script, so `plan()` emits p
 Detection reads the rendered page, so a document that talks about blocking trips it. `detect` is
 therefore a caller-settable option that defaults on.
 
+Two things narrow that. The phrases the detector matches are phrases an origin uses to refuse you;
+the bare words `blocked` and `forbidden` used to be alternatives on their own, which is how this
+tool's own report, listing an item that was blocked, got flagged as blocked itself. And detection
+defaults off when every url in the job is a local origin, because a page this machine generated and
+served to itself is not a remote origin refusing us. Naming `detect` still wins either way.
+
 ## Artifacts
 
 `capture.js` names every file host-side, resolves the read under the session directory, and checks
@@ -66,17 +72,18 @@ markdown or from the browser as rendered text. It reaches the page through `brow
 
 ## Printing
 
-A guest can already write a verified PDF to disk, through `report.build`. It assembles the HTML,
-serves it on loopback, prints with paper dimensions in inches because a named format was measured to
-produce the wrong page, reads the artifact back under the same containment a screenshot gets,
-verifies the page box against what was asked for, and writes to the caller's path.
+Two callers print, and both go through the same machinery: a host-issued name, a read jailed under
+the session directory, a check that the page is the size that was asked for, and one write.
 
-What has no path is printing a page the caller names. `browse.exec` accepts a `pdf` option and
-reports the byte count, but the branch that writes the bytes runs only when the host issued a name
-for them, and `report.build` is the only caller that issues one. `captureMany` takes screenshots and
-has no `pdf` option. So the bytes for an arbitrary url are produced, counted, and dropped.
+`report.build` assembles HTML, serves it on loopback and prints that. `captureMany` takes a `pdf`
+option and prints a url the caller names. Before that option existed the bytes for an arbitrary url
+were produced and counted and then dropped, because the branch that writes runs only when the host
+issued a name for the file and `report.build` was the only caller that ever issued one.
 
-`report.build` also turns block detection off for its own page, because loopback HTML this process
-assembled is not a remote origin refusing us, and a report that lists a blocked page renders the
-word and would otherwise flag itself. A caller printing their own local page through `browse.exec`
-has to know to do the same.
+Paper is expressed in inches and never as a format name, because the shortcut was measured
+producing US Letter while reporting A4. `verifyPageBox` reads the real MediaBox out of the bytes,
+and a page that came back the wrong size fails the item with `EPAGEBOX`: a file that exists is not
+a page of the size that was requested.
+
+Asking for a pdf without naming a screenshot means a pdf and no screenshot, because paying for both
+when only one was wanted is the kind of silent cost this surface exists to remove.

@@ -9,7 +9,12 @@
 // which is why plan() emits plain data and record() takes the outcomes back.
 
 const CAPTCHA = /captcha|are you a robot|verify you are human|cf-challenge|cloudflare/i;
-const HARD_BLOCK = /access denied|403 forbidden|rate limit|too many requests|blocked|forbidden/i;
+// The bare words `blocked` and `forbidden` used to be alternatives here, and they matched
+// any page that merely TALKED about being blocked — including a report this tool generated
+// listing an item that was. A detector that flags our own output is worse than no detector,
+// because the caller cannot tell the two apart. Every alternative below is a phrase an
+// origin uses to refuse you, not a word a document might contain.
+const HARD_BLOCK = /access denied|403 forbidden|429 too many requests|too many requests|rate limit(?:ed|ing)?\b|you (?:have been|are being|are) blocked|your (?:ip|request|access) (?:has been |was |is )?blocked|temporarily blocked|blocked by (?:the )?(?:administrator|security|firewall)/i;
 const LOGIN_PATH = /(login|signin|sign-in|auth|account|sso)/i;
 // A string match on the snapshot tree, NOT an accessibility role query: no role API was ever
 // measured on this surface, and assuming one is how unmeasured behaviour gets baked in.
@@ -22,6 +27,17 @@ export function hostOf(url) {
 // The compiled REPL script cannot import this module, so the patterns travel as DATA and
 // the script rebuilds them. That keeps one source of truth for the signals while still
 // letting detection happen inside the script, BEFORE a screenshot is paid for.
+// localhost, the loopback address and the v6 spelling of it. A page this machine generated
+// and served to itself is not a remote origin refusing us, so block detection has nothing
+// to find there and everything to misread.
+const LOCAL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1|0\.0\.0\.0)$/i;
+
+export function isLocalOrigin(url) {
+  const host = hostOf(url);
+  if (host === null) return false;
+  return LOCAL_HOST.test(host.replace(/:\d+$/, ''));
+}
+
 export function detectionPatterns() {
   return {
     captcha: CAPTCHA.source,

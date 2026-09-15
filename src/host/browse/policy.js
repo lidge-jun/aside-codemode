@@ -14,19 +14,19 @@
 // needs_input, which a reader is taught to hand to a person without retrying, so a false
 // positive looks like a correct answer. Every alternative is wording a challenge page
 // actually shows. cf-challenge stays a literal because it is a token, not prose.
-const CAPTCHA = /captcha|are you a robot|verify (?:that )?you are human|cf-challenge|checking (?:if )?your browser|attention required[^a-z]{0,4}cloudflare|just a moment[^a-z]{0,8}(?:cloudflare|checking)/i;
+const CAPTCHA = /captcha|are you a robot|you are human|cf-challenge|checking (?:if )?your browser|attention required[^a-z]{0,4}cloudflare/i;
 // The bare words `blocked` and `forbidden` used to be alternatives here, and they matched
 // any page that merely TALKED about being blocked — including a report this tool generated
 // listing an item that was. A detector that flags our own output is worse than no detector,
 // because the caller cannot tell the two apart. Every alternative below is a phrase an
 // origin uses to refuse you, not a word a document might contain.
-const HARD_BLOCK = /access denied|403 forbidden|429 too many requests|too many requests|rate limit(?:ed|ing)?\b|you (?:have been|are being|are) blocked|your (?:ip|request|access) (?:has been |was |is )?blocked|temporarily blocked|blocked by (?:the )?(?:administrator|security|firewall)/i;
+const HARD_BLOCK = /access denied|403 forbidden|too many requests|rate limit(?:ed|ing)?\b|(?:you|your ip|your access|temporarily)[^.]{0,24}blocked|blocked by (?:a |the )?(?:administrator|security|firewall|network)/i;
 // Path SEGMENTS, not substrings. `account` is gone: a signed-in settings page at
 // /account/settings with a change-password field satisfied this and the password hint
 // together and was read as a sign-in wall. The segment boundaries also stop `auth` from
 // matching inside `author` and `sso` inside `lesson`, which were false positives nobody
 // noticed while the verdict they produced was being thrown away anyway.
-const LOGIN_PATH = /(?:^|[/?#&=._-])(?:login|signin|sign-in|signon|logon|sso|oauth|authorize|auth)(?:[/?#&=._-]|$)/i;
+const LOGIN_PATH = /(?:^|[/?#&=._-])(?:login|signin|sign-in|sso|oauth|authorize|auth)(?:[/?#&=._-]|$)/i;
 // A string match on the snapshot tree, NOT an accessibility role query: no role API was ever
 // measured on this surface, and assuming one is how unmeasured behaviour gets baked in.
 const PASSWORD_HINT = /password|비밀번호|passphrase/i;

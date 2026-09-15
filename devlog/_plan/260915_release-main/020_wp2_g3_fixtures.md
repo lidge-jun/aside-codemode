@@ -17,8 +17,16 @@ fixture: `data:` 페이지에 `srcdoc` iframe을 넣고, 메인과 iframe에 같
     oracle:  iframe 쪽 f* ref를 상위 page.locator로 눌렀을 때
              iframe 문서의 #out === 'child-clicked' 이고 메인 문서의 #out 은 빈 채로 남는다
 
-거절은 다른 문서·다른 관찰의 ref 재사용(`ESTALEREF`)에만 건다. `srcdoc`가 이 표면에서
-안 되면 "fixture 자체가 불가능"으로 적고 다른 자극을 찾지 않는다.
+거절은 다른 문서·다른 관찰의 ref 재사용(`ESTALEREF`)에만 건다.
+
+**계획 수정 (2026-09-15, 실측 뒤).** `data:` + `srcdoc` 조합은 이 표면에서 불가능하다.
+`data:` 페이지는 opaque origin이라 자식이 교차 출처가 되고, 접근성 트리에 자식 컨트롤이
+없으며 `contentDocument`가 null로 돌아온다. 그래서 fixture를 루프백 http로 바꾼다 —
+260914_a11y-actions의 P2가 같은 이유로 127.0.0.1을 썼고 거기서 `f1e1` ref가 나왔다.
+070이 적어 둔 "브라우저가 루프백에 닿지 못한다"는 이 fixture에서는 재현되지 않았고 mac과
+mini 양쪽에서 열렸다. 결과에는 "srcdoc fixture 통과"가 아니라 "srcdoc은 불가능, 루프백
+fixture로 판정"이라고 적는다. 그리고 oracle에 양성 대조를 더한다 — 부모 ref를 눌렀을 때
+부모 `#out`이 실제로 바뀌어야, 자식만 바뀌었다는 앞의 관찰이 증거가 된다.
 
 ## 2. native → 배치 → native
 

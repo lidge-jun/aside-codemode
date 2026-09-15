@@ -2,8 +2,8 @@
   "objective": "목표: aside-codemode를 로드맵 R4·R7·R8까지 닫아 main 정식 릴리즈로 승격한다. RC 후보는 origin/dev f1a9b26이고 작업 브랜치는 codex/release-main이다.\n\n달성할 결과:\n1) R4/G3의 넓은 판을 실제로 판정한다 — iframe 안의 ref, native와 batch를 섞은 흐름, 이미지 입력 전달, CUA target isolation. 항목마다 먼저 실패하는 반례를 남긴다. 실계정 캡차 해결과 금고 자동입력은 범위 밖으로 명시하고 통과로 세지 않는다.\n2) 실계정 루트에서 upgrade/repair/uninstall/rollback을 실제로 리허설한다. 사용자가 수정한 파일이 보존되고 재설치가 블록·스킬을 늘리지 않는 것을 증거로 남긴다.\n3) 세 기기(mac, ssh mini, macmini-cf)에 같은 커밋의 같은 바이트를 배포한다. 계정 루트 탐지, doctor, browse.probe까지 각 기기에서 확인한다.\n4) G5 사용성 게이트에서 자동으로 할 수 있는 부분과 사람이 해야 하는 부분을 구분하고, 가능한 범위는 실제로 수행한 뒤 남는 부분은 NEEDS_HUMAN으로 정확히 기록한다.\n5) 출시 기록 네 가지를 산출물로 만든다 — release manifest(commit, artifact sha256, helper/schema 버전, 지원 범위), capability receipt(표면별 lastVerified와 미검증 항목), 운영 안내, 복구 기록.\n6) 정확한 head의 hosted CI 5조합 success를 확인한 뒤 main에 병합하고 태그와 GitHub release를 만든다.\n\n파일 범위 IN: test/**, scripts/**, src/host/** (반례가 요구할 때만), devlog/_plan/260915_release-main/**, evidence/**, README*.\n범위 OUT: npm publish, 실계정 금고 자동입력·캡차 실해결, 외부 공지 발송.\n\n검증: 정확한 head의 hosted CI 5조합, 변경 범위 개별 테스트, 세 기기의 실제 doctor/probe 출력. 돌리지 않은 것을 통과로 적지 않는다.\n\n완료 판정: DONE은 등록된 criteria 전부가 fresh 증거를 갖고, main이 RC 커밋을 담고 태그와 release가 존재하는 상태다.\n\n첫 work-phase: wp1 - 릴리즈 로드맵을 diff-level 문서로 고정한다 (코드 변경 없음).",
   "slug": "aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b",
   "createdAt": "2026-09-14T23:14:11.910Z",
-  "updatedAt": "2026-09-15T01:54:52.918Z",
-  "activeWorkPhaseId": "wp6a",
+  "updatedAt": "2026-09-15T01:56:00.616Z",
+  "activeWorkPhaseId": "wp3b",
   "workPhases": [
     {
       "id": "wp1",
@@ -87,7 +87,7 @@
     {
       "id": "wp6a",
       "title": "백업과 복구 초안: checkout 밖 백업, recovery.md 초안 (라이브 변이 전)",
-      "status": "in_progress",
+      "status": "done",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [
@@ -97,7 +97,7 @@
     {
       "id": "wp3b",
       "title": "라이브 변이: 백업 뒤 네 루트 upgrade와 doctor만",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [

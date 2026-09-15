@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/lidge-jun/aside-codemode/main/assets/logo.png" alt="aside-codemode" width="112"></p>
+<p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
 <p align="center"><b>One call where Aside used to spend fifty</b><br>
 Search, read, and drive the browser inside one sandboxed JavaScript block, then hand back the answer instead of the pile it came out of.</p>
@@ -17,30 +17,18 @@ codemode --doctor
 
 <p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
 
-<table>
-<tr>
-<td width="50%" valign="top">
+Find the fifty files in a project that mention `TODO`, and hand back the paths.
 
-**Fifty files, natively**
-
-Fifty `read_file` cards, fifty round trips, and every byte of all fifty files parked in the
-model's context. The answer is in there somewhere.
-
-</td>
-<td width="50%" valign="top">
-
-**Fifty files, one call**
+|  | natively | one `codemode --code` call |
+| --- | --- | --- |
+| cards in the Aside UI | 50 | 1 |
+| round trips | 50 | 1 |
+| what reaches the model | every byte of all fifty files | the five paths you asked for |
 
 ```js
 const hits = await search.content({ path: ".", query: "TODO", max: 50 });
 return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 ```
-
-One card. One round trip. Five paths.
-
-</td>
-</tr>
-</table>
 
 On a real development folder, `find`+`grep` took **55s** and one `codemode --code` search took
 **1s**, about **51x**. The [measurement](evidence/dev-folder-51x.md) ships the exact argv, the
@@ -304,24 +292,5 @@ npm test   # node scripts/run-tests.mjs — zero dependencies
 ```
 
 `test/regressions.test.js` pins defects that actually shipped: the gitignore blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored options, a cross-OS root crash, `rgPath: null` being unable to clear an inherited value, and a Windows drive letter being split on `:`.
-
-## Future: MCP
-
-Current Aside CLI exec does not spawn `mcp.servers`. Register may still merge this block as leftover hygiene for a future build that attaches MCP. It is not the install path.
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "aside-codemode": {
-        "command": "C:\\nvm4w\\nodejs\\node.exe",
-        "args": ["C:\\path\\to\\aside-codemode\\src\\server.js", "--config", "C:\\path\\to\\aside-codemode\\codemode.config.json"]
-      }
-    }
-  }
-}
-```
-
-macOS: `"command"` is an absolute node path; args point at this clone. Success today is still AGENTS + `codemode --code`.
 
 License: MIT (see LICENSE).

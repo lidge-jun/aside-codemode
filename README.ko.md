@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/lidge-jun/aside-codemode/main/assets/logo.png" alt="aside-codemode" width="112"></p>
+<p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
 <p align="center"><b>카드 50장이 한 장이 되는 지점</b><br>
 검색하고, 읽고, 브라우저까지 자바스크립트 한 블록 안에서 끝낸 다음, 더미가 아니라 답만 돌려줍니다.</p>
@@ -17,30 +17,18 @@ codemode --doctor
 
 <p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
 
-<table>
-<tr>
-<td width="50%" valign="top">
+프로젝트에서 `TODO`가 들어간 파일 50개를 찾아 경로만 돌려받는 일입니다.
 
-**파일 50개, 네이티브로**
-
-`read_file` 카드 50장, 왕복 50번. 50개 파일의 바이트가 전부 모델 컨텍스트에 들어앉습니다.
-답은 그 안 어딘가에 있습니다.
-
-</td>
-<td width="50%" valign="top">
-
-**파일 50개, 호출 한 번**
+|  | 네이티브 | `codemode --code` 한 번 |
+| --- | --- | --- |
+| Aside 화면에 쌓이는 카드 | 50장 | 1장 |
+| 왕복 | 50번 | 1번 |
+| 모델에 들어가는 것 | 파일 50개의 모든 바이트 | 요청한 경로 5개 |
 
 ```js
 const hits = await search.content({ path: ".", query: "TODO", max: 50 });
 return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 ```
-
-카드 한 장, 왕복 한 번, 경로 다섯 개.
-
-</td>
-</tr>
-</table>
 
 실제 개발 폴더에서 `find`+`grep`은 **55초**, `codemode --code` 한 번은 **1초**였습니다.
 대략 **51배**입니다. [측정 노트](evidence/dev-folder-51x.md)에는 argv 원문과 반올림하지 않은 시간,
@@ -256,24 +244,5 @@ npm test   # node scripts/run-tests.mjs — 의존성 없음
 ```
 
 `test/regressions.test.js`는 실제로 나갔던 결함을 고정합니다. gitignore 맹점, `max` 과다 반환, stdout 버퍼 폭발, 조용히 무시되던 옵션, 다른 OS 루트 크래시, 상속된 `rgPath`를 못 지우는 `null`, Windows 드라이브 문자가 `:`로 쪼개지던 일.
-
-## Future: MCP
-
-지금 Aside CLI exec는 `mcp.servers`를 띄우지 않습니다. register는 나중에 MCP를 붙이는 빌드를 위해 이 블록을 남겨 둘 수 있습니다. 설치 경로는 아닙니다.
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "aside-codemode": {
-        "command": "C:\\nvm4w\\nodejs\\node.exe",
-        "args": ["C:\\path\\to\\aside-codemode\\src\\server.js", "--config", "C:\\path\\to\\aside-codemode\\codemode.config.json"]
-      }
-    }
-  }
-}
-```
-
-macOS의 `"command"`는 절대 node 경로입니다. args는 이 클론을 가리킵니다. 오늘 성공은 여전히 AGENTS + `codemode --code`입니다.
 
 라이선스: MIT (LICENSE 참고).

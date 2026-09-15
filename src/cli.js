@@ -42,24 +42,8 @@ function fail(error, extra = {}) {
   process.exit(1);
 }
 
-let config;
-try {
-  config = loadConfig(argv);
-} catch (e) {
-  fail(`config: ${e.message}`);
-}
-
-let workCwd;
-try {
-  workCwd = resolveCwd({ argv });
-} catch (e) {
-  fail(e.message);
-}
-
-// One command instead of "find the config file, learn its shape, add a key". Browsing stays
-// opt-in; this only shortens the distance between the refusal and a working call. It runs
-// before the root guard on purpose: a machine whose configured roots have moved still needs
-// to be able to turn browsing on.
+// Before the config is loaded, on purpose. The file this command exists to fix is one of the
+// files loadConfig reads, so a broken one would block the only easy way to repair it.
 if (has('--enable-browse')) {
   const { enableBrowse } = await import('./enable-browse.js');
   try {
@@ -75,6 +59,21 @@ if (has('--enable-browse')) {
     fail(e.message, { code: e.code ?? null });
   }
 }
+
+let config;
+try {
+  config = loadConfig(argv);
+} catch (e) {
+  fail(`config: ${e.message}`);
+}
+
+let workCwd;
+try {
+  workCwd = resolveCwd({ argv });
+} catch (e) {
+  fail(e.message);
+}
+
 
 let assertInside;
 try {

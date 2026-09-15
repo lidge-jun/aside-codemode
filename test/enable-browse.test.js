@@ -83,3 +83,41 @@ test('doctor agrees afterwards', () => {
   assert.equal(after.browse.enabled, true);
   rmSync(f.home, { recursive: true, force: true });
 });
+
+// The layer that matters: a repository config that says off must not outrank the user's
+// decision, or the command would work everywhere except inside a checkout.
+test('the user file wins over a repository config that leaves it off', () => {
+  const f = isolated();
+  const repoCfg = path.join(f.home, 'repo-codemode.config.json');
+  writeFileSync(repoCfg, JSON.stringify({ browseCaps: { enabled: false } }), 'utf8');
+  const env = { ...process.env, XDG_CONFIG_HOME: f.home, CODEMODE_REPO_CONFIG: repoCfg };
+  run(['--enable-browse'], env);
+  const after = JSON.parse(run(['--doctor', '--browse'], env).out);
+  assert.equal(after.browse.enabled, true, 'the repository layer overrode the user decision');
+  rmSync(f.home, { recursive: true, force: true });
+});
+
+test('a user config that is not valid JSON is reported, not overwritten', () => {
+  const f = isolated();
+  mkdirSync(path.dirname(f.cfg), { recursive: true });
+  writeFileSync(f.cfg, '{ this is not json', 'utf8');
+  const res = run(['--enable-browse', '--json'], f.env);
+  assert.notEqual(res.code, 0);
+  assert.match(res.out, /EBADCONFIG|not valid JSON/);
+  assert.equal(readFileSync(f.cfg, 'utf8'), '{ this is not json', 'a broken file was rewritten');
+  rmSync(f.home, { recursive: true, force: true });
+});
+
+// One string, four refusals. They drifted apart once already.
+test('every refusal points at the same command', async () => {
+  const { ENABLE_BROWSE_COMMAND } = await import('../src/enable-browse.js');
+  const sources = [
+    'src/host/browse/browse.js', 'src/host/browse/attach.js',
+    'src/host/namespaces.js', 'src/host/browse/probe.js',
+  ];
+  for (const rel of sources) {
+    const text = readFileSync(path.join(root, rel), 'utf8');
+    assert.ok(text.includes('ENABLE_BROWSE_COMMAND'), rel + ' hardcodes its own wording');
+  }
+  assert.equal(ENABLE_BROWSE_COMMAND, 'codemode --enable-browse');
+});

@@ -4,6 +4,7 @@ import { createAsideResolver } from './browse/resolve.js';
 import { createAsideSpawner } from './browse/spawn.js';
 import { createReport as createReportCore } from './report/report.js';
 import { createApi } from './browse/adapters.js';
+import { ENABLE_BROWSE_COMMAND } from '../enable-browse.js';
 
 export function createReport({ config = {}, signal, assertInside, env = process.env } = {}) {
   const caps = config.browseCaps || {};
@@ -16,7 +17,7 @@ export function createReport({ config = {}, signal, assertInside, env = process.
   return Object.freeze({
     async build(opts = {}) {
       if (caps.enabled !== true) {
-        const e = new Error('report.build needs browsing, which is currently off. Turn it on with: codemode --enable-browse');
+        const e = new Error(`report.build needs browsing, which is currently off. Turn it on with: ${ENABLE_BROWSE_COMMAND}`);
         e.code = 'EDISABLED';
         throw e;
       }

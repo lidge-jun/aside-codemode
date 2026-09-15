@@ -31,6 +31,7 @@ import { TREE_SUMMARY_SRC, TREE_NODES_SRC, jsonForScript, stripForWire } from '.
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { REF_READ_SRC } from './script.js';
+import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
 const REQ = __REQ__;
@@ -223,7 +224,7 @@ export function compileAttach(req) {
 }
 
 function disabled(name) {
-  const e = new Error(name + ' needs browsing, which is currently off. Turn it on with: codemode --enable-browse');
+  const e = new Error(name + ' needs browsing, which is currently off. Turn it on with: ' + ENABLE_BROWSE_COMMAND);
   e.code = 'EDISABLED';
   return e;
 }

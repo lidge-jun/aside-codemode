@@ -10,6 +10,7 @@ import { createReadText } from './read-text.js';
 import { createCache } from './cache.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
+import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
 import { createWatch, createRecipes, createPrefetch } from './watch.js';
 import { createAttach } from './attach.js';
 import os from 'node:os';
@@ -45,7 +46,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function exec(job) {
     if (caps.enabled !== true) {
-      const e = new Error('browse is opt-in and is currently off. Turn it on with: codemode --enable-browse (writes browseCaps.enabled into your user config)');
+      const e = new Error(`browse is opt-in and is currently off. Turn it on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
       e.code = 'EDISABLED';
       throw e;
     }
@@ -54,7 +55,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function captureMany(urls, opts = {}) {
     if (caps.enabled !== true) {
-      const e = new Error('browse is opt-in and is currently off. Turn it on with: codemode --enable-browse (writes browseCaps.enabled into your user config)');
+      const e = new Error(`browse is opt-in and is currently off. Turn it on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
       e.code = 'EDISABLED';
       throw e;
     }

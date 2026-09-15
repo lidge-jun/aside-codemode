@@ -1,9 +1,9 @@
 {
   "schema": "codemode-release/1",
-  "generatedAt": "2026-09-15T01:33:11.016Z",
-  "commit": "083f9bf10582d93ddfc496ce528a76edc9955e9c",
+  "generatedAt": "2026-09-15T01:34:26.101Z",
+  "commit": "2ca0217d41573c1e156cf6c05c0618d26ecf8e01",
   "branch": "codex/release-main",
-  "packageVersion": "0.1.0",
+  "packageVersion": "0.2.0",
   "helper": {
     "version": "1.1.0",
     "installPath": "codemode/cm.js",

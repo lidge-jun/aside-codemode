@@ -21,7 +21,7 @@ one item natively, read what came back, then batch the rest.
 
 ## Running one, inside a REPL session
 
-    const src = await fs.readFile('{{HELPER}}', 'utf8'); (0, eval)(src);
+    const src = await fs.readFile({{HELPER}}, 'utf8'); (0, eval)(src);
 
     const out = await cm.run({
       items: rows.map((r) => ({ url: r.href, row: r })),

@@ -39,12 +39,16 @@ function opt(name, fallback) {
 
 // {{HELPER}} is the account root's own absolute path to cm.js. It is not one value for the
 // machine: each account root holds its own copy, and the line is pasted into code an agent
-// runs, so it goes in with forward slashes on every platform.
+// runs. Two things follow. Forward slashes on every platform, because a Windows root joined
+// with backslashes dies at parse time on \u. And the placeholder carries its own quotes -
+// JSON.stringify, not a bare path dropped between two apostrophes - because a home
+// directory may contain one: "/Users/al/it's mine" would end the literal early and the line
+// an agent copies would not parse.
 function fill(text, { node, cli, accountRoot }) {
   return text
     .replaceAll('{{NODE}}', node)
     .replaceAll('{{CLI}}', cli)
-    .replaceAll('{{HELPER}}', helperLoadPathFor(accountRoot))
+    .replaceAll('{{HELPER}}', JSON.stringify(helperLoadPathFor(accountRoot)))
     .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
 }
 

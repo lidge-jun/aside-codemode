@@ -286,10 +286,13 @@ export function applyRegister({
     };
     try {
       mkdirSync(root, { recursive: true });
+      // {{HELPER}} carries its own quotes. The block is pasted into code, and an account
+      // root can contain an apostrophe or start with a slash; unquoted, the line becomes a
+      // regular expression literal or an unterminated string instead of a file read.
       const body = template
         .replaceAll('{{NODE}}', node)
         .replaceAll('{{CLI}}', cli)
-        .replaceAll('{{HELPER}}', helperLoadPathFor(root))
+        .replaceAll('{{HELPER}}', JSON.stringify(helperLoadPathFor(root)))
         .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
       const prev = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
       const next = upsertAgents(prev, body);

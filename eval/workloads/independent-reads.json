@@ -1,6 +1,6 @@
 {
   "id": "independent-reads",
-  "note": "Six independent pages, read and closed. Both paths assert the full marker list, not just a count: a run that returned six nulls used to pass because the length was still six. The batch additionally asserts that it completed and leaked no tab. Pages are data: urls because the Aside browser cannot reach this machine's loopback and the daemon refuses file://.",
+  "note": "Six independent pages, read and closed. Both paths assert the full marker list, not just a count: a run that returned six nulls used to pass because the length was still six. The batch additionally asserts that it completed and leaked no tab. Pages are data: urls because the Aside browser cannot reach this machine's loopback and the daemon refuses file://. The programs load the helper with the session-relative path, which resolves only under aside repl - the surface this campaign runs on. Installed documents use the account-absolute path instead; these workloads keep the old form so the recorded runs stay comparable.",
   "pairs": 30,
   "expect": {
     "count": 6,

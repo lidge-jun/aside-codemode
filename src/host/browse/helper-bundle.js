@@ -30,8 +30,10 @@ export const HELPER_LOAD_RELPATH = '../../codemode/cm.js';
 // The absolute load path for one account root, with forward slashes on every platform.
 // A Windows root joined with backslashes is not a JavaScript string literal - it dies at
 // parse time on \u - and these paths are pasted straight into code an agent runs.
+// Each backslash becomes one slash: collapsing a run would eat the leading pair of a UNC
+// path (\\server\share) and turn it into a local absolute path on another machine.
 export function helperLoadPathFor(accountRoot) {
-  const base = String(accountRoot).replace(/\\+/g, '/').replace(/\/+$/, '');
+  const base = String(accountRoot).replace(/\\/g, '/').replace(/\/+$/, '');
   return base + '/' + HELPER_INSTALL_RELPATH;
 }
 

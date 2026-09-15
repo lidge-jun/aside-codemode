@@ -22,7 +22,8 @@ relative to depends on which surface is running the code, and the two do not agr
 `aside repl` it resolves from the session directory (two levels below the account root), so
 `../../codemode/cm.js` reaches the helper; under the in-app agent REPL it resolves from the
 account root, where that same line leaves the account root and is refused. Load the helper
-by its absolute path, `{{HELPER}}`, which both surfaces read.
+by its absolute path, `{{HELPER}}`, which both surfaces read. That value is written as a
+quoted JavaScript string so it stays valid code even when the path contains an apostrophe.
 
 The browser cannot reach this machine's loopback, and the daemon refuses `file://` without
 local file access. For a fixture page, use a `data:text/html` url: it is a real document

@@ -54,11 +54,22 @@
 ## Windows 문자열
 
 `path.win32.join`이 만드는 역슬래시 경로를 작은따옴표 JS에 그대로 넣으면
-`Invalid Unicode escape sequence`로 파싱이 죽는다. **방식은 하나로 고정한다: POSIX
-슬래시.** `{{HELPER}}`는 항상 `/`로 정규화된 경로를 넣는다(`C:/Users/super/.aside/u/0/codemode/cm.js`).
-`JSON.stringify`는 쓰지 않는다 — 템플릿이 placeholder를 이미 작은따옴표 안에 두고 있어서
-따옴표가 중첩된다. 070의 CLI 프로브도 슬래시 형태가 Windows에서 읽히는 것을 보였다.
-테스트는 렌더된 줄을 실제로 파싱해 `fs.readFile`의 첫 인자가 그 경로 문자열인지까지 본다.
+`Invalid Unicode escape sequence`로 파싱이 죽는다. 그래서 두 가지를 함께 고정한다.
+
+**슬래시:** `{{HELPER}}`는 항상 `/`로 정규화된 경로다. 역슬래시는 **한 개씩** 바꾼다 —
+연속된 역슬래시를 하나로 접으면 UNC 경로 `\\\\server\\share`가 `/server/share`가 돼 다른
+기계의 경로를 가리킨다.
+
+**따옴표:** 템플릿에서 placeholder를 감싸던 작은따옴표를 없애고, fill이
+`JSON.stringify(경로)`를 넣는다. 감사가 실측으로 보였듯 계정 루트에 아포스트로피가 있으면
+(`/Users/al/it's mine/.aside/u/0`, install-paths.test.js가 이미 설치를 허용하는 형태)
+작은따옴표 리터럴이 거기서 끝나 줄 전체가 파싱되지 않는다. 따옴표를 빼면 이번엔
+`/tmp/...`가 정규식 리터럴로 읽혀 `Invalid regular expression flags`가 난다. 값이 자기
+따옴표를 갖고 오는 형태만 둘 다 피한다. 이 규칙은 설치기와 `register.js` 양쪽에 같이 적용한다.
+
+테스트는 렌더된 줄을 정규식으로 보지 않는다. `fs.readFile`을 기록용 stub으로 바꿔 그 줄을
+실제로 실행하고, 읽으려 한 경로가 `helperLoadPathFor(root)`와 같은지 본다. 공백·아포스트로피·
+한글·`&`·`$`·Windows·UNC 루트를 모두 넣는다.
 
 ## 먼저 실패해야 하는 반례
 

@@ -1,6 +1,6 @@
 {
   "id": "single-click",
-  "note": "One button whose location is already known. Batching should not help here and may cost: the helper has to be read from disk and evaluated before the first tab opens. Reported as measured either way.",
+  "note": "One button whose location is already known. Batching should not help here and may cost: the helper has to be read from disk and evaluated before the first tab opens. Reported as measured either way. The programs load the helper with the session-relative path, which resolves only under aside repl - the surface this campaign runs on. Installed documents use the account-absolute path instead; these workloads keep the old form so the recorded runs stay comparable.",
   "pairs": 30,
   "expect": {
     "clicked": true

@@ -10,7 +10,7 @@ skill: `skills/user/aside-codemode/SKILL.md`
 
 Batch helper, inside a REPL session:
 
-    const src = await fs.readFile('{{HELPER}}', 'utf8'); (0, eval)(src);
+    const src = await fs.readFile({{HELPER}}, 'utf8'); (0, eval)(src);
 
 Host file tree, structured results, or many files at once, from a shell. Do not call
 `rg`, `find`, `grep` or `Get-ChildItem -Recurse` yourself; batch the work into one call:

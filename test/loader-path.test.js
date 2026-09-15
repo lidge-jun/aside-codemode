@@ -3,8 +3,12 @@
 // from its session directory (two under the account root), and the in-app agent REPL was
 // reported to resolve from the account root itself, where '../../' leaves the account root
 // and the fs guard refuses it. The only form measured to work on both is the absolute path,
-// so that is what the rendered docs must say — per account, because each account root has
+// so that is what the rendered docs must say - per account, because each account root has
 // its own.
+//
+// These checks run the rendered line as code with a stubbed fs, rather than matching it with
+// a regex. A regex agreed with itself about a path containing an apostrophe while the line
+// an agent would paste did not parse at all.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -23,16 +27,27 @@ const cli = path.join(checkout, 'bin', 'codemode.mjs');
 
 const render = (accountRoot) => {
   const files = plannedFiles({ node, cli, accountRoot });
-  const skill = files.find((f) => f.path.endsWith('SKILL.md')).content;
-  return { skill, agents: agentsBody({ node, cli, accountRoot }) };
+  return {
+    skill: files.find((f) => f.path.endsWith('SKILL.md')).content,
+    agents: agentsBody({ node, cli, accountRoot }),
+  };
 };
 
-// The first thing an agent copies is the first readFile it sees. If that line is relative,
-// the in-app surface refuses it before anything else in the document matters.
-const firstLoader = (text) => {
-  const m = text.match(/fs\.readFile\(\s*(['"])(.*?)\1/);
-  return m ? m[2] : null;
-};
+// Execute the documented line with fs.readFile replaced by a recorder. If the line does not
+// parse, this throws - which is the failure we care about.
+async function loadedPath(text) {
+  const line = text.split('\n').map((s) => s.trim()).find((l) => l.includes('fs.readFile('));
+  assert.ok(line, 'the document has no loader line at all');
+  const seen = [];
+  const stub = { readFile: async (p) => { seen.push(p); return ''; } };
+  await new Function('fs', 'return (async () => { ' + line + ' })();')(stub);
+  return seen[0];
+}
+
+const WINDOWS_ROOT = 'C:' + String.fromCharCode(92) + 'Users' + String.fromCharCode(92) + 'super'
+  + String.fromCharCode(92) + '.aside' + String.fromCharCode(92) + 'u' + String.fromCharCode(92) + '0';
+const UNC_ROOT = String.fromCharCode(92, 92) + 'server' + String.fromCharCode(92) + 'share'
+  + String.fromCharCode(92) + '.aside' + String.fromCharCode(92) + 'u' + String.fromCharCode(92) + '0';
 
 test('the rendered skill and block name this account root by absolute path', () => {
   const root = '/Users/someone/.aside/u/2';
@@ -42,27 +57,40 @@ test('the rendered skill and block name this account root by absolute path', () 
   assert.equal(agents.includes(want), true, 'the AGENTS block still hides the account path');
 });
 
-test('the first loader instruction is not the session-relative form', () => {
+test('the documented line loads the account path, not the session-relative one', async () => {
   const { skill, agents } = render('/Users/someone/.aside/u/0');
-  assert.equal(firstLoader(skill), '/Users/someone/.aside/u/0/codemode/cm.js');
-  assert.equal(firstLoader(agents), '/Users/someone/.aside/u/0/codemode/cm.js');
+  assert.equal(await loadedPath(skill), '/Users/someone/.aside/u/0/codemode/cm.js');
+  assert.equal(await loadedPath(agents), '/Users/someone/.aside/u/0/codemode/cm.js');
 });
 
-// A Windows account root joined with backslashes is not a JavaScript string literal: it
-// dies at parse time with "Invalid Unicode escape sequence" on \u. The rendered line has to
-// survive being read as code, so the path goes in with forward slashes.
-test('a windows account root renders a line that actually parses', () => {
-  const root = 'C:\\Users\\super\\.aside\\u\\0';
-  const { skill } = render(root);
-  const line = firstLoader(skill);
-  assert.equal(line, 'C:/Users/super/.aside/u/0/codemode/cm.js');
-  const src = "const p = '" + line + "';";
-  const got = new Function(src + ' return p;')();
-  assert.equal(got, 'C:/Users/super/.aside/u/0/codemode/cm.js');
+// Every one of these is a directory the installer already accepts: install-paths.test.js
+// installs under a space, Korean characters, an apostrophe and '&'/'$'. A document that
+// cannot be pasted on those machines is a broken install with a green test suite.
+for (const [name, root] of [
+  ['a space', '/Users/al onso/.aside/u/0'],
+  ['an apostrophe', "/Users/al/it's mine/.aside/u/0"],
+  ['Korean characters', '/Users/al/한글폴더/.aside/u/0'],
+  ['a dollar and ampersand', '/Users/al/amp & dollar $x/.aside/u/0'],
+  ['a windows root', WINDOWS_ROOT],
+  ['a UNC root', UNC_ROOT],
+]) {
+  test('the rendered line parses and loads the right file with ' + name, async () => {
+    const { skill, agents } = render(root);
+    const want = helperLoadPathFor(root);
+    assert.equal(await loadedPath(skill), want);
+    assert.equal(await loadedPath(agents), want);
+  });
+}
+
+test('backslashes become slashes one for one, so a UNC prefix survives', () => {
+  assert.equal(helperLoadPathFor(WINDOWS_ROOT), 'C:/Users/super/.aside/u/0/codemode/cm.js');
+  // Collapsing a run of backslashes would turn \\server\share into /server/share, which is a
+  // different machine's path on the same line.
+  assert.equal(helperLoadPathFor(UNC_ROOT), '//server/share/.aside/u/0/codemode/cm.js');
 });
 
-test('two account roots get two different loader paths, in the skill and in register', () => {
-  assert.notEqual(firstLoader(render('/h/.aside/u/0').skill), firstLoader(render('/h/.aside/u/1').skill));
+test('two account roots get two different loader paths, in the skill and in register', async () => {
+  assert.notEqual(await loadedPath(render('/h/.aside/u/0').skill), await loadedPath(render('/h/.aside/u/1').skill));
 
   const asideHome = mkdtempSync(path.join(os.tmpdir(), 'acm-loader-home-'));
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'acm-loader-repo-'));
@@ -83,7 +111,7 @@ test('two account roots get two different loader paths, in the skill and in regi
   assert.equal(out.accounts.length >= 2, true);
   for (const acct of out.accounts) {
     const written = readFileSync(acct.agentsPath, 'utf8');
-    assert.equal(written.includes(helperLoadPathFor(acct.root)), true,
-      'account ' + acct.id + ' got another account\'s helper path');
+    assert.equal(await loadedPath(written), helperLoadPathFor(acct.root),
+      'account ' + acct.id + ' was handed another account path');
   }
 });

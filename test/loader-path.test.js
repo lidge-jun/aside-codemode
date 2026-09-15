@@ -45,7 +45,7 @@ async function loadedPath(text) {
   return seen[0];
 }
 
-const WINDOWS_ROOT = 'C:' + String.fromCharCode(92) + 'Users' + String.fromCharCode(92) + 'super'
+const WINDOWS_ROOT = 'C:' + String.fromCharCode(92) + 'Users' + String.fromCharCode(92) + 'someone'
   + String.fromCharCode(92) + '.aside' + String.fromCharCode(92) + 'u' + String.fromCharCode(92) + '0';
 const UNC_ROOT = String.fromCharCode(92, 92) + 'server' + String.fromCharCode(92) + 'share'
   + String.fromCharCode(92) + '.aside' + String.fromCharCode(92) + 'u' + String.fromCharCode(92) + '0';
@@ -84,7 +84,7 @@ for (const [name, root] of [
 }
 
 test('backslashes become slashes one for one, so a UNC prefix survives', () => {
-  assert.equal(helperLoadPathFor(WINDOWS_ROOT), 'C:/Users/super/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor(WINDOWS_ROOT), 'C:/Users/someone/.aside/u/0/codemode/cm.js');
   // Collapsing a run of backslashes would turn \\server\share into /server/share, which is a
   // different machine's path on the same line.
   assert.equal(helperLoadPathFor(UNC_ROOT), '//server/share/.aside/u/0/codemode/cm.js');

@@ -59,10 +59,10 @@ test('the install path and the CLI-only load path name the same file from two pl
 });
 
 test('the absolute load path is per account and uses forward slashes everywhere', () => {
-  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/0'), '/Users/jun/.aside/u/0/codemode/cm.js');
-  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/1'), '/Users/jun/.aside/u/1/codemode/cm.js');
+  assert.equal(helperLoadPathFor('/Users/someone/.aside/u/0'), '/Users/someone/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor('/Users/someone/.aside/u/1'), '/Users/someone/.aside/u/1/codemode/cm.js');
   // A Windows root joined with backslashes is not a string literal: '\\u' is a parse error
   // in the code an agent pastes. Forward slashes read the same file and survive parsing.
-  assert.equal(helperLoadPathFor('C:\\Users\\super\\.aside\\u\\0'), 'C:/Users/super/.aside/u/0/codemode/cm.js');
-  assert.equal(helperLoadPathFor('/Users/jun/.aside/u/0/'), '/Users/jun/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor('C:\\Users\\someone\\.aside\\u\\0'), 'C:/Users/someone/.aside/u/0/codemode/cm.js');
+  assert.equal(helperLoadPathFor('/Users/someone/.aside/u/0/'), '/Users/someone/.aside/u/0/codemode/cm.js');
 });

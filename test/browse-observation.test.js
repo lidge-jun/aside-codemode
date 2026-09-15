@@ -58,7 +58,8 @@ test('a browser fallback asks for the body and returns it', async () => {
   assert.equal(asked.fullText, true, 'without this the only text available is a 160-character sample');
   assert.equal(out.ok, true);
   assert.equal(out.text, 'the real article body');
-  assert.equal(out.format, 'markdown');
+  // The browser hands back rendered innerText, so that is what format says.
+  assert.equal(out.format, 'text');
 });
 
 test('a warm entry is used, and a failed one is never stored', async () => {
@@ -96,9 +97,9 @@ test('an outage does not become the page it interrupted', async () => {
     put: async (parts, value) => { store.set(cacheKey(parts), value); },
   };
   const reads = [
-    { ok: true, markdown: '# Real article', status: 200 },
-    { ok: false, markdown: '', status: 503, blockKind: 'upstream' },
-    { ok: true, markdown: '# Real article', status: 200 },
+    { ok: true, text: '# Real article', format: 'markdown', status: 200 },
+    { ok: false, text: '', format: 'markdown', status: 503, blockKind: 'upstream' },
+    { ok: true, text: '# Real article', format: 'markdown', status: 200 },
   ];
   let i = 0;
   const watch = createWatch({ readText: async () => reads[i++], cache });

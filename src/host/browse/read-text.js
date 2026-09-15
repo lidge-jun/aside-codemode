@@ -143,7 +143,10 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     // named for what it is, with the shape stated separately. Two fields would double the
     // payload and the budget would drop whichever came second.
     const markdown = fetchError ? '' : toMarkdown(html);
-    const body0 = (text) => ({ text, format: 'markdown', chars: text.length });
+    // format describes what the body actually is. The fetch path converts html to markdown;
+    // the browser path returns the rendered innerText, which has no markup at all. Saying
+    // 'markdown' for both would be the old key name pretending to be a description.
+    const body0 = (text, format = 'markdown') => ({ text, format, chars: text.length });
     // An http status that says "not today" is not a page. Storing it as one is how a 503
     // became a page's new content and a 403 became an empty article.
     const httpBad = status === 401 || status === 403 || status === 429 || (status !== null && status >= 500);
@@ -184,7 +187,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const body = item.ok ? String(item.text || '') : '';
     const enough = body.length >= Math.max(1, opts.minChars || 1);
     const out = enough
-      ? { url, source: 'browser', status, ...body0(body),
+      ? { url, source: 'browser', status, ...body0(body, 'text'),
           fallbackReason: verdict.reason, browserOk: true, ok: true, blockKind: item.blockKind || null }
       : { url, source: 'browser', status, ...body0(markdown),
           fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, degraded: true,

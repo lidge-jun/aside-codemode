@@ -275,18 +275,25 @@ export function checkOptionValue(name, value) {
 // query, files filters paths with pattern.
 const MISDIRECTED = {
   pattern: { belongsTo: 'search.files', insteadUse: 'query', appliesTo: ['search.content', 'search.count'] },
-  query: { belongsTo: 'search.content', insteadUse: 'pattern (a path substring) or glob', appliesTo: ['search.files'] },
+  query: { belongsTo: 'search.content or search.count', insteadUse: 'pattern (a path substring) or glob', appliesTo: ['search.files'] },
 };
 
-const PATH_HINT = '. Give a directory inside a configured root, or an absolute path '
-  + '(relative paths resolve against --cwd).';
+const PATH_HINT = '. Give a directory or file inside a configured root; an absolute path has '
+  + 'to be inside one too, and a relative path resolves against --cwd.';
 
-function misdirectedOptionHint(fn, bad) {
+// A value that looks like a glob is a different mistake from a misplaced option name, and
+// sending it to `query` would turn a path filter into a content regex.
+const looksLikeGlob = (v) => typeof v === 'string' && /[*?\[\]]/.test(v);
+
+function misdirectedOptionHint(fn, bad, opts) {
   const hints = [];
   for (const name of bad) {
     const rule = MISDIRECTED[name];
     if (!rule || !rule.appliesTo.includes(fn)) continue;
-    hints.push(`In ${fn}, use ${rule.insteadUse}; ${JSON.stringify(name)} belongs to ${rule.belongsTo}.`);
+    const use = name === 'pattern' && looksLikeGlob(opts[name])
+      ? `glob (that value looks like a glob), or query to match content`
+      : rule.insteadUse;
+    hints.push(`In ${fn}, use ${use}; ${JSON.stringify(name)} belongs to ${rule.belongsTo}.`);
   }
   return hints.length ? '. ' + hints.join(' ') : '';
 }
@@ -303,7 +310,7 @@ export function validateSearchOptions(fn, opts) {
     throw new SearchOptionError(
       `${fn}: unknown option(s) ${bad.map((b) => JSON.stringify(b)).join(', ')}. `
       + `valid: ${[...allowed].join(', ')}`
-      + misdirectedOptionHint(fn, bad),
+      + misdirectedOptionHint(fn, bad, opts),
       'EBADOPT',
     );
   }

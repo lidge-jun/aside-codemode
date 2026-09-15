@@ -29,6 +29,12 @@ test('search.count says the same thing, because it has the same trap', () => {
   const e = refusal('search.count', { pattern: 'x', path: '/tmp' });
   assert.equal(e.code, 'EBADOPT');
   assert.match(e.message, /query/, e.message);
+  assert.match(e.message, /search\.files/, 'count needs the same pointer as content: ' + e.message);
+});
+
+test('a glob-shaped value is sent to glob, not to a content regex', () => {
+  const e = refusal('search.content', { pattern: '*.pdf', path: '/tmp' });
+  assert.match(e.message, /glob/, e.message);
 });
 
 test('a missing path says what to put there', () => {
@@ -101,4 +107,15 @@ test('an entry cached under the old key still comes back readable', async () => 
   assert.equal(out.text, 'older body');
   assert.equal(out.format, 'markdown');
   assert.equal('markdown' in out, false);
+  assert.equal(out.chars, out.text.length, 'chars has to describe the body it came back with');
+});
+
+test('the browser path does not call rendered text markdown', async () => {
+  const short = '<html><body><div id="app"></div></body></html>';
+  const browse = { exec: async () => ({ items: [{ ok: true, text: 'rendered body text, long enough to count' }] }) };
+  const readText = createReadText({ fetchImpl: async (url) => ({ ok: true, status: 200, url, text: async () => short }), browse });
+  const out = await readText('https://example.com/spa');
+  assert.equal(out.source, 'browser');
+  assert.equal(out.format, 'text', 'innerText is not markdown and should not claim to be');
+  assert.equal(out.text, 'rendered body text, long enough to count');
 });

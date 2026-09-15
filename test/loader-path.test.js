@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { plannedFiles, agentsBody } from '../scripts/install-codemode.mjs';
+import { runInstaller } from '../scripts/install-codemode.mjs';
 import { applyRegister, helperLoadPathFor } from '../src/register.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,36 @@ test('backslashes become slashes one for one, so a UNC prefix survives', () => {
   // Collapsing a run of backslashes would turn \\server\share into /server/share, which is a
   // different machine's path on the same line.
   assert.equal(helperLoadPathFor(UNC_ROOT), '//server/share/.aside/u/0/codemode/cm.js');
+});
+
+// Rendering is not installing. applyWrites can preserve a file it decides is the user's, so
+// the bytes on disk after a real install verb are what an agent actually reads.
+test('the skill written to disk by install carries this account path', async () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-loader-disk-'));
+  const home = path.join(base, "it's mine", '.aside');
+  const root = path.join(home, 'u', '0');
+  mkdirSync(root, { recursive: true });
+  const out = runInstaller({ verb: 'install', asideHome: home, account: '0' });
+  assert.deepEqual(out.preserved, []);
+  const onDisk = readFileSync(path.join(root, 'skills/user/aside-codemode/SKILL.md'), 'utf8');
+  assert.equal(await loadedPath(onDisk), helperLoadPathFor(root));
+  const block = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.equal(await loadedPath(block), helperLoadPathFor(root));
+});
+
+// The relative form stays in the documents as an explanation of why the absolute one is
+// there. It must not come back as an instruction: the first runnable loader line is what an
+// agent copies.
+test('the session-relative form survives only as prose, never as the first instruction', async () => {
+  const { skill, agents } = render('/Users/someone/.aside/u/0');
+  for (const doc of [skill, agents]) {
+    const runnable = doc.split('\n').filter((l) => /^\s{4,}.*fs\.readFile\(/.test(l));
+    assert.equal(runnable.length > 0, true, 'no runnable loader line at all');
+    for (const line of runnable) {
+      assert.equal(line.includes('../../codemode/cm.js'), false, 'a runnable line still teaches the relative path: ' + line.trim());
+    }
+  }
+  assert.equal(await loadedPath(skill), '/Users/someone/.aside/u/0/codemode/cm.js');
 });
 
 test('two account roots get two different loader paths, in the skill and in register', async () => {

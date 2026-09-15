@@ -18,6 +18,19 @@ export { helperLoadPathFor };
 const START = '<!-- aside-codemode:start -->';
 const END = '<!-- aside-codemode:end -->';
 
+// One filler for both writers. The installer and register both hand an account the same
+// markered block, and 001 found them drifting: a rule fixed in one was still broken in the
+// other. {{HELPER}} carries its own quotes because the block is pasted into code and an
+// account root may contain an apostrophe, or start with a slash that would otherwise read
+// as a regular expression literal.
+export function fillTemplate(text, { node, cli, accountRoot }) {
+  return text
+    .replaceAll('{{NODE}}', node)
+    .replaceAll('{{CLI}}', cli)
+    .replaceAll('{{HELPER}}', JSON.stringify(helperLoadPathFor(accountRoot)))
+    .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
+}
+
 // A corrupt accounts.json listing hundreds of ids should report, not fan out.
 export const MAX_ACCOUNT_ROOTS = 32;
 
@@ -286,14 +299,7 @@ export function applyRegister({
     };
     try {
       mkdirSync(root, { recursive: true });
-      // {{HELPER}} carries its own quotes. The block is pasted into code, and an account
-      // root can contain an apostrophe or start with a slash; unquoted, the line becomes a
-      // regular expression literal or an unterminated string instead of a file read.
-      const body = template
-        .replaceAll('{{NODE}}', node)
-        .replaceAll('{{CLI}}', cli)
-        .replaceAll('{{HELPER}}', JSON.stringify(helperLoadPathFor(root)))
-        .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
+      const body = fillTemplate(template, { node, cli, accountRoot: root });
       const prev = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
       const next = upsertAgents(prev, body);
       writeFileSync(agentsPath, next);

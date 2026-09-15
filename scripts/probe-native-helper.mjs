@@ -116,6 +116,12 @@ if (!data) {
   check('1 the installed helper loads and reports its version',
     data.version === HELPER_VERSION, data.version + ' (expected ' + HELPER_VERSION + ')');
 
+  // The documents now hand out the absolute path. The session-relative form still has to
+  // work here, because this surface is the one place it does: a regression would mean the
+  // CLI stopped resolving from the session directory, which is worth failing over.
+  check('1b the CLI still resolves the session-relative form to the same bytes',
+    data.cliRelativeRead === 'same-bytes', String(data.cliRelativeRead));
+
   const b = data.budget;
   check('2a six real tabs, two at a time', b.tabs.peak <= 2, 'peak=' + b.tabs.peak + ' requested=' + b.tabs.requested + ' closed=' + b.tabs.closed);
   check('2b every item came back', b.items.length === 6 && b.status === 'completed', b.status + ' ' + b.completed + '/' + b.requested);

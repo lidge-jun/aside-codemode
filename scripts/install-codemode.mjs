@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { helperSource, helperLoadPathFor, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
 import { createActions } from '../src/host/actions.js';
-import { listAccountRoots, upsertAgents } from '../src/register.js';
+import { listAccountRoots, upsertAgents, fillTemplate } from '../src/register.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST_RELPATH = 'codemode/manifest.json';
@@ -37,20 +37,8 @@ function opt(name, fallback) {
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-// {{HELPER}} is the account root's own absolute path to cm.js. It is not one value for the
-// machine: each account root holds its own copy, and the line is pasted into code an agent
-// runs. Two things follow. Forward slashes on every platform, because a Windows root joined
-// with backslashes dies at parse time on \u. And the placeholder carries its own quotes -
-// JSON.stringify, not a bare path dropped between two apostrophes - because a home
-// directory may contain one: "/Users/al/it's mine" would end the literal early and the line
-// an agent copies would not parse.
-function fill(text, { node, cli, accountRoot }) {
-  return text
-    .replaceAll('{{NODE}}', node)
-    .replaceAll('{{CLI}}', cli)
-    .replaceAll('{{HELPER}}', JSON.stringify(helperLoadPathFor(accountRoot)))
-    .replaceAll('{{CWD_HINT}}', '--cwd <abs-project>');
-}
+// One filler, shared with register.js, so the two writers of the managed block cannot drift.
+const fill = fillTemplate;
 
 // The markered block, filled for one account. Exported so a test can read what an account
 // would actually be handed without writing to a real account root.

@@ -45,7 +45,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function exec(job) {
     if (caps.enabled !== true) {
-      const e = new Error('browse is opt-in: set browseCaps.enabled = true in codemode config');
+      const e = new Error('browse is opt-in and is currently off. Turn it on with: codemode --enable-browse (writes browseCaps.enabled into your user config)');
       e.code = 'EDISABLED';
       throw e;
     }
@@ -54,7 +54,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function captureMany(urls, opts = {}) {
     if (caps.enabled !== true) {
-      const e = new Error('browse is opt-in: set browseCaps.enabled = true in codemode config');
+      const e = new Error('browse is opt-in and is currently off. Turn it on with: codemode --enable-browse (writes browseCaps.enabled into your user config)');
       e.code = 'EDISABLED';
       throw e;
     }

@@ -39,6 +39,9 @@ export function doctorPayload(config = {}, resolved = null, error = null) {
   const caps = config.browseCaps || {};
   return {
     enabled: caps.enabled === true,
+    // A report that says "off" and stops is the reason someone went looking for the file by
+    // hand. When it is off, the next step goes in the report.
+    ...(caps.enabled === true ? {} : { enableWith: 'codemode --enable-browse' }),
     asidePath: config.asidePath ?? null,
     asideResolved: resolved,
     asideError: error,

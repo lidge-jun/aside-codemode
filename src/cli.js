@@ -56,6 +56,26 @@ try {
   fail(e.message);
 }
 
+// One command instead of "find the config file, learn its shape, add a key". Browsing stays
+// opt-in; this only shortens the distance between the refusal and a working call. It runs
+// before the root guard on purpose: a machine whose configured roots have moved still needs
+// to be able to turn browsing on.
+if (has('--enable-browse')) {
+  const { enableBrowse } = await import('./enable-browse.js');
+  try {
+    const result = enableBrowse({ env: process.env });
+    if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.alreadyEnabled
+        ? 'browsing was already on (' + result.path + ')'
+        : 'browsing is on; wrote browseCaps.enabled to ' + result.path);
+    }
+    process.exit(0);
+  } catch (e) {
+    fail(e.message, { code: e.code ?? null });
+  }
+}
+
 let assertInside;
 try {
   assertInside = makeRootGuard(config.roots, { cwd: workCwd });
@@ -65,6 +85,7 @@ try {
 
 const rgResolver = createRgResolver(config);
 const globals = signal => createHostGlobals(config, assertInside, signal);
+
 
 // `--doctor` answers "why is this not working" without making the caller
 // reverse-engineer it from a failed search.

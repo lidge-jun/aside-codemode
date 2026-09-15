@@ -223,7 +223,7 @@ export function compileAttach(req) {
 }
 
 function disabled(name) {
-  const e = new Error(name + ' needs browsing: set browseCaps.enabled = true in codemode config');
+  const e = new Error(name + ' needs browsing, which is currently off. Turn it on with: codemode --enable-browse');
   e.code = 'EDISABLED';
   return e;
 }

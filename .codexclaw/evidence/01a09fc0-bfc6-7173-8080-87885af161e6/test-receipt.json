@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "88dd74d0a52eb79826a309a5004694bffc7e83e6",
+    "commitSha": "8693f11fd3af333db5b8a6013ee65b45788af6bd",
     "dirty": false,
-    "capturedAt": "2026-09-15T03:23:37.434Z"
+    "capturedAt": "2026-09-15T03:46:37.720Z"
   },
-  "command": "node --test test/symlink-visibility.test.js test/search-hardening.test.js test/wire-hardening.test.js test/regressions.test.js",
+  "command": "node --test test/tree-nodes.test.js test/browse-a11y.test.js test/browse-tabs.test.js test/browse-discovery.test.js",
   "exitCode": 0,
-  "createdAt": "2026-09-15T03:23:37.447Z",
+  "createdAt": "2026-09-15T03:46:37.743Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915032336-1f892a"
+  "checkEpoch": "c-20260915034617-ee8374"
 }

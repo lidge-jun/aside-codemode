@@ -16,7 +16,7 @@ export function createReport({ config = {}, signal, assertInside, env = process.
   return Object.freeze({
     async build(opts = {}) {
       if (caps.enabled !== true) {
-        const e = new Error('report.build needs browsing: set browseCaps.enabled = true in codemode config');
+        const e = new Error('report.build needs browsing, which is currently off. Turn it on with: codemode --enable-browse');
         e.code = 'EDISABLED';
         throw e;
       }

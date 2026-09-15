@@ -2,8 +2,8 @@
   "objective": "목표: 에이전트가 실제로 부딪힌 마찰 다섯 가지와 이슈 #24를 고치고, 가이드와 샌드박스 안내를 정리한 뒤, npm 배포 가능 여부를 판정해 다음 릴리즈(0.3.0)까지 낸다. 기준은 origin/dev 67f63d2다.\n\n달성할 결과:\n1) 게스트에서 await import(\"node:fs\") 같은 동적 임포트가 ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING으로 죽는 대신, 무엇이 막혀 있고 무엇을 써야 하는지 말하는 오류가 되게 한다.\n2) search.files와 search.content의 인자 이름 불일치(query vs pattern, path 필수 여부)를 없애거나, 틀린 이름을 줬을 때 맞는 이름을 알려주게 한다.\n3) browse.readText가 문자열과 {url} 양쪽을 받고, 결과에 text가 비어 있는 채로 markdown만 들어 있는 혼란을 없앤다.\n4) browse.attach의 접근성 트리를 계층 구조로도 돌려줘서, 과목-과제-마감일 같은 묶음을 정규식 상태 머신 없이 뽑을 수 있게 한다.\n5) 설치 직후 browse가 꺼져 있어 사용자가 손으로 config를 고쳐야 했던 경로를 없앤다. 켜는 방법이 한 번의 명령이거나, 거절 메시지가 정확한 명령을 알려준다.\n6) 이슈 #24: followSymlinks 거부로 건너뛴 링크 디렉터리가 결과에 보이게 한다. complete:true로 조용히 끝나지 않는다.\n7) 설치되는 안내(AGENTS 블록, 스킬, references)에 게스트 샌드박스 규칙과 이 API들의 호출 모양을 정확히 적는다.\n8) npm 배포 가능 여부를 실제로 판정한다 — 이름 가용성, files/bin/engines, pack 결과, 배포하면 안 되는 것이 들어가는지. 판정과 근거를 기록한다.\n9) 0.3.0을 정확한 head의 hosted CI 5조합 success 뒤 dev와 main에 반영하고 태그와 release를 만든다.\n\n파일 범위 IN: src/**, scripts/**, templates/**, test/**, devlog/_plan/260915_agent-friction/**, evidence/**, README*.\n범위 OUT: npm publish 실행 자체(가능 여부 판정과 준비까지), 캡차·금고, G5 수동 세션.\n\n검증: 각 마찰에 먼저 실패하는 반례, 정확한 head의 hosted CI 5조합, 세 기기 재검증. 돌리지 않은 것을 통과로 적지 않는다.\n\n완료 판정: DONE은 등록된 criteria 전부가 fresh 증거를 갖고, main에 0.3.0 태그와 release가 있으며, npm 판정이 기록된 상태다.\n\n첫 work-phase: wp1 - 마찰 여섯 건의 원인을 소스에서 확인하고 diff-level 로드맵을 쓴다 (코드 변경 없음).",
   "slug": "24-npm-0-3-0-origin-dev-67f63d2-1-await-import-n",
   "createdAt": "2026-09-15T02:11:38.714Z",
-  "updatedAt": "2026-09-15T03:23:37.880Z",
-  "activeWorkPhaseId": "w5",
+  "updatedAt": "2026-09-15T03:46:38.178Z",
+  "activeWorkPhaseId": "w6",
   "workPhases": [
     {
       "id": "w1",
@@ -45,7 +45,7 @@
     {
       "id": "w5",
       "title": "접근성 트리를 계층 구조로도 돌려주기",
-      "status": "in_progress",
+      "status": "done",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [
@@ -55,7 +55,7 @@
     {
       "id": "w6",
       "title": "browse 활성화 경로: 손으로 config를 고치지 않게",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [
@@ -135,8 +135,8 @@
       "id": "c-5",
       "scenario": "browse.attach의 결과에서 계층 구조를 정규식 상태 머신 없이 읽을 수 있고, 그 구조가 실제 페이지로 검증된다",
       "expectedEvidence": "",
-      "capturedEvidence": null,
-      "status": "open",
+      "capturedEvidence": "browse.exec와 browse.attach가 treeNodes:true를 받으면 snapshot.nodes[{depth, role, name, ref, attrs, line}]를 함께 돌려준다. 계층은 depth 비교로 읽히고(반례: iframe 아래 두 행을 depth로만 모은다) 정규식 상태 머신이 필요 없다. 파서는 잘리기 전 트리에서 돌고, 이름은 첫 대괄호 앞에서만 읽어 placeholder가 이름을 훔치지 않으며, 대괄호 밖 value도 파싱해 password/secret이면 [redacted]로 바꾼다. 못 읽은 줄은 가짜 role 대신 nodesUnparsed로 센다. 감사가 실측한 회귀(모든 snapshot에 nodes를 실으면 ~280행 페이지가 봉투에서 통째로 탈락)를 opt-in으로 막았고, 파서 자체도 요청했을 때만 와이어에 실린다(Windows 명령줄 테스트가 지킨다). 한계는 카탈로그와 테스트에 적었다 — 들여쓰기 없이 오는 자식 프레임은 depth로 묶을 수 없고, interactive 모드에는 text/heading 행이 없어 묶음이 성립하지 않는다.",
+      "status": "met",
       "surface": "logic"
     },
     {

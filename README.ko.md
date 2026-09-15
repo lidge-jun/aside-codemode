@@ -1,10 +1,56 @@
-# make aside 50x faster
+<h3 align="center">make aside 50x faster</h3>
+<p align="center"><b>카드 50장이 한 장이 되는 지점</b><br>
+검색하고, 읽고, 브라우저까지 자바스크립트 한 블록 안에서 끝낸 다음, 더미가 아니라 답만 돌려줍니다.</p>
 
-로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md). 그 노트에는 argv·반올림 전 시간·결과 집합 일치까지 적힌 합성 대조가 있습니다. 그 대조는 55초 폴더가 아닙니다.
+<p align="center">
+  <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
+  <a href="https://github.com/lidge-jun/aside-codemode/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/aside-codemode?color=blue" alt="license"></a>
+  <img src="https://img.shields.io/node/v/aside-codemode?logo=node.js&label=node" alt="node version">
+  <a href="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml"><img src="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml/badge.svg?branch=main" alt="ci"></a>
+</p>
+
+```bash
+npm install -g aside-codemode
+codemode --doctor
+```
+
+<p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**파일 50개, 네이티브로**
+
+`read_file` 카드 50장, 왕복 50번. 50개 파일의 바이트가 전부 모델 컨텍스트에 들어앉습니다.
+답은 그 안 어딘가에 있습니다.
+
+</td>
+<td width="50%" valign="top">
+
+**파일 50개, 호출 한 번**
+
+```js
+const hits = await search.content({ path: ".", query: "TODO", max: 50 });
+return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
+```
+
+카드 한 장, 왕복 한 번, 경로 다섯 개.
+
+</td>
+</tr>
+</table>
+
+실제 개발 폴더에서 `find`+`grep`은 **55초**, `codemode --code` 한 번은 **1초**였습니다.
+대략 **51배**입니다. [측정 노트](evidence/dev-folder-51x.md)에는 argv 원문과 반올림하지 않은 시간,
+두 명령이 같은 파일을 찾았다는 대조가 들어 있습니다. 폴더에서 잰 숫자와 합성 대조에서 나온 숫자를
+따로 적어 둔 것도 같은 이유입니다. 둘은 같은 실행이 아닙니다.
 
 예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
 
-**aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 한 번의 코드 호출로 묶습니다. 중간 데이터를 모두 모델에게 전달하지 않고, 판단에 필요한 결과와 근거만 반환합니다.
+**aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 코드 호출 한 번으로 묶습니다.
+브라우징을 켜면 페이지 스무 개를 세션 하나로 도는 일도 같은 자리에서 합니다. 중간 데이터를 모델에
+다 넘기지 않고, 판단에 필요한 결과와 근거만 돌려줍니다.
 
 지금 Aside exec는 MCP 서버를 붙이지 않습니다. 되는 길은 bash 한 번으로 `codemode` CLI를 돌리고, `~/.aside/u/0/AGENTS.md`에 그 규칙을 적는 것입니다. 화면에 뜨는 파일 카드는 네이티브 `read_file` / `write_file` / `edit_file`이고, 게스트 JS도 같은 모양을 씁니다.
 

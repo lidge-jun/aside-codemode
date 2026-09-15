@@ -1,10 +1,58 @@
-# make aside 50x faster
+<h3 align="center">make aside 50x faster</h3>
+<p align="center"><b>One call where Aside used to spend fifty</b><br>
+Search, read, and drive the browser inside one sandboxed JavaScript block, then hand back the answer instead of the pile it came out of.</p>
 
-On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md). A synthetic companion with exact argv, unrounded times, and match-set equality is in that note; it is not the 55s folder.
+<p align="center">
+  <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
+  <a href="https://github.com/lidge-jun/aside-codemode/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/aside-codemode?color=blue" alt="license"></a>
+  <img src="https://img.shields.io/node/v/aside-codemode?logo=node.js&label=node" alt="node version">
+  <a href="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml"><img src="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml/badge.svg?branch=main" alt="ci"></a>
+</p>
+
+```bash
+npm install -g aside-codemode
+codemode --doctor
+```
+
+<p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Fifty files, natively**
+
+Fifty `read_file` cards, fifty round trips, and every byte of all fifty files parked in the
+model's context. The answer is in there somewhere.
+
+</td>
+<td width="50%" valign="top">
+
+**Fifty files, one call**
+
+```js
+const hits = await search.content({ path: ".", query: "TODO", max: 50 });
+return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
+```
+
+One card. One round trip. Five paths.
+
+</td>
+</tr>
+</table>
+
+On a real development folder, `find`+`grep` took **55s** and one `codemode --code` search took
+**1s**, about **51x**. The [measurement](evidence/dev-folder-51x.md) ships the exact argv, the
+unrounded times, and the proof that both commands found the same files. It also says which
+number came from the folder and which came from the synthetic companion, because those are not
+the same run and one of them is not 55 seconds of anything.
 
 Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
 
-**aside-codemode** gives Aside a single place to search, filter, read and summarize local files. Keep intermediate data out of the model context; return the answer and the evidence needed to judge it.
+**aside-codemode** gives Aside a single place to search, filter, read and summarize local files —
+and, once browsing is turned on, to run twenty pages through one session and come back with rows
+instead of screenshots. Keep intermediate data out of the model context; return the answer and the
+evidence needed to judge it.
 
 Aside exec does not attach MCP servers on current builds. The working path is one `bash` call to the `codemode` CLI plus a rule in `~/.aside/u/0/AGENTS.md`. File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`. Guest JavaScript uses those same shapes.
 

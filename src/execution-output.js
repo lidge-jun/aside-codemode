@@ -35,9 +35,10 @@ export function translateGuestError(error, globals = []) {
   const alternative = 'The guest runs as a script in a vm context with no module loader. '
     + 'Use the injected globals instead: ' + names + '.';
 
+  // Match on Node's error code, not on prose. A guest that throws its own Error mentioning a
+  // dynamic import callback is reporting something else, and rewriting it would hide that.
   if (code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'
-    || code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG'
-    || /dynamic import callback/i.test(message)) {
+    || code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG') {
     const e = new Error('dynamic import() is not available inside --code. ' + alternative);
     e.code = 'EGUESTIMPORT';
     return e;
@@ -45,15 +46,24 @@ export function translateGuestError(error, globals = []) {
 
   // A static import never reaches the loader: it fails to compile, because the guest body is
   // wrapped in an async function rather than a module.
-  if (error instanceof SyntaxError && /import statement outside a module/i.test(message)) {
+  if (error?.name === 'SyntaxError' && /import statement outside a module/i.test(message)) {
     const e = new SyntaxError(message + ' — ' + alternative);
     e.code = 'EGUESTIMPORT';
     return e;
   }
 
-  if (/code generation from strings/i.test(message)) {
+  // EvalError is the engine refusing; the same words inside some other error are not ours to
+  // relabel. Wasm is refused by the same context option and gets the same treatment.
+  if (error?.name === 'EvalError' && /code generation from strings/i.test(message)) {
     const e = new Error(message
       + ' — building code from a string is not available inside --code. ' + alternative);
+    e.code = 'EGUESTCODEGEN';
+    return e;
+  }
+
+  if (/wasm code generation disallowed/i.test(message)) {
+    const e = new Error(message
+      + ' — compiling WebAssembly is not available inside --code. ' + alternative);
     e.code = 'EGUESTCODEGEN';
     return e;
   }

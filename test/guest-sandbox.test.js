@@ -52,7 +52,26 @@ test('a static import fails with the same hint rather than a bare syntax error',
 test('building code from a string says so, instead of a bare EvalError', () => {
   const out = run('return ' + 'ev' + "al('1+1')"); // justified: the guest must refuse string-built code; this checks what it says while refusing, and the literal is assembled so the repo lint does not read it as a call site
   assert.equal(out.ok, false);
-  assert.match(out.error, /code generation|not available/i, out.error);
+  assert.equal(out.code, 'EGUESTCODEGEN', out.error);
+  // The engine already said "Code generation from strings disallowed". What was missing is
+  // what to do instead, so that is what this pins.
+  assert.match(out.error, /not available inside --code/i, out.error);
+  assert.ok(out.error.includes('search'), out.error);
+});
+
+test('an error that merely quotes those words is left alone', () => {
+  const out = run("throw Object.assign(new Error('my own dynamic import callback failed'), { code: 'EMINE' })");
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'EMINE');
+  assert.equal(out.error, 'my own dynamic import callback failed');
+});
+
+// Caught inside the guest, the rejection never reaches the boundary, so it arrives in Node's
+// own words. Pinned so the limit of this translation is on the record.
+test('a rejection the guest catches itself is not translated', () => {
+  const out = run("try { await import('node:fs'); return 'no throw'; } catch (e) { return e.code; }");
+  assert.equal(out.ok, true);
+  assert.equal(out.result, 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING');
 });
 
 // Not a fix, a boundary. An unawaited import() leaves the IIFE resolved, so the refusal lands

@@ -100,7 +100,12 @@ test('a run that is still alive is not reported as having abandoned anything', (
   const journal = createTabJournal({ dir: dirFor('alive'), pid: 515151, isAlive: () => true });
   journal.record({ runId: 'run-live', stdout: ev({ ev: 'open', targetId: 'T-live', url: 'https://a.test/1', jobId: 'j000' }) });
   const other = createTabJournal({ dir: dirFor('alive'), pid: 515152, isAlive: () => true });
-  assert.deepEqual(other.orphans(['T-live']), []);
+  assert.deepEqual(other.orphans([{ targetId: 'T-live', url: 'https://a.test/1' }]), []);
+  // A negative assertion alone would also pass if the journal could not be read at all, so
+  // the same record is asked for again with the run declared dead.
+  const afterItDies = createTabJournal({ dir: dirFor('alive'), pid: 515152, isAlive: () => false });
+  assert.equal(afterItDies.orphans([{ targetId: 'T-live', url: 'https://a.test/1' }]).length, 1,
+    'the record has to be readable, or the assertion above proved nothing');
   journal.forget('run-live');
 });
 
@@ -121,6 +126,9 @@ test('a journal entry for a tab that is gone is not reported as still open', () 
   const later = createTabJournal({ dir: dirFor('gone'), pid: 737374, isAlive: () => false });
   // The person already closed it. Naming it would send someone looking for a tab that is
   // not there.
-  assert.deepEqual(later.orphans(['T-something-else']), []);
+  assert.deepEqual(later.orphans([{ targetId: 'T-something-else', url: 'https://elsewhere.test/' }]), []);
+  // Positive control: with the tab back in the live list the same record is found, so the
+  // empty answer above came from the tab being gone and not from an unreadable journal.
+  assert.equal(later.orphans([{ targetId: 'T-gone', url: 'https://a.test/1' }]).length, 1);
   journal.forget('run-gone');
 });

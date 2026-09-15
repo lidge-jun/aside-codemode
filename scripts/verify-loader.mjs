@@ -29,7 +29,10 @@ const chosen = roots.find((r) => r.current) || roots[0];
 // is refused - correctly - so this check only means something for the current account. The
 // other roots are verified by doctor, and by this same check run on the machine and account
 // that owns them.
-const isCurrent = Boolean(chosen.current) || roots.length === 1;
+// Ask the whole list who is current: filtering to one account makes that one look current
+// simply because it is the only one in the answer.
+const currentOfMachine = listAccountRoots({ asideHome }).roots.find((r) => r.current);
+const isCurrent = currentOfMachine ? currentOfMachine.id === chosen.id : true;
 const skillPath = path.join(chosen.root, 'skills/user/aside-codemode/SKILL.md');
 const skill = readFileSync(skillPath, 'utf8');
 const loader = skill.split('\n').map((l) => l.trim()).find((l) => l.includes('fs.readFile('));

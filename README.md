@@ -54,7 +54,7 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
 | `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
-| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in: turn it on with `codemode --enable-browse`, which writes `browseCaps.enabled` into your user config and changes nothing else (uninstalling the account skill does not turn it back off). Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
 
 **`ok` is not "I read the page".** `ok` means the run completed; `contentVerified` means the
 content actually rendered. Threads returned `ok: true` with the correct title while the body

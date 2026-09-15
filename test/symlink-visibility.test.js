@@ -124,3 +124,16 @@ test('a glob in excludeGlobs is honoured the way the search honours it', async (
   const res = await withGlob.files({ path: base });
   assert.equal(res.scope.skippedSymlinks.files, 0, 'the search excluded it, so it was not skipped by the link policy');
 });
+
+// The count is bounded on purpose, and a bound that quietly closed the census would be worse
+// than no count at all. Capping says so and does not claim the search was incomplete.
+test('a capped census says it stopped early rather than guessing', async (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-cap-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  for (let i = 0; i < 40; i++) writeFileSync(path.join(base, 'f' + i + '.md'), 'x\n');
+
+  const { scanSkippedSymlinks } = await import('../src/symlink-scan.js');
+  const scan = await scanSkippedSymlinks(base, { maxEntries: 10 });
+  assert.equal(scan.capped, true);
+  assert.ok(scan.scanned <= 10 + 1);
+});

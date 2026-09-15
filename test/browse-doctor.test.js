@@ -3,6 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../src/config.js';
@@ -58,20 +60,31 @@ test('browse config defaults are opt-in and merge field-wise like searchCaps', (
   assert.equal(cfg.asidePath, null);
 });
 
-// The switch itself, pinned. If it stops working the three checks above go back to reporting
-// whatever this machine happens to be configured for, and nobody would notice until CI and a
-// laptop disagreed again.
-test('the repo config is read normally, and skipped when a test says to skip it', () => {
-  const env = { XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config') };
-  const withRepo = loadConfig([], env);
-  const without = loadConfig([], { ...env, CODEMODE_IGNORE_REPO_CONFIG: '1' });
+// The switch itself, pinned on any machine. Both halves are checked against a file this test
+// writes, so a CI runner with no repository config proves the same thing a developer laptop
+// does: read when present, skipped when asked. Asserting only on _sources would pass while
+// the file was still being applied.
+test('the repo config is read normally, and skipped when a test says to skip it', (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'acm-repo-cfg-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'codemode.config.json');
+  writeFileSync(file, JSON.stringify({ browseCaps: { enabled: true, maxTabs: 3 } }), 'utf8');
 
-  assert.ok(without._sources.includes('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)'));
-  assert.equal(without._sources.some((s) => String(s).endsWith('codemode.config.json')), false);
-  assert.equal(without.browseCaps.enabled, false, 'the built-in default is off');
-  // On a machine with no repo config the two agree; on one that has it they may not, and that
-  // difference is exactly what the switch exists to keep out of the assertions above.
-  assert.equal(typeof withRepo.browseCaps.enabled, 'boolean');
+  const env = {
+    XDG_CONFIG_HOME: path.join(root, 'test', 'fixtures', 'no-such-config'),
+    CODEMODE_REPO_CONFIG: file,
+  };
+
+  const read = loadConfig([], env);
+  assert.equal(read.browseCaps.enabled, true, 'the repo config stopped being read');
+  assert.equal(read.browseCaps.maxTabs, 3);
+  assert.ok(read._sources.includes(file));
+
+  const skipped = loadConfig([], { ...env, CODEMODE_IGNORE_REPO_CONFIG: '1' });
+  assert.equal(skipped.browseCaps.enabled, false, 'the file was applied despite the switch');
+  assert.equal(skipped.browseCaps.maxTabs, 8, 'built-in default, not the file');
+  assert.equal(skipped._sources.includes(file), false);
+  assert.ok(skipped._sources.includes('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)'));
 });
 
 test('the guest sees a frozen browse namespace and a placeholder report namespace', () => {

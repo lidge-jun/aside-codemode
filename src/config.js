@@ -80,7 +80,12 @@ function splitRoots(value) {
   return out;
 }
 
-function repoConfigPath() {
+// CODEMODE_REPO_CONFIG names the file explicitly. The default is found relative to this
+// module, which is right for a real install and impossible for a test to control: the point
+// of the override is that a check can aim this layer at a file it wrote, and so pin both
+// halves of the behaviour on a machine that has no repository config at all.
+function repoConfigPath(env = process.env) {
+  if (env.CODEMODE_REPO_CONFIG) return env.CODEMODE_REPO_CONFIG;
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.join(here, '..', 'codemode.config.json');
 }
@@ -133,7 +138,7 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
   // browsing enabled. A test that asks "what is the default" must not read it, or the same
   // assertion is green on CI and red on the machine that wrote the file. The switch is here
   // rather than in the tests because the file is found relative to this module, not the cwd.
-  const repoPath = repoConfigPath();
+  const repoPath = repoConfigPath(env);
   const ignoreRepo = env.CODEMODE_IGNORE_REPO_CONFIG === '1';
   if (ignoreRepo) cfg._sources.push('repo config ignored (CODEMODE_IGNORE_REPO_CONFIG=1)');
   else if (existsSync(repoPath)) apply(readJsonFile(repoPath), repoPath);

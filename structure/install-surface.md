@@ -54,3 +54,23 @@ suite red.
 That suite also refuses to let either document advertise a usability gate nobody has run. A string
 match is not a session, and `templates/` must not claim otherwise.
 
+## Three tiers and the prompt cache
+
+The three artifacts are three tiers of disclosure, and the boundary between them is set by cache
+behaviour rather than taste.
+
+| Tier | Content | Loaded |
+|---|---|---|
+| Catalogue | name, purpose, and when to reach for it | every turn |
+| Instruction | the skill body: procedure, failure codes, recovery | when the work matches |
+| Resource | references and the helper source | when the instruction points at them |
+
+The skill body is carried as a tool result inside the conversation, not placed in the system
+prompt. A prompt cache survives only while the system prompt prefix is stable, so moving a document
+that changes with every release into that prefix costs more than the tokens it was meant to save.
+
+This reframes the budget question. It is not how many lines the region deserves; it is whether a
+given sentence has to be in the stable prefix to do its job. A criterion does. A procedure does
+not, and the region is only useful if it always names the path to the skill that owns it.
+
+Reasoning is in `decisions/ADR-0004-skill-body-stays-out-of-the-system-prompt.md`.

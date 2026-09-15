@@ -72,3 +72,27 @@ the second is checked, and only when the caller asked.
 caller comparing a reported character count against what arrived is the only way to know a body was
 cut.
 
+## Where the implementation and this contract disagree
+
+Three divergences hold in the tree right now. They are stated here because a contract document that
+describes only the intent is the reason nobody notices the gap.
+
+**`blocked` is returned and is not in the vocabulary.** `itemStatus` answers `'blocked'` for an
+`EBLOCKED` item, and `ITEM_STATUSES` does not list it. A blocked item is therefore produced in
+normal operation and fails `checkResultEnvelope`. Whichever way it is resolved, the two files have
+to agree: either the vocabulary gains the word, or a blocked item maps onto one that is already
+there. Mapping it splits a real distinction — a login wall or a challenge is something a person can
+clear, and an origin refusing the client is not — and it would give `needs_input` the producer it
+has never had.
+
+**No gate reads the destination.** `itemStatus` reaches `completed` from `item.ok` alone. The
+script records `finalUrl` but never inspects its scheme, so a navigation that ended on the browser's
+own error page counts as a page that arrived. HTTP status is not available on this path at all: it
+is read only in `read-text.js`, and even there 404 is absent from the list of statuses that mean
+failure.
+
+**An empty result is not suspicious to anything.** A search whose every query returned nothing, and
+a batch whose selector returned zero on every item, both end normally. This is the same disease as
+reaching `completed` on an error page — the call worked, the result is empty, and no part of the
+contract says that combination is worth a second look. It is not a browser problem; it belongs to
+the result contract as a whole.

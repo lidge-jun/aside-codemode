@@ -64,3 +64,19 @@ window between the check passing and the verb running.
 markdown or from the browser as rendered text. It reaches the page through `browse.exec` with
 `fullText`, so the batch text path and the public read path share one implementation.
 
+## Printing
+
+A guest can already write a verified PDF to disk, through `report.build`. It assembles the HTML,
+serves it on loopback, prints with paper dimensions in inches because a named format was measured to
+produce the wrong page, reads the artifact back under the same containment a screenshot gets,
+verifies the page box against what was asked for, and writes to the caller's path.
+
+What has no path is printing a page the caller names. `browse.exec` accepts a `pdf` option and
+reports the byte count, but the branch that writes the bytes runs only when the host issued a name
+for them, and `report.build` is the only caller that issues one. `captureMany` takes screenshots and
+has no `pdf` option. So the bytes for an arbitrary url are produced, counted, and dropped.
+
+`report.build` also turns block detection off for its own page, because loopback HTML this process
+assembled is not a remote origin refusing us, and a report that lists a blocked page renders the
+word and would otherwise flag itself. A caller printing their own local page through `browse.exec`
+has to know to do the same.

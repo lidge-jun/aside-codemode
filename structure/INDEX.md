@@ -24,6 +24,7 @@ The one vocabulary every batch answers in, whoever produced it.
 | Doc | Scope |
 | --- | --- |
 | [`batch-contract.md`](batch-contract.md) | The shared run envelope, the status vocabulary, reconciliation, effects, and tab accounting. |
+| [`session-contract.md`](session-contract.md) | How signed-in work divides between native steps and a batch, and why the tool never infers authentication. |
 
 ### Tier 3 — Browsing
 
@@ -51,6 +52,8 @@ What an install writes into an account, and the budget it spends there.
 | `src/cli.js` | [`overview.md`](overview.md) |
 | `src/execution-output.js` | [`batch-contract.md`](batch-contract.md) |
 | `src/host/browse/` | [`browse-surface.md`](browse-surface.md) |
+| `src/host/browse/attach.js` | [`session-contract.md`](session-contract.md) |
+| `src/host/browse/policy.js` | [`session-contract.md`](session-contract.md) |
 | `src/host/browse/result-contract.js` | [`batch-contract.md`](batch-contract.md) |
 | `src/host/browse/session.js` | [`batch-contract.md`](batch-contract.md) |
 | `src/host/file-lock.js` | [`local-surface.md`](local-surface.md) |
@@ -75,3 +78,5 @@ Not yet described, with the reason recorded in the manifest:
 
 - [`ADR-0001-always-injected-block-budget.md`](decisions/ADR-0001-always-injected-block-budget.md) — ADR-0001 — decision recorded under "Always-injected block budget"
 - [`ADR-0002-block-carries-criteria-skill-carries-procedure.md`](decisions/ADR-0002-block-carries-criteria-skill-carries-procedure.md) — ADR-0002 — decision recorded under "The block carries criteria, the skill carries procedure"
+- [`ADR-0003-session-proof-comes-from-the-caller.md`](decisions/ADR-0003-session-proof-comes-from-the-caller.md) — ADR-0003 — decision recorded under "Proof of a live session comes from the caller"
+- [`ADR-0004-skill-body-stays-out-of-the-system-prompt.md`](decisions/ADR-0004-skill-body-stays-out-of-the-system-prompt.md) — ADR-0004 — decision recorded under "The skill body stays out of the system prompt"

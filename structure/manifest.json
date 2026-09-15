@@ -58,6 +58,16 @@
       ]
     },
     {
+      "path": "session-contract.md",
+      "tier": 2,
+      "title": "Session contract",
+      "scope": "How signed-in work divides between native steps and a batch, and why the tool never infers authentication.",
+      "documents": [
+        "src/host/browse/policy.js",
+        "src/host/browse/attach.js"
+      ]
+    },
+    {
       "path": "browse-surface.md",
       "tier": 3,
       "title": "Browse surface",

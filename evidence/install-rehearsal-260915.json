@@ -1,12 +1,16 @@
 {
-  "at": "2026-09-15T00:36:47.895Z",
+  "at": "2026-09-15T00:52:43.564Z",
   "platform": "darwin",
-  "accountRoot": "/var/folders/2r/ysbqgzpd2b7g8ymwz91gnm7w0000gn/T/acm-rehearsal-fCEyd6/.aside/u/0",
+  "accountRoot": "/var/folders/2r/ysbqgzpd2b7g8ymwz91gnm7w0000gn/T/acm-rehearsal-odySSV/.aside/u/0",
+  "held": true,
+  "failures": [],
   "steps": [
     {
       "name": "1 installed, then aged to the previous release",
       "helperIsOld": true,
-      "blocks": 1
+      "blocks": 1,
+      "held": true,
+      "broke": []
     },
     {
       "name": "2 doctor on a machine a release left behind",
@@ -18,7 +22,9 @@
         "skills/user/aside-codemode/SKILL.md=matches the manifest",
         "skills/user/aside-codemode/references/execution-paths.md=matches the manifest",
         "skills/user/aside-codemode/references/windows-invocation.md=matches the manifest"
-      ]
+      ],
+      "held": true,
+      "broke": []
     },
     {
       "name": "4 upgrade",
@@ -34,13 +40,17 @@
       "userEditKept": true,
       "helperReplaced": true,
       "previousHoldsOldHelper": true,
-      "blocks": 1
+      "blocks": 1,
+      "held": true,
+      "broke": []
     },
     {
       "name": "5 rollback",
       "helperBackToOld": true,
       "userEditSurvived": true,
-      "note": "rollback writes the snapshot without inspecting the disk; a file the user changed after the upgrade is overwritten"
+      "note": "rollback writes the snapshot without inspecting the disk; a file the user changed after the upgrade is overwritten",
+      "held": true,
+      "broke": []
     },
     {
       "name": "6 repair after a deletion",
@@ -54,40 +64,57 @@
         "skills/user/aside-codemode/references/windows-invocation.md"
       ],
       "skillIsBack": true,
-      "manifestKeepsDiskHashForSkipped": true
+      "manifestKeepsDiskHashForSkipped": true,
+      "held": true,
+      "broke": []
     },
     {
       "name": "7 upgrade after repair",
       "helperIsCurrent": true,
-      "preserved": []
+      "preserved": [],
+      "held": true,
+      "broke": []
+    },
+    {
+      "name": "7b a user edit, before uninstall",
+      "reason": "modified",
+      "held": true,
+      "broke": []
     },
     {
       "name": "8 uninstall",
       "removed": [
         "codemode/cm.js",
         "codemode/catalog.json",
-        "skills/user/aside-codemode/SKILL.md",
         "skills/user/aside-codemode/references/execution-paths.md",
         "skills/user/aside-codemode/references/windows-invocation.md"
       ],
-      "preserved": [],
+      "preserved": [
+        "skills/user/aside-codemode/SKILL.md"
+      ],
       "agentsBlock": "removed",
       "manifestGone": true,
-      "blocks": 0
+      "blocks": 0,
+      "editSurvived": true,
+      "held": true,
+      "broke": []
     },
     {
       "name": "9 install again",
       "written": [
         "codemode/cm.js",
         "codemode/catalog.json",
-        "skills/user/aside-codemode/SKILL.md",
         "skills/user/aside-codemode/references/execution-paths.md",
         "skills/user/aside-codemode/references/windows-invocation.md"
       ],
-      "preserved": [],
-      "upToDate": true,
+      "preserved": [
+        "skills/user/aside-codemode/SKILL.md"
+      ],
+      "upToDate": false,
       "blocks": 1,
-      "agentsBlock": "current"
+      "agentsBlock": "current",
+      "held": true,
+      "broke": []
     }
   ]
 }

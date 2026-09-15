@@ -90,6 +90,10 @@ export function createRgResolver(config, env = process.env, { signal } = {}) {
       '/usr/local/bin/rg',
       '/home/linuxbrew/.linuxbrew/bin/rg',
       await whereRg(signal),
+      // Last, and only where it can run: the copy we ship. register writes rgPath on a
+      // Windows checkout, but a package installed from npm has no register step, and
+      // without this the binary we just shipped is the one thing PATH cannot find.
+      isWindows ? path.join(repoRoot, 'bin', 'rg.exe') : null,
     ].filter(Boolean);
     const failures = [];
     for (const cand of candidates) {

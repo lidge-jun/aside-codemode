@@ -4,6 +4,24 @@
   "description": "CLI code mode for the Aside agent: one `codemode --code` guest with Aside-shaped file tools and rg-backed search",
   "type": "module",
   "license": "MIT",
+  "author": "lidge-jun",
+  "homepage": "https://github.com/lidge-jun/aside-codemode#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lidge-jun/aside-codemode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lidge-jun/aside-codemode/issues"
+  },
+  "keywords": [
+    "aside",
+    "agent",
+    "code-mode",
+    "sandbox",
+    "ripgrep",
+    "browser-automation",
+    "cli"
+  ],
   "engines": {
     "node": ">=18"
   },
@@ -16,7 +34,11 @@
   "files": [
     "bin/",
     "src/",
-    "scripts/",
+    "scripts/install-codemode.mjs",
+    "scripts/register-aside.mjs",
+    "scripts/register-aside.sh",
+    "scripts/register-aside.ps1",
+    "scripts/run-tests.mjs",
     "templates/",
     "codemode.config.example.json",
     "README.md",

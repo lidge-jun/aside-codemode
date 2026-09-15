@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" width="128" height="96" role="img" aria-label="aside-codemode">
+  <title>aside-codemode</title>
+  <!-- Five file rows funnel through one call and come back as a single answer. -->
+  <!-- Original mark, drawn from an ima2 composition on 2026-09-15. Nothing here is
+       borrowed from Aside's own identity: this is an unaffiliated tool for it. -->
+  <g fill="none" stroke="#E03127" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 16H46" />
+    <path d="M12 32H54" />
+    <path d="M12 48H56" />
+    <path d="M12 64H52" />
+    <path d="M12 80H44" />
+    <path d="M64 14 86 48 64 82" />
+    <path d="M88 48H116" />
+  </g>
+</svg>

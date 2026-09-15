@@ -74,11 +74,17 @@ test('a rejection the guest catches itself is not translated', () => {
   assert.equal(out.result, 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING');
 });
 
-// Not a fix, a boundary. An unawaited import() leaves the IIFE resolved, so the refusal lands
-// after the result has already been produced. Pinned so the gap is visible rather than
-// discovered by someone whose script silently did nothing.
-test('an unawaited import still returns, and the refusal does not reach the caller', () => {
+// Not a fix, a boundary. An unawaited import() leaves the IIFE resolved, so the refusal and the
+// result race: whichever lands first is what the caller sees. This test used to assert the
+// result always won, which held on Linux and Windows and lost on a macOS runner - the assertion
+// was one side of a coin flip. What is actually guaranteed is that the run stays well formed
+// either way, and that is what is pinned here. The lesson for a guest script is the same in
+// both outcomes: an unawaited import is not reliably anything, so await it or drop it.
+test('an unawaited import leaves a race, and both sides of it are well formed', () => {
   const out = run("import('node:fs'); return 'done'");
-  assert.equal(out.ok, true);
-  assert.equal(out.result, 'done');
+  if (out.ok) {
+    assert.equal(out.result, 'done');
+  } else {
+    assert.equal(out.error.code, 'EGUESTIMPORT');
+  }
 });

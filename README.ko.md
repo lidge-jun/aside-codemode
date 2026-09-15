@@ -1,10 +1,45 @@
-# make aside 50x faster
+<p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
+<h3 align="center">make aside 50x faster</h3>
+<p align="center"><b>카드 50장이 한 장이 되는 지점</b><br>
+검색하고, 읽고, 브라우저까지 자바스크립트 한 블록 안에서 끝낸 다음, 더미가 아니라 답만 돌려줍니다.</p>
 
-로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md). 그 노트에는 argv·반올림 전 시간·결과 집합 일치까지 적힌 합성 대조가 있습니다. 그 대조는 55초 폴더가 아닙니다.
+<p align="center">
+  <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
+  <a href="https://github.com/lidge-jun/aside-codemode/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/aside-codemode?color=blue" alt="license"></a>
+  <img src="https://img.shields.io/node/v/aside-codemode?logo=node.js&label=node" alt="node version">
+  <a href="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml"><img src="https://github.com/lidge-jun/aside-codemode/actions/workflows/ci.yml/badge.svg?branch=main" alt="ci"></a>
+</p>
+
+```bash
+npm install -g aside-codemode
+codemode --doctor
+```
+
+<p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
+
+프로젝트에서 `TODO`가 들어간 파일 50개를 찾아 경로만 돌려받는 일입니다.
+
+|  | 네이티브 | `codemode --code` 한 번 |
+| --- | --- | --- |
+| Aside 화면에 쌓이는 카드 | 50장 | 1장 |
+| 왕복 | 50번 | 1번 |
+| 모델에 들어가는 것 | 파일 50개의 모든 바이트 | 요청한 경로 5개 |
+
+```js
+const hits = await search.content({ path: ".", query: "TODO", max: 50 });
+return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
+```
+
+실제 개발 폴더에서 `find`+`grep`은 **55초**, `codemode --code` 한 번은 **1초**였습니다.
+대략 **51배**입니다. [측정 노트](evidence/dev-folder-51x.md)에는 argv 원문과 반올림하지 않은 시간,
+두 명령이 같은 파일을 찾았다는 대조가 들어 있습니다. 폴더에서 잰 숫자와 합성 대조에서 나온 숫자를
+따로 적어 둔 것도 같은 이유입니다. 둘은 같은 실행이 아닙니다.
 
 예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
 
-**aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 한 번의 코드 호출로 묶습니다. 중간 데이터를 모두 모델에게 전달하지 않고, 판단에 필요한 결과와 근거만 반환합니다.
+**aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 코드 호출 한 번으로 묶습니다.
+브라우징을 켜면 페이지 스무 개를 세션 하나로 도는 일도 같은 자리에서 합니다. 중간 데이터를 모델에
+다 넘기지 않고, 판단에 필요한 결과와 근거만 돌려줍니다.
 
 지금 Aside exec는 MCP 서버를 붙이지 않습니다. 되는 길은 bash 한 번으로 `codemode` CLI를 돌리고, `~/.aside/u/0/AGENTS.md`에 그 규칙을 적는 것입니다. 화면에 뜨는 파일 카드는 네이티브 `read_file` / `write_file` / `edit_file`이고, 게스트 JS도 같은 모양을 씁니다.
 
@@ -209,24 +244,5 @@ npm test   # node scripts/run-tests.mjs — 의존성 없음
 ```
 
 `test/regressions.test.js`는 실제로 나갔던 결함을 고정합니다. gitignore 맹점, `max` 과다 반환, stdout 버퍼 폭발, 조용히 무시되던 옵션, 다른 OS 루트 크래시, 상속된 `rgPath`를 못 지우는 `null`, Windows 드라이브 문자가 `:`로 쪼개지던 일.
-
-## Future: MCP
-
-지금 Aside CLI exec는 `mcp.servers`를 띄우지 않습니다. register는 나중에 MCP를 붙이는 빌드를 위해 이 블록을 남겨 둘 수 있습니다. 설치 경로는 아닙니다.
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "aside-codemode": {
-        "command": "C:\\nvm4w\\nodejs\\node.exe",
-        "args": ["C:\\path\\to\\aside-codemode\\src\\server.js", "--config", "C:\\path\\to\\aside-codemode\\codemode.config.json"]
-      }
-    }
-  }
-}
-```
-
-macOS의 `"command"`는 절대 node 경로입니다. args는 이 클론을 가리킵니다. 오늘 성공은 여전히 AGENTS + `codemode --code`입니다.
 
 라이선스: MIT (LICENSE 참고).

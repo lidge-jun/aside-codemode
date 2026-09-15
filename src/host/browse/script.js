@@ -336,6 +336,17 @@ export function stripForWire(src) {
   return out.join('\n');
 }
 
+// The same thing, plus the leading spaces, for the fragments that get INJECTED into the
+// template. stripForWire keeps indentation because the template it is applied to may hold a
+// multi-line string whose leading spaces are part of the value. None of these fragments
+// holds one — they contain no backtick at all, which a test asserts for every one of them,
+// because the day somebody adds a template literal here the indentation stops being free.
+// It is worth doing: across the fragments an acting job reaches, this is over a kilobyte of
+// command line that says nothing.
+export function stripFragment(src) {
+  return stripForWire(String(src).replace(/^ +/gm, ''));
+}
+
 // The wire cap, in one place, because two entry points enforce it and they used to carry
 // the same number twice. It is not a round number chosen for looks: the generated source is
 // handed to the CLI as a command-line ARGUMENT, and Windows caps a whole command line at
@@ -435,17 +446,17 @@ export function compile(job, plan = null) {
     // read from the same file an install copies, which is what lets the envelope's sha256
     // mean anything.
     .replace('/*__HELPER__*/', () => (job.helper === true ? stripForWire(helperSource().src) : ''))
-    .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
-    .replace('/*__TREE_NODES__*/', () => (needsTree && payload.treeNodes === true ? stripForWire(TREE_NODES_SRC) : ''))
+    .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripFragment(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__TREE_NODES__*/', () => (needsTree && payload.treeNodes === true ? stripFragment(TREE_NODES_SRC) : ''))
     .replace('/*__TREE_NODES_CALL__*/', () => (needsTree && payload.treeNodes === true
       ? 'if (out.snapshot) { var __n = summarizeNodes(tree, JOB.snapshot, { maxNodeChars: 8000 }); out.snapshot.nodes = __n.nodes; out.snapshot.nodesTruncated = __n.nodesTruncated; out.snapshot.nodesUnparsed = __n.nodesUnparsed; }'
       : ''))
-    .replace('/*__EXTRACT__*/', () => (payload.extract ? stripForWire(EXTRACT_SRC) : ''))
-    .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
-    .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripForWire(REF_SPLIT_SRC) : ''))
-    .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripForWire(REF_EXTRACT_SRC) : ''))
-    .replace('/*__SNAPSHOT_AFTER__*/', () => (payload.snapshotAfter ? stripForWire(SNAPSHOT_AFTER_SRC) : ''))
-    .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripForWire(ACTION_STEP_SRC) : ''));
+    .replace('/*__EXTRACT__*/', () => (payload.extract ? stripFragment(EXTRACT_SRC) : ''))
+    .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripFragment(REF_READ_SRC) : ''))
+    .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripFragment(REF_SPLIT_SRC) : ''))
+    .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripFragment(REF_EXTRACT_SRC) : ''))
+    .replace('/*__SNAPSHOT_AFTER__*/', () => (payload.snapshotAfter ? stripFragment(SNAPSHOT_AFTER_SRC) : ''))
+    .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripFragment(ACTION_STEP_SRC) : ''));
   return stripForWire(src);
 }
 
@@ -509,10 +520,19 @@ let deadlineHit = false;
 let markerMisses = 0;
 // Idempotent: it carries a counter now, so the invariant lives with the counter rather
 // than with every call site remembering to check rec.closed first.
+// Printed the moment a tab exists and the moment it stops existing, not gathered into the
+// final payload. A CLI killed on a hung close never writes that payload, and the tabs it
+// left are the ones somebody has to find later, so the record has to leave the process
+// before the process does. The run id and the clock are the host's: it issued one and owns
+// the other, and every key here is bytes on the command line.
+function tabEvent(e, r) {
+  try { console.log(JSON.stringify({ type: 'tab', ev: e, targetId: r.targetId || null, url: r.url, jobId: r.jobId })); } catch (x) {}
+}
 function markClosed(rec) {
   if (rec.closed) return;
   rec.closed = true;
   tabsClosed += 1;
+  tabEvent('close', rec);
 }
 const RX = JOB.detect ? {
   captcha: new RegExp(JOB.detect.captcha, 'i'),
@@ -593,6 +613,7 @@ async function one(item) {
   if (owned() > tabsPeak) tabsPeak = owned();
   t.navigate = lap();
   const rec = { targetId: page && page.targetId, url: item.url, jobId: item.jobId, page, closed: false };
+  tabEvent('open', rec);
   opened.push(rec);
   pend.rec = rec;
   try {

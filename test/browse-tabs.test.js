@@ -3,8 +3,22 @@
 // and counted at INTENT or four workers all read owned() === 0 and all four open.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, summarizeTree, WIRE_LIMIT, WIRE_LIMIT_PORTABLE } from '../src/host/browse/script.js';
+import { compile, summarizeTree, WIRE_LIMIT, WIRE_LIMIT_PORTABLE, stripFragment, stripForWire as stripForWireOnly } from '../src/host/browse/script.js';
 import { ACTION_STEP_SRC } from '../src/host/browse/actions-run.js';
+import { readFileSync } from 'node:fs';
+
+// Read back out of the file, so a fragment added later is swept without anyone remembering
+// to add it here.
+function fragmentSources() {
+  const BACKTICK = String.fromCharCode(96);
+  const src = readFileSync(new URL('../src/host/browse/script.js', import.meta.url), 'utf8');
+  const re = new RegExp('const ([A-Z_]+_SRC) = String\\.raw' + BACKTICK + '([\\s\\S]*?)' + BACKTICK + ';', 'g');
+  const out = [];
+  let m;
+  while ((m = re.exec(src)) !== null) out.push([m[1], m[2]]);
+  out.push(['ACTION_STEP_SRC', ACTION_STEP_SRC]);
+  return out;
+}
 import { buildRunSource } from '../src/host/browse/session.js';
 import { createBreaker } from '../src/host/browse/policy.js';
 import { validateJob, SLACK_MS } from '../src/host/browse/schema.js';
@@ -246,16 +260,33 @@ test('the combinations outside the envelope depend on the platform, and say so w
   assert.equal(WIRE_LIMIT, process.platform === 'win32' ? 30000 : 50000);
 });
 
-test('the action helper ships without its indentation', () => {
-  // stripForWire deliberately keeps indentation, because the main template holds multi-line
-  // template literals whose leading spaces are part of a string. This fragment holds none,
-  // which is what makes dedenting it safe and worth 1,024 characters. If a backtick ever
-  // appears here that reasoning stops holding, so the guard is the assertion rather than a
-  // comment.
-  assert.equal(ACTION_STEP_SRC.includes(String.fromCharCode(96)), false,
-    'ACTION_STEP_SRC is dedented on the way out; a template literal inside it would have its'
-    + ' own leading spaces eaten');
-  assert.equal(/^ /m.test(ACTION_STEP_SRC), false, 'no line of the shipped fragment starts with a space');
+test('the injected fragments ship without their indentation, and can safely', () => {
+  // stripForWire deliberately keeps indentation, because the template it runs over may hold
+  // a multi-line string whose leading spaces are part of the value. The injected fragments
+  // hold none - they contain no backtick at all - which is what makes dedenting them safe
+  // and worth over a kilobyte. The day someone adds a template literal to one of them that
+  // reasoning stops holding, so this is an assertion rather than a comment.
+  const BACKTICK = String.fromCharCode(96);
+  const fragments = fragmentSources();
+  assert.ok(fragments.length >= 7, 'only ' + fragments.length + ' fragments were found; the sweep would be proving almost nothing');
+  // The sweep finds fragments by how they are declared, and compile() injects them by name.
+  // If those two ever disagree, a fragment ships dedented without anyone having checked it,
+  // so the names are compared rather than trusted.
+  const src = readFileSync(new URL('../src/host/browse/script.js', import.meta.url), 'utf8');
+  // Uppercase only, so the function's own declaration is not counted as a call site.
+  const injected = [...src.matchAll(/stripFragment\(([A-Z][A-Z_]*_SRC)\)/g)].map((m) => m[1]);
+  assert.ok(injected.length >= 7, 'only ' + injected.length + ' stripFragment call sites; the comparison would prove nothing');
+  const swept = new Set(fragments.map(([name]) => name));
+  const missing = injected.filter((name) => !swept.has(name));
+  assert.deepEqual(missing, [], 'these fragments are dedented on the way out but never checked for a backtick');
+  for (const [name, body] of fragments) {
+    assert.equal(body.includes(BACKTICK), false,
+      name + ' contains a backtick; stripFragment would eat the leading spaces inside it');
+  }
+  // And the dedent is actually applied, not merely safe to apply.
+  assert.equal(/^ /m.test(stripFragment(ACTION_STEP_SRC)), false, 'no shipped line starts with a space');
+  assert.ok(stripFragment(ACTION_STEP_SRC).length < stripForWireOnly(ACTION_STEP_SRC).length,
+    'dedenting has to change something or it is not doing anything');
 });
 
 test('only the helpers the job can reach are shipped', () => {

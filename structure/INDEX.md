@@ -83,3 +83,4 @@ Not yet described, with the reason recorded in the manifest:
 - [`ADR-0005-the-wire-limit-is-the-platforms.md`](decisions/ADR-0005-the-wire-limit-is-the-platforms.md) — ADR-0005 — decision recorded under "Deadlines"
 - [`ADR-0006-the-write-gate-uses-the-effect-ledger.md`](decisions/ADR-0006-the-write-gate-uses-the-effect-ledger.md) — ADR-0006 — decision recorded under "Acting on a page"
 - [`ADR-0007-approval-ids-are-not-run-ids.md`](decisions/ADR-0007-approval-ids-are-not-run-ids.md) — ADR-0007 — decision recorded under "Acting on a page"
+- [`ADR-0008-ownership-lives-in-a-host-journal.md`](decisions/ADR-0008-ownership-lives-in-a-host-journal.md) — ADR-0008 — decision recorded under "Whose tab is whose"

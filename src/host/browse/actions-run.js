@@ -299,7 +299,7 @@ async function runActions(page, steps, ctx) {
     urlBefore: urlAtSnapshot,
     urlAfter: endUrl
   };
-}`.replace(/^ +/gm, '');
+}`;
 
 export const runActions = new Function(ACTION_STEP_SRC + '; return runActions;')();
 

@@ -13,6 +13,7 @@ import { compile, deadlineMath, WIRE_LIMIT } from './script.js';
 import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
 import { DEAD_END } from './policy.js';
+import { createTabJournal } from './tab-journal.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -290,7 +291,7 @@ export function buildRunSource(job, { plan = null, runId = null, requested = nul
   return compile({ ...job, runId }, rows);
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null } = {}) {
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal() } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
 
@@ -365,6 +366,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const { marker, ms } = parseMarker(stdout);
     const final = parseFinal(stdout);
     const totalMs = now() - startedAt;
+    // Before any verdict is computed, because this is the one thing that matters whether
+    // the run succeeded or was killed mid-close. A tab the script opened and did not report
+    // closing is a tab somebody will be looking at later with no idea where it came from.
+    try { if (tabJournal) tabJournal.record({ runId, stdout, urls: job.urls.slice() }); } catch { /* the journal is a convenience, never a reason to lose a result */ }
 
     if (killed || marker === null) {
       // The script never got to print, so it never got to close its tabs. Every url we

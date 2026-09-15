@@ -103,6 +103,13 @@ export const BROWSE_ACTIONS = [
     notes: 'ok means the run completed; contentVerified means the page actually rendered. They are DIFFERENT: Threads returned ok:true with the right title while the body was server bootstrap JSON and no posts. Pass requireSelector/minTextChars to get a real verdict; without them contentVerified is null (nobody asked) rather than true. items[] carries per-url ok/error so one failure never empties the rest. A blocked page returns EBLOCKED with an alternate route; an arrived-but-unrendered page returns EUNRENDERED or partial:[content-unverified]. A navigation that ended on the browser own error page is EDEADEND. If the same extract field came back empty on every page that answered, the run carries suspectEmpty naming it and counting the frames on those pages, because a frame is the usual reason a selector finds nothing.',
   },
   {
+    path: 'browse.leakedTabs',
+    description: "Tabs THIS TOOL opened that are still sitting in the browser with the run that opened them gone. Reports; never closes.",
+    signature: 'browse.leakedTabs() => Promise<{ok,tabs:[{targetId,url,jobId,runId,pid,leftAt}],checked}>',
+    inputs: {},
+    notes: "A killed run cannot close its own tabs, and before this there was no way to tell which ones were ours. A tab is named only if it is in the journal, was never reported closed, belongs to a run that is no longer running, and is open right now - so a tab this tool did not open is never named, which is how the user's own tabs stay out of it. It cannot see a tab opened by a run that died before the host recorded anything, and it does not promise the tabs can be closed: the same measurement that found the leak found that a known targetId could not be closed either. Hand the list to a person.",
+  },
+  {
     path: 'browse.approve',
     description: "Run a batch that browse.exec refused for want of approval. It was never started, so this runs it for the first time, under its own runId.",
     signature: 'browse.approve({ approvalId }) => Promise<result | {ok:false,changed:false,state,runId,startedAt}>',

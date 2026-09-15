@@ -9,6 +9,7 @@ import { createCaptureMany } from './capture.js';
 import { createReadText } from './read-text.js';
 import { createCache } from './cache.js';
 import { createApprovals } from './approvals.js';
+import { createTabJournal } from './tab-journal.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
@@ -34,7 +35,8 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // a batch is refused in one tool call and approved in another, and the host scope does
   // not survive between them.
   const approvals = createApprovals({ ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined });
-  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals });
+  const tabJournal = createTabJournal();
+  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
   // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
@@ -77,6 +79,24 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
   const attachImpl = createAttach({ config, session });
 
+  // Tabs this tool opened, whose run is gone, that are still sitting in the browser. The
+  // live list is asked for first: a journal entry for a tab that is no longer open is a
+  // record of something already dealt with, and naming it would send someone looking for a
+  // tab that is not there. Nothing outside the journal is ever named, which is what keeps a
+  // user's own tabs out of this.
+  async function leakedTabs() {
+    if (caps.enabled !== true) throw disabledError();
+    const listed = await attachImpl.tabs();
+    if (!listed || listed.ok !== true) {
+      return { ok: false, code: listed && listed.code ? listed.code : 'ENOTABS', error: 'could not read the open tabs, so nothing can be called abandoned', tabs: [] };
+    }
+    // The whole tab objects, not just their ids: the journal matches on the url too, because
+    // a reused target id attached to a tab the person opened is exactly the case that must
+    // not be claimed.
+    const live = (listed.tabs || []).filter((t) => t && t.targetId);
+    return { ok: true, tabs: tabJournal.orphans(live), checked: live.length };
+  }
+
   // Named explicitly, always. There is no implicit "the current run": a process can hold
   // several refusals at once, and an approve() with no argument would be a guess about
   // which one the caller meant.
@@ -114,6 +134,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     approve,
     reject,
     tabs: () => attachImpl.tabs(),
+    leakedTabs: () => leakedTabs(),
     attach: (o) => attachImpl.attach(o),
     captureMany,
     readText: (url, o) => readTextImpl(url, o),

@@ -64,6 +64,40 @@ tool's own report, listing an item that was blocked, got flagged as blocked itse
 defaults off when every url in the job is a local origin, because a page this machine generated and
 served to itself is not a remote origin refusing us. Naming `detect` still wins either way.
 
+## Whose tab is whose
+
+The tool measured this about itself: a killed CLI leaks its tabs permanently and no later session
+can close them. The reason was never that closing is hard — nothing recorded which tabs were ours,
+so a browser ends up holding a mix of the person's tabs and ones abandoned by a run that died, with
+no way to tell them apart. The accessibility REPL has nowhere to stamp an owner: there is no per-tab
+metadata field and no setter for one, and the only identity a tab has is the `targetId` the browser
+assigns.
+
+So ownership lives on the host. The script prints a line the moment a tab exists and the moment it
+stops existing, and `tab-journal.js` keeps, per run, the tabs that were opened and never reported
+closed. `browse.leakedTabs()` names a tab only when all of this holds: it is in the journal, it was
+never closed, the run that opened it is no longer running, and it is open in the browser right now
+**at the same url**. The url is load-bearing rather than decorative — browsers reuse target ids, so
+an id we recorded can come back attached to a tab the person opened themselves. The cost is that a
+tab of ours they navigated away from stops being recognised, which is the direction to be wrong in.
+
+"No longer running" is judged two ways, because a process cannot ask whether it is alive. A record
+written by another process is checked against its pid; a record this process wrote itself is judged
+by age instead, and is only a candidate once it has gone stale.
+
+A tab outside the journal is never a candidate for anything, and that is the whole of the guarantee
+that somebody's own tabs are left alone — deliberately the conservative direction, because a tab we
+lost track of is a mess while a tab we wrongly claimed is someone's work disappearing.
+
+It reports and stops there. Closing is not promised: the same measurement that found the leak found
+that a known `targetId` could not be closed either, and tabs sitting in a person's own browser are
+theirs to decide about.
+
+The journal is written once per run, when the run settles, including when it was killed — the
+spawner hands back the whole transcript at once, so there is no earlier seam to write from. That
+bounds what it can cover: a run whose host process dies before it writes leaves tabs this cannot
+name. The window is narrower than it was, not closed.
+
 ## Artifacts
 
 `capture.js` names every file host-side, resolves the read under the session directory, and checks

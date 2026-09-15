@@ -60,9 +60,10 @@ because it costs payload. Two limits worth knowing: `interactive` mode drops `te
 `heading` rows, so a grouped read needs `tree`; and a child frame whose rows arrive without
 indentation cannot be grouped this way - use the `f`-prefixed refs instead.
 
-## browse is opt-in
+## browse is on, unless a machine turned it off
 
-If a browse call is refused with `EDISABLED`, turn it on once:
+Nothing to switch on: a fresh install browses. If a call comes back `EDISABLED`, someone set
+`browseCaps.enabled` to false on this machine. One command puts it back:
 
     codemode --enable-browse
 

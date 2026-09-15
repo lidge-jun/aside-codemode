@@ -57,6 +57,16 @@ test('an install carries the call-shapes reference, and the skill points at it',
   assert.match(shapes, /--enable-browse/);
 });
 
+// Browsing is on by default, so the account-wide block should not send anyone looking for a
+// switch. The command still has to be findable, because a machine CAN turn browsing off and
+// the person who meets EDISABLED needs the way back - it just belongs in the reference.
+test('the block promises browsing works, and the reference carries the way back', () => {
+  const { agents, ref } = rendered();
+  assert.equal(/--enable-browse/.test(agents), false, 'the block asks for a step that is no longer needed');
+  assert.match(agents, /EDISABLED/);
+  assert.match(ref('call-shapes.md'), /--enable-browse/);
+});
+
 test('the guest sandbox is described before it refuses, in both the block and the reference', () => {
   const { agents, ref } = rendered();
   const paths = ref('execution-paths.md');
@@ -70,7 +80,6 @@ test('the guest sandbox is described before it refuses, in both the block and th
     assert.match(flat, /console/);
     assert.match(flat, /setTimeout/);
   }
-  assert.match(agents, /--enable-browse/);
 });
 
 test('readText and attach are in the tool description, with the field readText answers with', () => {

@@ -24,8 +24,8 @@ Resolve project-relative paths with `{{CWD_HINT}}`; if it looks wrong, run `--do
 
 That code is a vm guest. No `import`, `require`, `process`, `fetch`, `setTimeout` or
 `Buffer`; a dynamic import answers `EGUESTIMPORT`. What you get instead: `search fs actions
-browse report api recipes read_file write_file edit_file apply_patch console`. `browse` is
-injected but refuses until `--enable-browse` has been run once.
+browse report api recipes read_file write_file edit_file apply_patch console`. `browse` works
+out of the box; a machine that turned it off answers `EDISABLED` with the command that restores it.
 
 Aside's default shell on Windows is Git Bash; PowerShell is fine for the same absolute
 call. macOS uses the default bash/zsh card. There is no Linux install path.

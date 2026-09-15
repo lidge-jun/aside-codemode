@@ -46,7 +46,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function exec(job) {
     if (caps.enabled !== true) {
-      const e = new Error(`browse is opt-in and is currently off. Turn it on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
+      const e = new Error(`browse is turned off on this machine. Turn it back on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
       e.code = 'EDISABLED';
       throw e;
     }
@@ -55,7 +55,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function captureMany(urls, opts = {}) {
     if (caps.enabled !== true) {
-      const e = new Error(`browse is opt-in and is currently off. Turn it on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
+      const e = new Error(`browse is turned off on this machine. Turn it back on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
       e.code = 'EDISABLED';
       throw e;
     }

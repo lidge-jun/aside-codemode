@@ -49,7 +49,9 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 - PATH의 ripgrep(`rg`), 또는 `CODEMODE_RG` / `rgPath`. Windows는 번들 `bin/rg.exe`를 쓸 수 있습니다
 - macOS, Windows
 
-## Global install
+## 설치
+
+두 단계입니다. 먼저 CLI를 PATH에 올리고, 그다음 Aside 계정에 그 존재를 알려줍니다.
 
 ```sh
 npm install -g aside-codemode
@@ -65,7 +67,42 @@ npm install -g .        # or: npm link
 codemode --doctor
 ```
 
-PATH의 `codemode`는 **운영자**용입니다. Aside 에이전트는 PATH에서 `node`나 `codemode`를 찾지 않습니다. register가 적어 준 절대 경로 쌍(`process.execPath` + 이 클론의 `bin/codemode.mjs`)을 씁니다.
+### 그다음 Aside 계정에 설치합니다
+
+CLI만으로는 에이전트가 쓸 수 없습니다. Aside에 절대 node/CLI 경로 쌍을 알려주고 호출 모양을
+적은 스킬을 건네야 합니다. 명령 하나면 되고, 계정을 명시합니다.
+
+```sh
+node scripts/install-codemode.mjs install --account 0 --json
+```
+
+그 계정 루트에 파일 여섯 개를 쓰고, `AGENTS.md` 안에 마커로 감싼 블록 하나를 넣습니다.
+
+```
+codemode/cm.js                                     Aside REPL이 읽는 배치 헬퍼
+codemode/catalog.json                              액션 카탈로그
+codemode/manifest.json                             이 설치가 소유한 것, 해시로
+skills/user/aside-codemode/SKILL.md                언제 묶고, 결과를 어떻게 읽는지
+skills/user/aside-codemode/references/*.md         호출 모양, 실행 경로, Windows 따옴표
+AGENTS.md  <!-- aside-codemode:start … end -->     매 턴 읽히는 블록
+```
+
+계정의 다른 것은 건드리지 않습니다. 설정, 자격증명, 세션, 메모리, 다른 스킬은 우리 것이 아니라
+열지도 않습니다. 사용자가 고친 파일은 덮어쓰지 않고 `preserved`에 이름을 적어 남기고,
+`doctor`는 기계가 릴리스보다 뒤처졌을 때 그렇게 말하며, `uninstall`은 해시가 여전히 맞는 파일만
+지우고 `AGENTS.md`에서 자기 블록만 빼며 나머지는 그대로 둡니다.
+
+`--account`는 항상 주세요. 없으면 `accounts.json`의 `currentAccountId`를 따라가는데, 그 값은
+모르는 사이에 바뀔 수 있습니다. 업그레이드할 때마다 다시 돌리세요. 안내 문서만 바뀐 릴리스도
+계정을 stale로 만들고, `doctor`가 그렇게 말합니다.
+
+브라우징에는 세 번째 단계가 없습니다. 기본으로 켜져 있습니다.
+
+### PATH의 명령은 누가 쓰나
+
+PATH의 `codemode`는 **운영자**용입니다. Aside 에이전트는 PATH에서 `node`나 `codemode`를
+찾지 않습니다. 설치가 AGENTS 블록에 적어 준 절대 경로 쌍(`process.execPath`과 이 설치의
+`bin/codemode.mjs`)을 씁니다.
 
 ```sh
 codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
@@ -96,17 +133,37 @@ npm install -g --prefix=/opt/homebrew .
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | 묶음 헬퍼. `fs.read` / `fs.write`는 바이트/덮어쓰기용 구형 별칭입니다 |
 | `actions.list` / `find` / `describe` / `check` | 샌드박스 안 탐색 |
 | `browse.probe()` | 설치된 Aside 빌드를 실제로 재서 만든 기능표. 어떤 page 메서드가 있는지, 어떤 옵션이 조용히 무시되는지, 왜 거절되는지를 돌려줍니다 |
-| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. 옵트인이라 `codemode --enable-browse`를 한 번 돌려야 켜집니다. 이 명령은 사용자 설정의 `browseCaps.enabled`만 바꾸고 다른 키는 건드리지 않습니다(계정 스킬을 지워도 다시 꺼지지 않습니다). `{ items, partial, leakedUrls }`를 돌려주고, 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
+| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. `{ items, partial, leakedUrls }`를 돌려주고, 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
 
-**브라우징은 옵트인이고, Aside가 못 하는 일은 못 한다고 말합니다.** `page.route`, 스크린샷
-`maxWidth`, `pdf({format:'A4'})`, `file://` 주소, `networkidle`은 프로세스를 띄우기 전에
-`ENOTSUP`으로 막습니다. 전부 받아들여지는 척하고 조용히 무시되거나 바뀌는 것을 직접 재서
-확인했기 때문입니다. `format:'A4'`는 레터를 만들고, `maxWidth`는 원본 크기를 그대로 돌려줍니다.
-Aside CLI는 실패해도 종료코드가 `0`이라, 성공 판정은 끝줄 `[ok | Nms]` 마커와 만들었다는 파일을
-직접 확인하는 것뿐입니다. CLI를 죽이면 그 탭은 영구히 남고 이후 세션에서 닫을 수 없어서,
-스크립트 자체 데드라인이 호스트 데드라인보다 항상 먼저 끝나도록 잡았습니다. 강제 종료가 나면
-깨끗한 결과인 척하지 않고 `partial: ['host-kill']`과 해당 URL을 함께 돌려줍니다.
-`codemode --doctor --browse`로 전체 표를 볼 수 있습니다.
+### 브라우징은 기본으로 켜져 있습니다
+
+설치한 그대로 `browse`를 부를 수 있습니다. 끄고 싶은 기계는 설정에서 `browseCaps.enabled`를
+false로 두면 되고, 그러면 모든 호출이 `EDISABLED`와 함께 되돌리는 명령 하나
+(`codemode --enable-browse`)를 알려주며 거절합니다.
+
+### `ok`는 "페이지를 읽었다"가 아닙니다
+
+`ok`는 실행이 끝났다는 말이지 페이지가 그려졌다는 말이 아닙니다. Threads는 제목까지 맞게 `ok: true`를
+돌려줬는데 본문은 부트스트랩 JSON 530KB에 글은 하나도 없었습니다. 판정을 원하면 요청하세요.
+`requireSelector`나 `minTextChars`가 `contentVerified`를 채우고, `requireContent: true`는 확인에
+실패한 항목을 실패로 만듭니다. 아무것도 주지 않으면 `contentVerified`는 `null`입니다. 아무도 묻지
+않았으니까요. `scriptRatio`는 보고만 하고 판정에 쓰지 않습니다. 요즘 SPA는 전부 인라인 스크립트가
+크기 때문에, 그걸로 판단하면 거짓 성공을 거짓 실패로 바꾸는 것뿐입니다.
+
+### Aside가 못 하는 일은 띄우기 전에 말합니다
+
+다섯 가지는 받아들이는 척하지 않고 `ENOTSUP`으로 막습니다. `page.route`, 스크린샷 `maxWidth`,
+`pdf({format:'A4'})`, `file://` 주소, `networkidle`. 전부 받아들여진 뒤 조용히 무시되거나 바뀌는
+것을 직접 재서 확인했습니다. `format:'A4'`는 레터를 만들고 `maxWidth`는 원본 크기를 그대로
+돌려줍니다. 읽을 수 있는 거절이 믿을 수 없는 결과보다 낫습니다.
+
+아래 표면에 대해 두 가지를 더 알아 두면 좋습니다. Aside CLI는 실패해도 종료코드가 `0`이라,
+성공 판정은 끝줄 `[ok | Nms]` 마커와 만들었다는 파일이 실제로 있는지 확인하는 것뿐입니다. 그리고
+CLI를 죽이면 그 탭이 영구히 남아 이후 세션에서도 닫을 수 없어서, 스크립트는 자기 데드라인이
+호스트 데드라인보다 먼저 끝나도록 잡습니다. 그래도 호스트가 죽이면 깨끗한 결과인 척하지 않고
+`partial: ['host-kill']`과 해당 URL을 함께 돌려줍니다.
+
+`codemode --doctor --browse`로 설치된 빌드의 전체 표를 볼 수 있습니다.
 
 **기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
 

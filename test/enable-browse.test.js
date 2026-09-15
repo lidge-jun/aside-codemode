@@ -1,7 +1,9 @@
-// Browsing stays opt-in: opening a browser is not something an install should switch on by
-// itself. What was wrong is the distance between "no" and "yes". The refusal named a config
-// key and a caller had to find the file, learn its shape and edit it by hand, which is what
-// the first user of 0.2.0 did.
+// Browsing is on by default now, so most installs never meet this command. It still matters for
+// the machines that turn it off - a shared box, a locked-down checkout - because the distance
+// between "no" and "yes" is what was actually broken: the refusal named a config key and left
+// the caller to find the file, learn its shape and edit it by hand, which is what 0.2.0's first
+// user did. One command closes that distance, and it has to keep working whichever way the
+// default points.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -30,12 +32,22 @@ const run = (args, env) => {
   }
 };
 
-test('a refusal names a command that can actually be run', () => {
+test('a refusal on a machine that turned it off names a command that can actually be run', () => {
   const f = isolated();
+  mkdirSync(path.dirname(f.cfg), { recursive: true });
+  writeFileSync(f.cfg, JSON.stringify({ browseCaps: { enabled: false } }), 'utf8');
   const res = run(['--code', "try { await browse.exec({ urls: ['https://a.test'] }); return 'no throw'; } catch (e) { return e.message; }"], f.env);
   rmSync(f.home, { recursive: true, force: true });
   const message = JSON.parse(res.out).result;
   assert.match(message, /--enable-browse/, 'the refusal still leaves the caller to find the file: ' + message);
+});
+
+// The other half of the same promise: an install nobody configured can browse.
+test('a fresh install browses without being switched on first', () => {
+  const f = isolated();
+  const before = JSON.parse(run(['--doctor', '--browse'], f.env).out);
+  rmSync(f.home, { recursive: true, force: true });
+  assert.equal(before.browse.enabled, true, 'a fresh install still needs a second step before it can browse');
 });
 
 test('--enable-browse turns it on and says where it wrote', () => {
@@ -75,6 +87,8 @@ test('asking twice is not an edit', () => {
 
 test('doctor agrees afterwards', () => {
   const f = isolated();
+  mkdirSync(path.dirname(f.cfg), { recursive: true });
+  writeFileSync(f.cfg, JSON.stringify({ browseCaps: { enabled: false } }), 'utf8');
   const before = JSON.parse(run(['--doctor', '--browse'], f.env).out);
   assert.equal(before.browse.enabled, false);
   assert.match(JSON.stringify(before.browse), /--enable-browse/, 'doctor should say how to turn it on');

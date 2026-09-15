@@ -35,7 +35,7 @@ const DEFAULTS = {
   asidePath: null,
   // Opt-in. `timeoutMs` is the INNER script deadline and sits below Aside's measured
   // ~30s internal screenshot timeout; the host deadline is derived as inner + slack.
-  browseCaps: { enabled: false, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
+  browseCaps: { enabled: true, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 

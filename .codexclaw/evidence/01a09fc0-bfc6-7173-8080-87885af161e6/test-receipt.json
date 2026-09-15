@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "4c969b2dad05aa501bde133c3f1cd139cbdd7760",
+    "commitSha": "e6318ac754883e1d6cebb2f3869027f1fe324d0e",
     "dirty": false,
-    "capturedAt": "2026-09-15T00:34:32.398Z"
+    "capturedAt": "2026-09-15T00:53:54.217Z"
   },
-  "command": "node --test test/loader-path.test.js test/helper-bundle.test.js test/install-manifest.test.js test/install-paths.test.js test/readme-51x.test.js test/register.test.js test/register-accounts.test.js",
+  "command": "node --test test/install-lifecycle.test.js test/install-manifest.test.js test/install-paths.test.js test/loader-path.test.js test/register.test.js test/register-accounts.test.js",
   "exitCode": 0,
-  "createdAt": "2026-09-15T00:34:32.412Z",
+  "createdAt": "2026-09-15T00:53:54.231Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915003432-a17517"
+  "checkEpoch": "c-20260915005353-f7e690"
 }

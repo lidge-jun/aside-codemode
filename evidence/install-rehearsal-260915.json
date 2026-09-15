@@ -1,12 +1,13 @@
 {
-  "at": "2026-09-15T00:52:43.564Z",
+  "at": "2026-09-15T00:53:38.489Z",
   "platform": "darwin",
-  "accountRoot": "/var/folders/2r/ysbqgzpd2b7g8ymwz91gnm7w0000gn/T/acm-rehearsal-odySSV/.aside/u/0",
+  "accountRoot": "/var/folders/2r/ysbqgzpd2b7g8ymwz91gnm7w0000gn/T/acm-rehearsal-f0bDU9/.aside/u/0",
   "held": true,
   "failures": [],
   "steps": [
     {
       "name": "1 installed, then aged to the previous release",
+      "agedFiles": 5,
       "helperIsOld": true,
       "blocks": 1,
       "held": true,
@@ -18,10 +19,10 @@
       "upToDate": false,
       "reasons": [
         "codemode/cm.js=stale",
-        "codemode/catalog.json=matches the manifest",
-        "skills/user/aside-codemode/SKILL.md=matches the manifest",
-        "skills/user/aside-codemode/references/execution-paths.md=matches the manifest",
-        "skills/user/aside-codemode/references/windows-invocation.md=matches the manifest"
+        "codemode/catalog.json=stale",
+        "skills/user/aside-codemode/SKILL.md=stale",
+        "skills/user/aside-codemode/references/execution-paths.md=stale",
+        "skills/user/aside-codemode/references/windows-invocation.md=stale"
       ],
       "held": true,
       "broke": []

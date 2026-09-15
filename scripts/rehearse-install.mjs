@@ -44,16 +44,26 @@ const step = (name, fact, musts) => {
   steps.push({ name, ...fact, held: bad.length === 0, broke: bad });
 };
 
-// 1. a clean install, then age it into the previous release
+// 1. a clean install, then age EVERY owned file into the previous release. Ageing only the
+// helper would rehearse a shape no real machine is in: a release that changes the loader
+// line changes the skill and its references too, and the live accounts show exactly that.
 run('install');
-writeFileSync(path.join(root, HELPER), OLD_HELPER, 'utf8');
 const m0 = manifest();
+const aged = {};
+m0.files = m0.files.map((f) => {
+  const old = f.path === HELPER ? OLD_HELPER : '<!-- an older release wrote ' + f.path + ' -->\n';
+  writeFileSync(path.join(root, f.path), old, 'utf8');
+  aged[f.path] = old;
+  return { ...f, sha256: sha256(old) };
+});
 m0.version = '0.9.0';
-m0.files = m0.files.map((f) => (f.path === HELPER ? { ...f, sha256: sha256(OLD_HELPER) } : f));
 writeFileSync(path.join(root, MANIFEST_RELPATH), JSON.stringify(m0, null, 2) + '\n', 'utf8');
 step('1 installed, then aged to the previous release',
-  { helperIsOld: read(HELPER) === OLD_HELPER, blocks: blocks() },
-  { helperIsOld: read(HELPER) === OLD_HELPER, oneBlock: blocks() === 1 });
+  { agedFiles: Object.keys(aged).length, helperIsOld: read(HELPER) === OLD_HELPER, blocks: blocks() },
+  {
+    everyOwnedFileIsOld: Object.entries(aged).every(([rel, old]) => read(rel) === old),
+    oneBlock: blocks() === 1,
+  });
 
 // 2. doctor has to notice
 const d1 = run('doctor');
@@ -61,12 +71,12 @@ step('2 doctor on a machine a release left behind', {
   installedVersion: d1.installedVersion, upToDate: d1.upToDate,
   reasons: d1.files.map((f) => f.path + '=' + f.reason),
 }, {
-  saysStale: d1.files.some((f) => f.path === HELPER && f.reason === 'stale'),
+  everyAgedFileReadsStale: d1.files.every((f) => f.reason === 'stale'),
   notUpToDate: d1.upToDate === false,
 });
 
 // 3. the user edits the skill
-const edited = read(SKILL) + '\n<!-- a line the user added -->\n';
+const edited = read(SKILL) + '<!-- a line the user added -->\n';
 writeFileSync(path.join(root, SKILL), edited, 'utf8');
 
 // 4. upgrade: keep the edit, replace the rest, remember the outgoing bytes

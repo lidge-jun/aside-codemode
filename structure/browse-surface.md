@@ -23,11 +23,16 @@ than quietly dropped.
 The generated source travels as a command-line argument, so a script over 30,000 characters is
 refused with `ESOURCETOOLONG` rather than becoming a platform error that names nothing.
 
-That budget makes the script body unusual to edit: every comment inside it is shipped on the
-command line of every run, and the injected fragments are stripped of comments and blank lines
-before they travel while the main body is not. Two changes in this branch crossed the limit by
-writing an explanation into text that ships. Explanations belong in this folder, which does not
-ship; the script carries a line and a pointer.
+The budget applies to what the host actually compiles, which is not the job the caller handed in.
+`session.run()` puts the issued `runId` on the job and a `jobId` on every plan row before calling
+`compile()`, and those identifiers ship. A measurement taken from `compile(validateJob(job))` is
+smaller than the source that travels, by an amount that grows with the number of urls.
+
+Comments are not what costs. `compile()` ends by running the whole assembled source through
+`stripForWire()`, so whole-line comments and blank lines are removed from the main body and from
+every injected fragment alike. What ships is code, data and the job payload. Two changes in this
+branch crossed the limit, and neither was paid for by prose: one widened the detection patterns,
+which are data.
 
 ## Refusing work that cannot succeed
 

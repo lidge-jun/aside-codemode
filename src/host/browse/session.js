@@ -241,7 +241,7 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
 // the counts are zero, the lists are empty, and the status is stamped rather than computed.
 // runStatus cannot compute it — with nothing spawned there is no marker, and a null marker
 // means "we never heard back", which is the opposite of what happened here.
-export function writeApprovalRefusal({ runId, requested, wants, job }) {
+export function writeApprovalRefusal({ runId, requested, wants, job, approvalId = null, expiresAt = null }) {
   const items = requested.map((r) => ({
     jobId: r.jobId, url: r.url, ok: false, status: 'needs_input', code: 'EWRITEAPPROVAL', wants,
   }));
@@ -251,6 +251,11 @@ export function writeApprovalRefusal({ runId, requested, wants, job }) {
     status: 'needs_input',
     ok: false,
     code: 'EWRITEAPPROVAL',
+    // What to name when approving. A run id would not do: this envelope and the one the
+    // approved run returns are two different answers, and one id pointing at both stops
+    // being an identifier. The approved run carries this id back so the pair can be joined.
+    approvalId,
+    expiresAt,
     // Named in the order the job asked for them, once each, so the caller can read back the
     // decision it is being asked to make instead of re-deriving it from its own input.
     wants,
@@ -285,7 +290,7 @@ export function buildRunSource(job, { plan = null, runId = null, requested = nul
   return compile({ ...job, runId }, rows);
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null } = {}) {
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
 
@@ -296,6 +301,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       e.code = 'ECANCELLED';
       throw e;
     }
+    // Validated on every path, including the approved one. What approval changes is the
+    // gate, not the checking: the record it replays sits in a shared temp directory, and a
+    // job that skipped validation because it had been validated once, somewhere else,
+    // earlier, is a job nobody is checking now.
     const job = validateJob(rawJob, opts.browseCaps || {});
     // The issuing ledger. Position is the key because the same url may be requested twice,
     // and two requests for one url have nothing else to tell them apart.
@@ -309,8 +318,20 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // request was malformed; this request is well formed and waiting on a decision, and the
     // two are not the same sentence. The RPC boundary keeps only a message and a code off a
     // thrown error, so a throw could not carry which verbs were wanted anyway.
-    const wants = job.approveWrites ? [] : gatedVerbs(job.actions);
-    if (wants.length) return writeApprovalRefusal({ runId, requested, wants, job });
+    const wants = (job.approveWrites || opts.approvedBy) ? [] : gatedVerbs(job.actions);
+    if (wants.length) {
+      // Stored before it is announced, so the id in the envelope is one that can actually be
+      // named. Without a store the gate still refuses — it just cannot be approved later,
+      // which is a smaller surface, not a weaker one.
+      // The RAW job is stored, not the normalized one, so approving replays exactly what
+      // the caller asked for and it goes through validateJob again on the way out.
+      const held = approvals ? approvals.open({ job: rawJob, wants, urls: job.urls.slice() }) : null;
+      return writeApprovalRefusal({
+        runId, requested, wants, job,
+        approvalId: held ? held.approvalId : null,
+        expiresAt: held ? held.expiresAt : null,
+      });
+    }
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
     const caps = opts.browseCaps || {};
     // C4: the host decides, the script enforces. policy state never leaves this process.

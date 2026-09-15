@@ -100,6 +100,20 @@ Two things it does not cover, both named rather than implied. `browse.attach` re
 by its own path. And a URL whose GET changes state is a change this tool cannot see: the gate governs
 what the tool sends, not what the page does.
 
+The refusal carries an `approvalId`, and `browse.approve` runs that stored job for the first time
+under its own `runId`, which the returned envelope carries back beside the `approvalId` so the pair
+can be joined. It is not a resume: nothing was started, which is the reason the gate sits before
+the compile. The job that runs is the validated, frozen one the refusal saw, so approving cannot add
+an option that was never shown.
+
+Approval surfaces race, so every answer states what the record is rather than what the caller hoped.
+One caller wins a `rename`; a second `approve` runs nothing and answers `changed: false` with the
+state it found and the `runId` of the attempt that did happen. `browse.reject` settles only a
+pending record: a claimed one comes back as `claimed`, never as rejected, because by then the steps
+may have gone out. `rename` cannot carry the new `runId` with it, so a winner that stops in between
+leaves a claimed record with a null `runId` — neither ran nor did not run, and reported as itself
+rather than guessed at. Approvals expire, and an expired one is refused rather than run late.
+
 Staleness is the hazard. The tree is marked dirty by any step that can change it, and a ref step
 following a dirty step is re-fingerprinted before it runs. The guarantee is point in time and
 nothing can make it otherwise, so every ref step reports `guardAgeMs`, the measured width of the

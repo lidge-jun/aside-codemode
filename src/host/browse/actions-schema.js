@@ -103,6 +103,24 @@ export const BROWSE_ACTIONS = [
     notes: 'ok means the run completed; contentVerified means the page actually rendered. They are DIFFERENT: Threads returned ok:true with the right title while the body was server bootstrap JSON and no posts. Pass requireSelector/minTextChars to get a real verdict; without them contentVerified is null (nobody asked) rather than true. items[] carries per-url ok/error so one failure never empties the rest. A blocked page returns EBLOCKED with an alternate route; an arrived-but-unrendered page returns EUNRENDERED or partial:[content-unverified]. A navigation that ended on the browser own error page is EDEADEND. If the same extract field came back empty on every page that answered, the run carries suspectEmpty naming it and counting the frames on those pages, because a frame is the usual reason a selector finds nothing.',
   },
   {
+    path: 'browse.approve',
+    description: "Run a batch that browse.exec refused for want of approval. It was never started, so this runs it for the first time, under its own runId.",
+    signature: 'browse.approve({ approvalId }) => Promise<result | {ok:false,changed:false,state,runId,startedAt}>',
+    inputs: {
+      approvalId: { type: 'string', required: true, description: 'The id the refusal returned. There is no implicit current run: a process can be holding several refusals, and approving without naming one would be a guess.' },
+    },
+    notes: "Safe to call twice. Only one caller can claim an id, so a second call runs nothing and answers {changed:false, state} with the runId of the attempt that did happen. state is pending, claimed, rejected, expired or unknown. A claimed record with runId null means the claim won and the process stopped before starting - neither ran nor did not run. Approvals expire; an expired one is refused rather than quietly run late.",
+  },
+  {
+    path: 'browse.reject',
+    description: "Settle a refused batch without running it.",
+    signature: 'browse.reject({ approvalId }) => Promise<{ok,changed,state,runId,startedAt}>',
+    inputs: {
+      approvalId: { type: 'string', required: true, description: 'The id the refusal returned.' },
+    },
+    notes: "Only a pending approval can be rejected. If it was already claimed this answers {changed:false, state:'claimed'} and NEVER says rejected, because by then the steps may have run - check state before telling anyone the run was stopped.",
+  },
+  {
     path: 'browse.tabs',
     description: "List the tabs the USER already has open in their browser. Read-only: opens nothing, closes nothing.",
     signature: 'browse.tabs() => Promise<{ok,tabs:[{targetId,id,url,title,active,windowId,focusedWindow}]}>',

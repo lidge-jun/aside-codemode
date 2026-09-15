@@ -5,6 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, summarizeTree, WIRE_LIMIT, WIRE_LIMIT_PORTABLE } from '../src/host/browse/script.js';
 import { ACTION_STEP_SRC } from '../src/host/browse/actions-run.js';
+import { buildRunSource } from '../src/host/browse/session.js';
+import { createBreaker } from '../src/host/browse/policy.js';
 import { validateJob, SLACK_MS } from '../src/host/browse/schema.js';
 
 const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
@@ -169,22 +171,18 @@ test('the provably dead guard branch is gone from the shipped script', () => {
   assert.equal(src.includes('verifiedClean'), false, 'a comment is a weaker guard than absence');
 });
 
-// What session.run() actually hands to compile(): the issued runId on the job, and a plan
-// whose rows come from the circuit breaker and then get a jobId each. Measuring
-// compile(validateJob(job)) instead understates the source that travels by 338 characters
-// on a twenty-url batch, which is how the job this file used to call the fullest legal one
-// was 189 characters over the limit while the suite called it green.
+// The bytes the CLI receives, through the same function run() uses. An earlier version of
+// this file measured compile(validateJob(job)) directly, which leaves out the issued runId
+// and the per-row jobId — 338 characters on a twenty-url batch — so the job it called the
+// fullest legal one was in fact 189 over the limit and refused. Rebuilding that shape here
+// would just move the drift, so the plan comes from the real breaker and the source comes
+// from the real builder.
 function hostSource(raw) {
   const job = validateJob(raw);
-  const plan = job.urls.map((url, i) => ({
-    url,
-    timeoutMs: job.timeoutMs,
-    waitSelector: job.waitSelector,
-    skip: false,
-    breaker: 'closed',
-    jobId: 'j' + String(i).padStart(3, '0'),
-  }));
-  return compile({ ...job, runId: 'run-0199c3a1-4f6e-7bb2-9c3d-5a7e1f2b8d40' }, plan);
+  const plan = createBreaker({ failures: 3, cooldownMs: 30000 })
+    .plan(job.urls, { defaultTimeoutMs: job.timeoutMs, innerCapMs: job.timeoutMs, waitSelector: job.waitSelector });
+  const requested = job.urls.map((url, i) => ({ jobId: 'j' + String(i).padStart(3, '0'), url, index: i }));
+  return buildRunSource(job, { plan, requested, runId: 'run-0199c3a1-4f6e-7bb2-9c3d-5a7e1f2b8d40' });
 }
 
 const ACTING = {

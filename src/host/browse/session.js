@@ -227,6 +227,22 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
   return 'partial';
 }
 
+// The one place a job becomes the source that travels, exported so a test can measure the
+// same bytes the CLI receives. It used to live inline in run(), which meant the only way to
+// check the wire budget was to rebuild part of this shape in the test file — and the part
+// it rebuilt was missing the runId and the per-row jobId, so the suite called a job legal
+// that the host refused. A seam is cheaper than a comment asking the next person to
+// remember.
+export function buildRunSource(job, { plan = null, runId = null, requested = null, artifactNames = null, pdfNames = null } = {}) {
+  const fallback = () => job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }));
+  // Host-generated artifact names ride in the plan; the script never invents one.
+  let rows = plan || fallback();
+  if (artifactNames) rows = rows.map((p, i) => ({ ...p, artifactName: artifactNames[i] }));
+  if (pdfNames) rows = rows.map((p, i) => ({ ...p, pdfName: pdfNames[i] }));
+  if (requested) rows = rows.map((p, i) => ({ ...p, jobId: requested[i].jobId }));
+  return compile({ ...job, runId }, rows);
+}
+
 export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
@@ -254,20 +270,11 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
           waitSelector: job.waitSelector,
         })
       : null;
-    // Host-generated artifact names ride in the plan; the script never invents one.
-    const names = Array.isArray(opts.artifactNames) ? opts.artifactNames : null;
-    const pdfNames = Array.isArray(opts.pdfNames) ? opts.pdfNames : null;
-    const planWithNames = names
-      ? (plan || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
-          .map((p, i) => ({ ...p, artifactName: names[i] }))
-      : plan;
-    const planFinal = pdfNames
-      ? (planWithNames || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
-          .map((p, i) => ({ ...p, pdfName: pdfNames[i] }))
-      : planWithNames;
-    const planIds = (planFinal || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
-      .map((p, i) => ({ ...p, jobId: requested[i].jobId }));
-    const source = compile({ ...job, runId }, planIds);
+    const source = buildRunSource(job, {
+      plan, runId, requested,
+      artifactNames: Array.isArray(opts.artifactNames) ? opts.artifactNames : null,
+      pdfNames: Array.isArray(opts.pdfNames) ? opts.pdfNames : null,
+    });
     // The source travels as a command-line argument, so the ceiling is the platform's.
     // Refusing here with a named code beats spawn ENAMETOOLONG, which says nothing about
     // which option made the script too big.

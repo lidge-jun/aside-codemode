@@ -370,6 +370,8 @@ export function compile(job, plan = null) {
     // The source, not a compiled RegExp: the script rebuilds it, the same way the
     // block-detection patterns travel. schema.js has already refused an invalid one.
     requireContentPattern: job.requireContentPattern || null,
+    loggedInMarker: job.loggedInMarker || null,
+    stopWhenLoggedOut: job.stopWhenLoggedOut === true,
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
@@ -466,6 +468,10 @@ function withCap(p, ms) {
 // page had been clicked. This survives that.
 const actionLog = [];
 let deadlineHit = false;
+// Set once any item proves the session is gone. Every other item in the run shares that
+// session, so the rest can only open tabs that cannot succeed and spend the deadline doing
+// it. Mirrors deadlineHit rather than inventing a second way to stop a run.
+let sessionGone = false;
 // Idempotent: it carries a counter now, so the invariant lives with the counter rather
 // than with every call site remembering to check rec.closed first.
 function markClosed(rec) {
@@ -497,6 +503,7 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
 async function one(item) {
   if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
   if (item.skip) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
+  if (sessionGone) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'logged-out' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
@@ -604,7 +611,8 @@ async function one(item) {
       // bodies out matters just as much: a bootstrap payload mentioning the very string
       // being looked for would match while no one could see it.
       let patternMatched = null;
-      if (req.pattern) {
+      let loggedIn = null;
+      if (req.pattern || req.marker) {
         let hay = '';
         if (body) {
           const clone = body.cloneNode(true);
@@ -612,7 +620,8 @@ async function one(item) {
           for (let i = 0; i < noisy.length; i++) noisy[i].remove();
           hay = clone.textContent || '';
         }
-        patternMatched = new RegExp(req.pattern).test(hay);
+        if (req.pattern) patternMatched = new RegExp(req.pattern).test(hay);
+        if (req.marker) loggedIn = new RegExp(req.marker).test(hay);
       }
       return {
         textChars: visibleText.length,
@@ -623,16 +632,26 @@ async function one(item) {
         requiredSelectorsMatched: matched,
         requiredSelectorsMissing: unmatched,
         patternMatched,
+        loggedIn,
         skeletonNodes,
         sample: visibleText.slice(0, 160),
         // Only when the caller asked. Shipping the whole body by default is how a batch of
         // twenty pages turns into a megabyte of stdout.
         full: req.ft ? visibleText.slice(0, req.m || 200000) : null,
       };
-      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars, pattern: JOB.requireContentPattern });
+      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars, pattern: JOB.requireContentPattern, marker: JOB.loggedInMarker });
     } catch (_) { render = null; }
 
     if (render) {
+    // Ahead of the content checks, because a signed-out page fails those too and the
+    // content miss is the less useful of the two answers: it sends the caller looking at
+    // selectors when the actual problem is that nobody is signed in.
+    if (JOB.loggedInMarker && render.loggedIn === false) {
+      if (JOB.stopWhenLoggedOut) sessionGone = true;
+      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ENOTLOGGEDIN',
+        marker: JOB.loggedInMarker, finalUrl, title, render, timings: t });
+      return;
+    }
     const reasons = [];
     if (JOB.minTextChars && render.textChars < JOB.minTextChars) reasons.push('only ' + render.textChars + ' visible characters (wanted >= ' + JOB.minTextChars + ')');
     if (render.requiredSelectorsMissing.length) reasons.push('missing required selectors: ' + render.requiredSelectorsMissing.join(', '));
@@ -777,7 +796,7 @@ async function main() {
   const limit = Math.max(1, JOB.concurrency);
   const workers = [];
   for (let i = 0; i < limit; i++) {
-    workers.push((async () => { while (queue.length && !deadlineHit) { await one(queue.shift()); } })());
+    workers.push((async () => { while (queue.length && !deadlineHit && !sessionGone) { await one(queue.shift()); } })());
   }
   await Promise.all(workers);
 }

@@ -47,9 +47,27 @@ challenge page, an origin refusing the client, a redirect that lands on a sign-i
 returns an alternate route. It does not, and should not, try to answer whether an arbitrary
 response means you are authenticated.
 
-## What this costs today
+## Stating the proof
 
-There is no option for a caller to state that proof, so the knowledge has nowhere to go. A session
-that expired mid-batch produces items that arrive, render, and verify, because a login page is a
-page that rendered. The result is `completed`.
+`loggedInMarker` is where that knowledge goes: a regular expression matching text that only appears
+when you are signed in. An item without it is `ENOTLOGGEDIN` and its status is `needs_input`, not
+`failed`, because the whole distinction is what the caller does next — sign in and run the rest,
+rather than retry something that will keep failing.
 
+It is deliberately not `requireContent`. Content that is missing is a failure: the page did not
+hold what was wanted. A session that is gone is a request. Two failures that ask different things
+of the caller need two options, or the answer collapses into the less useful one.
+
+Once one item reports the marker missing, the rest of the run is skipped with `logged-out` as the
+reason. Every remaining item shares the session that just proved gone, so continuing only opens
+tabs that cannot succeed and spends the deadline doing it. `stopWhenLoggedOut: false` turns that
+off for a caller who would rather see every item fail on its own.
+
+The marker is tested against the document's own text with script, style and template content
+removed, the same text `requireContent` reads. A bootstrap payload that mentions the marker is not
+a signed-in page, and the rendered view collapses on a page the browser has not laid out.
+
+One gap remains. If the page cannot be evaluated at all, the marker is not checked and the item is
+not failed for it: a missing evaluate costs the verdict rather than the work, which is the rule the
+render checks already follow. `contentVerified` is `null` there, and null has always meant nobody
+asked rather than nothing was wrong.

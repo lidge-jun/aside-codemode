@@ -62,7 +62,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'loggedInMarker', 'stopWhenLoggedOut', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -367,6 +367,30 @@ export function validateJob(raw, browseCaps = {}) {
     );
   }
 
+  // Separate from requireContent on purpose, because the two failures ask different things
+  // of the caller. Content that is missing is a failure: the page did not hold what was
+  // wanted. A session that is gone is needs_input: a person can sign in again, and telling
+  // those apart is the difference between a caller who retries forever and one who opens a
+  // tab. Nothing here tries to infer the state — a signed-out portal page need not contain
+  // the word for signing in, and a JSON api answering with your own account data contains
+  // no sign-out wording at all, so the heuristic fails in both directions and the caller
+  // holds the knowledge instead.
+  let loggedInMarker = null;
+  if (raw.loggedInMarker !== undefined) {
+    if (typeof raw.loggedInMarker !== 'string' || !raw.loggedInMarker.length) {
+      throw new BrowseOptionError('loggedInMarker must be a non-empty regular expression source naming text that only appears when signed in', 'EBADVAL');
+    }
+    try { new RegExp(raw.loggedInMarker); }
+    catch (e) {
+      throw new BrowseOptionError('loggedInMarker is not a valid regular expression: ' + String(e && e.message || e), 'EBADVAL');
+    }
+    loggedInMarker = raw.loggedInMarker;
+  }
+  if (raw.stopWhenLoggedOut !== undefined) {
+    if (typeof raw.stopWhenLoggedOut !== 'boolean') throw new BrowseOptionError('stopWhenLoggedOut must be a boolean', 'EBADVAL');
+    if (loggedInMarker === null) throw new BrowseOptionError('stopWhenLoggedOut only means something beside loggedInMarker; without a marker nothing can detect the logout', 'EBADVAL');
+  }
+
   return Object.freeze({
     urls,
     timeoutMs,
@@ -409,5 +433,9 @@ export function validateJob(raw, browseCaps = {}) {
     // Either shape enforces; the pattern additionally says what to look for.
     requireContent: raw.requireContent === true || requireContentPattern !== null,
     requireContentPattern,
+    loggedInMarker,
+    // Every item shares the session that just proved gone, so the rest can only open tabs
+    // that cannot succeed. Defaults on, and only exists at all when a marker was supplied.
+    stopWhenLoggedOut: loggedInMarker === null ? false : raw.stopWhenLoggedOut !== false,
   });
 }

@@ -6,7 +6,8 @@ judgement: work the way you normally do and ignore this block.
 Batch when the structure repeats and the items do not depend on each other's state. A
 signed-in site is the exception that looks like the rule: every item shares one session,
 so when it expires partway the rest quietly read a login page and report success. Sign in
-natively first, pass the text that proves you are signed in as `requireContent`, then batch.
+natively first, pass the text that proves you are signed in as `loggedInMarker`, then batch.
+A missing marker is `needs_input`, not a failure: someone can sign in again.
 
 `ok`, `completed`, HTTP 200 and `contentVerified` say the call worked. None of them says
 the page holds what you asked for. Name the content you expect, or you have not checked it.

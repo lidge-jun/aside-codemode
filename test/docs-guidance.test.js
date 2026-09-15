@@ -98,7 +98,7 @@ test('the block carries the session rule rather than telling an agent to avoid l
   // Sessions ARE inherited. An earlier block read as though a signed-in site could not be
   // batched at all, which sealed off the strongest thing this tool does.
   assert.match(flat, /sign in natively first/i);
-  assert.match(flat, /requireContent/);
+  assert.match(flat, /loggedInMarker/);
   // And the failure mode that makes the rule necessary.
   assert.match(flat, /expires partway|login page/i);
 });

@@ -159,6 +159,9 @@ export function itemStatus(item) {
   if (deadEndReason(item)) return 'failed';
   if (item.ok) return 'completed';
   if (item.code === 'ESKIP' || item.code === 'ETABBUDGET') return 'skipped';
+  // The caller said what proves a live session and the page did not have it. A person can
+  // sign in again, which is the whole reason this is not a failure.
+  if (item.code === 'ENOTLOGGEDIN') return 'needs_input';
   if (item.code === 'EBLOCKED') return HUMAN_CLEARABLE.has(item.blockKind) ? 'needs_input' : 'failed';
   return 'failed';
 }
@@ -351,6 +354,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (reconciled.some((i) => i.status === 'needs_input')) partial.push('needs-input');
     if (reconciled.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
     if (reconciled.some((i) => i.code === 'EDEADEND')) partial.push('dead-end');
+    if (reconciled.some((i) => i.code === 'ENOTLOGGEDIN')) partial.push('logged-out');
     if (unreconciled) partial.push('unreconciled');
     if (extra.length) partial.push('extra-items');
     if (duplicates.length) partial.push('duplicate-jobid');

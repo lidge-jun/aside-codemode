@@ -104,8 +104,18 @@ it expires halfway, the rest read a login page and report success.
 
 Three steps, in order. Sign in natively, outside the batch — two-factor and SSO are a
 person's job and never belong inside a run. Then pass the text that proves you are signed
-in as `requireContent`, so an expired session fails its items instead of returning a login
-page as content. Then batch.
+in as `loggedInMarker`. Then batch.
+
+`loggedInMarker` is deliberately not `requireContent`, because the two failures ask
+different things of you. Content that is missing is a failure: the page did not hold what
+you wanted. A session that is gone is `needs_input`: sign in and run the rest. Once one
+item reports the marker missing the run stops by default, since every remaining item shares
+that session and can only open tabs that cannot succeed; pass `stopWhenLoggedOut: false` if
+you would rather see them all fail.
+
+One gap worth knowing. If the page cannot be evaluated at all, the marker is not checked
+and the item is not failed for it — a missing evaluate costs the verdict rather than the
+work, which is the same rule the render checks follow. `contentVerified` is `null` there.
 
 Do not ask the tool to work out whether you are signed in. It was measured and the general
 heuristic fails both ways: a JSON API answering with your own account data contains no

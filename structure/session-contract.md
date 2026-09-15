@@ -58,16 +58,31 @@ It is deliberately not `requireContent`. Content that is missing is a failure: t
 hold what was wanted. A session that is gone is a request. Two failures that ask different things
 of the caller need two options, or the answer collapses into the less useful one.
 
-Once one item reports the marker missing, the rest are skipped with `logged-out` as the reason.
-Every remaining item shares the session that just proved gone, so continuing only opens tabs that
-cannot succeed and spends the deadline doing it. `stopWhenLoggedOut: false` turns that off for a
-caller who would rather see every item fail on its own.
+The run stops after the third item reports the marker missing, not the first. One miss is not
+proof: a page that half rendered has no marker either, and cancelling a batch that would have
+worked sends someone to sign in again for nothing. The two extra attempts are cheap in the one way
+that matters here — an item whose marker is missing returns before it acts, so they cost two
+navigations and no clicks. `stopWhenLoggedOut: false` turns the counting off for a caller who
+would rather see every item answer for itself.
 
-They are skipped rather than dropped, and the difference matters. An earlier revision stopped the
-worker loop instead, so the remaining items were never reported and the host filled them in as
-requests that never came back — the same answer a run gives when it genuinely loses items. The
-queue is drained either way now, and the guard answers each item with the reason it was not
-attempted.
+After that, three item outcomes are kept apart because the caller does three different things
+with them.
+
+| | Code | Status |
+|---|---|---|
+| Looked, and the marker was not there | `ENOTLOGGEDIN` | `needs_input` |
+| Never started; the run had already stopped | `ELOGINREQUIRED` | `needs_input` |
+| Was acting when another item proved it gone | `ESESSIONGONE` | `indeterminate` |
+
+The third is the one worth the extra code. An item that already passed the marker check is inside
+its step list, and nothing used to tell it to stop, so it kept clicking on a session known to be
+dead. Its remaining steps are refused now, and the item does not come back claiming the clicks
+landed or that they definitely did not — it started, and what landed is unknown.
+
+Items that never started are answered rather than dropped, and the difference matters. An earlier
+revision stopped the worker loop instead, so the remaining items were never reported and the host
+filled them in as requests that never came back — the same answer a run gives when it genuinely
+loses items. The queue is drained either way now.
 
 A `waitSelector` that never matches does not end the item on its own. On a page you are not
 signed in to, the sign-in is why the selector is absent, and ending there reported a bare timeout

@@ -45,8 +45,17 @@ function makePage(url, doc) {
 function runScript(source, pages) {
   const lines = [];
   let current = null;
+  // Bind the document to the page whose evaluate is running, not to the last tab opened.
+  // With one worker those are the same thing; with four they are not, and the signed-in
+  // page would be measured against a signed-out document. The callback is synchronous, so
+  // no other page can slip in between the assignment and the read.
+  const bind = (page) => {
+    const inner = page.evaluate.bind(page);
+    page.evaluate = (fn, arg) => { current = page; return inner(fn, arg); };
+    return page;
+  };
   const ctx = vm.createContext({
-    openTab: async (url) => { current = pages(url); return current; },
+    openTab: async (url) => { current = bind(pages(url)); return current; },
     sleep: () => new Promise(() => {}),
     snapshot: async () => ({ tree: 'x', refs: [], diff: '' }),
     console: { log: (s) => lines.push(String(s)) },
@@ -88,24 +97,78 @@ test('the marker is not matched against script bodies', async () => {
   assert.equal(payload().items[0].code, 'ENOTLOGGEDIN', 'text nobody can see must not count as proof');
 });
 
-test('one lost session stops the rest of the run instead of opening tabs that cannot work', async () => {
-  const urls = ['https://portal.test/a', 'https://portal.test/b', 'https://portal.test/c'];
+test('three misses stop the run, and the items that never started say a person is needed', async () => {
+  // Three, not one. A marker can be missing because a page half rendered, and cancelling a
+  // batch that would have worked sends someone to sign in for nothing. The two extra
+  // attempts cost two navigations and no clicks: an item whose marker is missing returns
+  // before it acts. concurrency is pinned at 1 because the default is 4, and at 4 all five
+  // items would be in flight before the third miss lands.
+  const urls = ['a', 'b', 'c', 'd', 'e'].map((s) => 'https://portal.test/' + s);
   const job = validateJob({ urls, timeoutMs: 5000, concurrency: 1, loggedInMarker: 'Signed in as' });
   const opened = [];
   const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), (u) => { opened.push(u); return makePage(u, fakeDocument(OUT)); });
   await done;
   const out = payload();
-  assert.equal(opened.length, 1, 'the second item must not have opened a tab');
-  assert.equal(out.items[0].code, 'ENOTLOGGEDIN');
-  // Count first. The earlier version of this line walked slice(1) of a one-element array,
-  // so every() answered true about nothing and the assertion passed while the run was in
-  // fact abandoning its queue. An assertion that walks a set has to establish the set is
-  // not empty before it means anything.
-  assert.equal(out.items.length, 3, 'every requested item must come back with an answer');
-  const rest = out.items.slice(1);
-  assert.equal(rest.length, 2);
-  assert.ok(rest.every((i) => i.code === 'ESKIP' && i.reason === 'logged-out'),
-    'a run that stopped on purpose must say so: ' + JSON.stringify(rest.map((i) => [i.code, i.reason])));
+  assert.equal(opened.length, 3, 'the fourth item must not have opened a tab');
+  // Count first. An earlier version of this test walked slice(1) of a one-element array, so
+  // every() answered true about nothing and passed while the run was abandoning its queue.
+  // An assertion that walks a set has to establish the set is not empty.
+  assert.equal(out.items.length, 5, 'every requested item must come back with an answer');
+  const tried = out.items.slice(0, 3);
+  const never = out.items.slice(3);
+  assert.equal(tried.length, 3);
+  assert.equal(never.length, 2);
+  assert.ok(tried.every((i) => i.code === 'ENOTLOGGEDIN'),
+    'an item that looked and did not find the marker made a definite observation: '
+    + JSON.stringify(tried.map((i) => i.code)));
+  assert.ok(never.every((i) => i.code === 'ELOGINREQUIRED' && i.reason === 'logged-out'),
+    'an item that never started is not skipped, it is waiting on a person: '
+    + JSON.stringify(never.map((i) => [i.code, i.reason])));
+  assert.ok(never.every((i) => itemStatus(i) === 'needs_input'));
+});
+
+test('an item still acting when the session proves gone stops, and does not claim to know', async () => {
+  // The hazard the threshold does not cover. An item whose marker was missing never reaches
+  // its actions, so raising the threshold buys no extra clicks. What does click is a peer
+  // that already passed the marker check and is working through its step list when somebody
+  // else proves the session is gone. Its remaining steps must not run, and it must not come
+  // back saying the clicks landed or that they definitely did not.
+  const urls = ['a', 'b', 'c', 'd'].map((s) => 'https://portal.test/' + s);
+  const job = validateJob({
+    urls, timeoutMs: 5000, concurrency: 4, loggedInMarker: 'Signed in as',
+    actions: [{ ref: 'e1', click: true }, { ref: 'e1', click: true }, { ref: 'e1', click: true }],
+    allowStaleRefs: true,
+  });
+  let release = null;
+  const held = new Promise((r) => { release = r; });
+  let clicks = 0;
+  const pages = (u) => {
+    // One page is signed in and slow; the other three are signed out and fast, so they land
+    // the three misses while the first is still inside its step list.
+    const signedIn = u.endsWith('/a');
+    const page = makePage(u, fakeDocument(signedIn ? IN : OUT));
+    page.locator = () => ({
+      async click() {
+        clicks += 1;
+        if (clicks === 1) await held;
+      },
+    });
+    return page;
+  };
+  const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), pages);
+  // Let the signed-out items run to completion, then let the acting item continue.
+  await new Promise((r) => setTimeout(r, 50));
+  release();
+  await done;
+  const out = payload();
+  const acting = out.items.find((i) => i.url.endsWith('/a'));
+  assert.ok(acting, 'the acting item has to be in the payload before anything is asserted about it');
+  assert.equal(acting.code, 'ESESSIONGONE');
+  assert.equal(itemStatus(acting), 'indeterminate',
+    'started and cut off is exactly what indeterminate is for');
+  const refused = acting.actions.filter((s) => s.code === 'ESESSIONGONE');
+  assert.ok(refused.length >= 1, 'at least one step has to have been refused: ' + JSON.stringify(acting.actions));
+  assert.ok(clicks < 3, 'the steps after the stop must not have clicked, got ' + clicks + ' clicks');
 });
 
 test('a caller who would rather see them all fail can say so', async () => {
@@ -204,9 +267,10 @@ test('a selector that never appeared does not hide the reason it never appeared'
   await done;
   const out = payload();
   assert.equal(out.items.length, 2);
-  assert.equal(out.items[0].code, 'ENOTLOGGEDIN', 'the selector timeout buried the sign-in');
-  assert.equal(out.items[1].code, 'ESKIP', 'the run did not stop');
-  assert.equal(out.items[1].reason, 'logged-out');
+  assert.ok(out.items.every((i) => i.code === 'ENOTLOGGEDIN'),
+    'the selector timeout buried the sign-in: ' + JSON.stringify(out.items.map((i) => i.code)));
+  // Two urls cannot reach three misses, so both are looked at and both answer for
+  // themselves. Stopping early is what the five-url test above is for.
 });
 
 // When the session is fine, the selector really is the story, and it says which one.

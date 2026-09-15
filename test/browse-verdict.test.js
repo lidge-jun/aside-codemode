@@ -11,6 +11,7 @@ import { ITEM_STATUSES, RUN_STATUSES } from '../src/host/browse/result-contract.
 const CODES = [
   'EHOSTKILL', 'ENOMARKER', 'EUNRETURNED', 'ESKIP', 'ETABBUDGET', 'EBLOCKED',
   'EUNRENDERED', 'EACTION', 'EDEADLINE', 'ECONTRACT', 'EPROVENANCE', 'ECAPTURE',
+  'ENOTLOGGEDIN', 'ELOGINREQUIRED', 'ESESSIONGONE',
 ];
 const KINDS = [undefined, null, 'login-wall', 'captcha', 'blocked', 'upstream', 'something-new'];
 
@@ -36,6 +37,19 @@ test('itemStatus can only answer in the vocabulary the contract publishes', () =
   // Guard the guard: a rewrite that made every branch answer 'failed' would pass the
   // membership check above while saying nothing.
   assert.ok(seen.size >= 5, 'the sweep only produced ' + seen.size + ' distinct statuses');
+});
+
+test('a blocked page is split by whether a person can clear it', () => {
+  // Losing a session splits the same way, by what the caller can do next. An item that
+  // looked and found no marker, and an item that never started because the run had already
+  // stopped, both wait on the same person. An item that was acting when it stopped is
+  // neither: it started, and nobody knows what landed.
+  assert.equal(itemStatus({ ok: false, code: 'ENOTLOGGEDIN' }), 'needs_input');
+  assert.equal(itemStatus({ ok: false, code: 'ELOGINREQUIRED', reason: 'logged-out' }), 'needs_input');
+  assert.equal(itemStatus({ ok: false, code: 'ESESSIONGONE' }), 'indeterminate');
+  // actionsOk is false on exactly that item, and the plain reading of that is 'failed'.
+  // The session code has to win, or a run that was interrupted reports a definite defeat.
+  assert.equal(itemStatus({ ok: false, actionsOk: false, code: 'ESESSIONGONE' }), 'indeterminate');
 });
 
 test('a blocked page is split by whether a person can clear it', () => {

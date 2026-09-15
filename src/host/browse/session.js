@@ -9,7 +9,7 @@
 //      host-kill leak rather than quietly dropped.
 import { randomUUID } from 'node:crypto';
 import { validateJob } from './schema.js';
-import { compile, deadlineMath } from './script.js';
+import { compile, deadlineMath, WIRE_LIMIT } from './script.js';
 import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
 import { DEAD_END } from './policy.js';
@@ -180,6 +180,10 @@ export function suspectSelectors(items = [], extract = null) {
 export function itemStatus(item) {
   if (!item) return 'unreturned';
   if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
+  // Ahead of actionsOk on purpose. This item was acting when another item proved the
+  // session gone, so its remaining steps were refused mid-list. It started and we do not
+  // know what landed, which is what indeterminate says and what failed would deny.
+  if (item.code === 'ESESSIONGONE') return 'indeterminate';
   if (item.code === 'EUNRETURNED') return 'unreturned';
   if (item.actionsOk === false) return 'failed';
   // Ahead of the ok check on purpose: this is the case where ok is true and wrong.
@@ -189,6 +193,9 @@ export function itemStatus(item) {
   // The caller said what proves a live session and the page did not have it. A person can
   // sign in again, which is the whole reason this is not a failure.
   if (item.code === 'ENOTLOGGEDIN') return 'needs_input';
+  // Never started: the run had already stopped when this item came off the queue. Skipped
+  // would be true and useless — nothing here is retryable until a person signs in.
+  if (item.code === 'ELOGINREQUIRED') return 'needs_input';
   if (item.code === 'EBLOCKED') return HUMAN_CLEARABLE.has(item.blockKind) ? 'needs_input' : 'failed';
   return 'failed';
 }
@@ -261,11 +268,11 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const planIds = (planFinal || job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false })))
       .map((p, i) => ({ ...p, jobId: requested[i].jobId }));
     const source = compile({ ...job, runId }, planIds);
-    // Windows caps a command line at 32,767 characters and the source travels as an
-    // argument. Refusing here with a named code beats spawn ENAMETOOLONG, which says
-    // nothing about which option made the script too big.
-    if (source.length > 30000) {
-      const e = new Error(`the generated script is ${source.length} characters, over the 30000 wire limit; drop helper, snapshot, actions or some urls`);
+    // The source travels as a command-line argument, so the ceiling is the platform's.
+    // Refusing here with a named code beats spawn ENAMETOOLONG, which says nothing about
+    // which option made the script too big.
+    if (source.length > WIRE_LIMIT) {
+      const e = new Error(`the generated script is ${source.length} characters, over the ${WIRE_LIMIT} wire limit on ${process.platform}; drop helper, snapshot, actions or some urls`);
       e.code = 'ESOURCETOOLONG';
       throw e;
     }
@@ -384,7 +391,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (reconciled.some((i) => i.status === 'needs_input')) partial.push('needs-input');
     if (reconciled.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
     if (reconciled.some((i) => i.code === 'EDEADEND')) partial.push('dead-end');
-    if (reconciled.some((i) => i.code === 'ENOTLOGGEDIN')) partial.push('logged-out');
+    if (reconciled.some((i) => i.code === 'ENOTLOGGEDIN' || i.code === 'ELOGINREQUIRED')) partial.push('logged-out');
     // Aggregate, so it belongs here rather than in any one item.
     const suspect = suspectSelectors(reconciled, job.extract);
     if (suspect.length) partial.push('suspect-empty');
@@ -460,8 +467,8 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // Same wire limit as the generated job path. This entry point skipped the check, so a
     // caller that injected a helper found out by way of a platform error from the OS rather
     // than a sentence naming the limit.
-    if (String(replSource).length > 30000) {
-      const e = new Error(`the repl source is ${String(replSource).length} characters, over the 30000 wire limit; send less source or split the work`);
+    if (String(replSource).length > WIRE_LIMIT) {
+      const e = new Error(`the repl source is ${String(replSource).length} characters, over the ${WIRE_LIMIT} wire limit on ${process.platform}; send less source or split the work`);
       e.code = 'ESOURCETOOLONG';
       throw e;
     }

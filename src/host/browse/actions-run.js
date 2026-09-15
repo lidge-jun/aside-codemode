@@ -198,6 +198,18 @@ async function runActions(page, steps, ctx) {
       results.push(rec);
       continue;
     }
+    // Asked before every step, not once at the top. The session can die while this item is
+    // halfway through its list, and the steps after that point would be typing into a page
+    // that cannot accept them. A step refused here never ran, which is a different thing
+    // from a step whose result we did not hear.
+    if (cfg.stopped && cfg.stopped()) {
+      rec.code = 'ESESSIONGONE';
+      rec.error = 'the session proved gone while this item was acting';
+      results.push(rec);
+      halt = 'ESESSIONGONE';
+      haltMessage = rec.error;
+      continue;
+    }
     var remaining = budgetLeft();
     if (remaining <= 0) {
       rec.code = 'EDEADLINE';
@@ -287,6 +299,6 @@ async function runActions(page, steps, ctx) {
     urlBefore: urlAtSnapshot,
     urlAfter: endUrl
   };
-}`;
+}`.replace(/^ +/gm, '');
 
 export const runActions = new Function(ACTION_STEP_SRC + '; return runActions;')();

@@ -20,8 +20,19 @@ the host is the patient one: if the host timer fires, the script never ran its c
 are gone for good. That case is reported as a host-kill leak with every requested url named, rather
 than quietly dropped.
 
-The generated source travels as a command-line argument, so a script over 30,000 characters is
+The generated source travels as a command-line argument, so a script over the wire limit is
 refused with `ESOURCETOOLONG` rather than becoming a platform error that names nothing.
+
+That limit is the platform's, from `WIRE_LIMIT` in `script.js`. Windows caps a whole command line
+at 32,767 characters, so it gets 30,000 with room for the binary path and the verb; every other
+host measures its limit in hundreds of kilobytes and gets 50,000. Holding all of them to the
+tightest one had a cost that was invisible until it was measured: `helper: true` could not be used
+with a full batch anywhere, and neither could twenty actions or `treeNodes`.
+
+What the tool promises everywhere is narrower than what the schema accepts, and the suite pins
+both halves. The ordinary acting and reading jobs fit 30,000 on any host, with the headroom stated
+in characters so the next change knows what it has. The combinations past that envelope are
+asserted to be past it, and to fit 50,000, so nothing quietly drifts from one side to the other.
 
 The budget applies to what the host actually compiles, which is not the job the caller handed in.
 `session.run()` puts the issued `runId` on the job and a `jobId` on every plan row before calling

@@ -336,10 +336,39 @@ export function stripForWire(src) {
   return out.join('\n');
 }
 
+// The wire cap, in one place, because two entry points enforce it and they used to carry
+// the same number twice. It is not a round number chosen for looks: the generated source is
+// handed to the CLI as a command-line ARGUMENT, and Windows caps a whole command line at
+// 32,767 characters, so 30,000 is that ceiling with room for the binary path and the verb.
+// No other platform is anywhere near it — macOS and Linux measure their limit in hundreds of
+// kilobytes — and holding every host to the tightest one meant `helper: true` could not be
+// used with a full batch at all. So the cap is the platform's, and the portable envelope is
+// pinned separately by the suite: the ordinary acting and reading jobs stay under 30,000 on
+// every host, and only the combinations beyond that envelope depend on where you are.
+export const WIRE_LIMIT = process.platform === 'win32' ? 30000 : 50000;
+export const WIRE_LIMIT_PORTABLE = 30000;
+
+// Fields the script only ever reads for truthiness, and one it never reads at all. They are
+// per-row, so on a twenty-url batch they are a kilobyte of command line spent saying
+// nothing: `breaker` is read by neither the script nor the host (the host's own view comes
+// from breaker.snapshot()), and a null waitSelector or a false skip is exactly what the
+// script assumes when the key is absent.
+function thinRow(row) {
+  const out = {};
+  for (const k of Object.keys(row)) {
+    if (k === 'breaker') continue;
+    if (k === 'skip' && row[k] === false) continue;
+    if (k === 'waitSelector' && (row[k] === null || row[k] === undefined)) continue;
+    out[k] = row[k];
+  }
+  return out;
+}
+
 export function compile(job, plan = null) {
-  const items = plan && plan.length
+  const items = (plan && plan.length
     ? plan
-    : job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }));
+    : job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }))
+  ).map(thinRow);
   const payload = {
     items,
     // Issued host side and echoed back on every effect line, so a side effect can be tied
@@ -471,10 +500,13 @@ function withCap(p, ms) {
 // page had been clicked. This survives that.
 const actionLog = [];
 let deadlineHit = false;
-// Set once any item proves the session is gone. Every other item in the run shares that
-// session, so the rest can only open tabs that cannot succeed and spend the deadline doing
-// it. Mirrors deadlineHit rather than inventing a second way to stop a run.
-let sessionGone = false;
+// Counted, not latched. One miss is not proof: a marker can be absent because a page half
+// rendered, and cancelling a batch that would have worked sends someone to sign in again
+// for nothing. Three is the cost-asymmetric number, not a borrowed default — an item whose
+// marker is missing returns before it acts, so the two extra attempts are two navigations
+// and no clicks. What they are NOT allowed to do is keep acting on a session already
+// proven gone, which is what the stopped callback below is for.
+let markerMisses = 0;
 // Idempotent: it carries a counter now, so the invariant lives with the counter rather
 // than with every call site remembering to check rec.closed first.
 function markClosed(rec) {
@@ -514,7 +546,7 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
 async function one(item) {
   if (deadlineHit) { reject(item, 'ESKIP', { reason: 'inner-deadline' }); return; }
   if (item.skip) { reject(item, 'ESKIP', { reason: 'breaker-open' }); return; }
-  if (sessionGone) { reject(item, 'ESKIP', { reason: 'logged-out' }); return; }
+  if (markerMisses > 2) { reject(item, 'ELOGINREQUIRED', { reason: 'logged-out' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
@@ -674,7 +706,7 @@ async function one(item) {
     // content miss is the less useful of the two answers: it sends the caller looking at
     // selectors when the actual problem is that nobody is signed in.
     if (JOB.loggedInMarker && render.loggedIn === false) {
-      if (JOB.stopWhenLoggedOut) sessionGone = true;
+      if (JOB.stopWhenLoggedOut) markerMisses++;
       reject(item, 'ENOTLOGGEDIN', { marker: JOB.loggedInMarker, finalUrl: finalUrl, title: title, render: render, timings: t });
       return;
     }
@@ -750,7 +782,8 @@ async function one(item) {
         },
         urlAtSnapshot: urlBeforeActions,
         allowStaleRefs: JOB.allowStaleRefs,
-        stopOnError: JOB.stopOnError
+        stopOnError: JOB.stopOnError,
+        stopped: function () { return markerMisses > 2; }
       });
       t.actions = lap();
       out.actions = ran.steps;
@@ -763,7 +796,7 @@ async function one(item) {
       // render object, so the pair is never read as being about one document.
       out.contentVerifiedStage = 'pre-actions';
       if (ran.urlAfter) { finalUrl = ran.urlAfter; out.finalUrl = ran.urlAfter; }
-      if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = 'EACTION'; }
+      if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = markerMisses > 2 ? 'ESESSIONGONE' : 'EACTION'; }
     }
     // The observation this call leaves behind. Its id is what makes a follow-up ref read
     // legal, and a caller can ask for it without running any actions at all.

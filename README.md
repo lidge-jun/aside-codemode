@@ -94,6 +94,15 @@ Search arrays still support `.map`, `.filter` and `.length` inside guest code. R
 
 `context` returns surrounding text on content hits. Unknown or invalid options are rejected. `includeExcluded: true` overrides configured exclusions; `noIgnore` and `hidden` are separate controls. **`followSymlinks: true` is rejected** until guarded link traversal is implemented, rather than allowing ripgrep to read outside the configured roots.
 
+A rejected traversal used to be a silent one. A directory of 37 entries where 35 were links
+answered with 2 rows and `complete: true`, and no option could reveal the difference. Now
+`scope.skippedSymlinks` reports `{ dirs, files, examples, capped }`, and a skipped **directory**
+sets `complete: false` — `noIgnore`/`hidden` will not recover those results, so point `path` at
+the link target instead. A skipped **file** link is counted without lowering completeness: it
+cannot hide a subtree, and treating three symlinked bin stubs as an incomplete search was
+measured to make the signal useless. The census does not read `.gitignore`, and it stops after
+a bounded number of entries (`capped: true` says so).
+
 ```sh
 codemode --cwd /abs/project --code '
 const hits = await search.content({ path: ".", query: "TODO", max: 50 });

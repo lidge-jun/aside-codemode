@@ -10,7 +10,10 @@ import path from 'node:path';
 import { createRgRunner, createRgResolver } from '../src/rg.js';
 import { restoreSearchResult } from '../src/search-result.js';
 
-// Windows needs a privilege for this; where it is missing the whole question is moot.
+// Creating a symlink needs a privilege on Windows. Where the test cannot create one it skips,
+// which means this signal is proven on the unix runners and NOT on Windows - the runtime there
+// still steps over junctions and existing links the same way, it is only the fixture we cannot
+// build.
 function treeWithLinks() {
   const base = mkdtempSync(path.join(os.tmpdir(), 'acm-links-'));
   const real = path.join(base, 'real');
@@ -76,4 +79,48 @@ test('content search reports it too, not just the file listing', async (t) => {
   const res = await runner().content({ query: 'here', path: f.scan });
   assert.equal(res.complete, false);
   assert.ok(res.scope.skippedSymlinks.dirs >= 1);
+});
+
+// The measured failure of the first attempt: a repository with three symlinked bin stubs was
+// reported incomplete on every search. A file link cannot hide a subtree, so it is counted and
+// reported without touching the flag.
+test('a file link is reported but does not make the search incomplete', async (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-filelink-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  writeFileSync(path.join(base, 'real.md'), '# real\n');
+  try {
+    symlinkSync(path.join(base, 'real.md'), path.join(base, 'stub.md'));
+  } catch { return t.skip('this platform will not let the test create a symlink'); }
+
+  const res = await runner().files({ path: base, glob: '**/*.md' });
+  assert.equal(res.scope.skippedSymlinks.files, 1, 'the link should still be counted');
+  assert.equal(res.scope.skippedSymlinks.dirs, 0);
+  assert.equal(res.complete, true, 'a bin stub is not a hidden subtree');
+});
+
+test('a link the search already excludes is not reported as skipped', async (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-exclink-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(path.join(base, 'target'), { recursive: true });
+  writeFileSync(path.join(base, 'keep.md'), '# keep\n');
+  try {
+    symlinkSync(path.join(base, 'target'), path.join(base, 'node_modules'), 'dir');
+  } catch { return t.skip('this platform will not let the test create a symlink'); }
+
+  const res = await runner().files({ path: base, glob: '**/*.md' });
+  assert.equal(res.scope.skippedSymlinks.dirs, 0, 'an excluded directory was never going to be searched');
+  assert.equal(res.complete, true);
+});
+
+test('a glob in excludeGlobs is honoured the way the search honours it', async (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-globlink-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  writeFileSync(path.join(base, 'real.log'), 'x\n');
+  try {
+    symlinkSync(path.join(base, 'real.log'), path.join(base, 'stub.log'));
+  } catch { return t.skip('this platform will not let the test create a symlink'); }
+
+  const withGlob = createRgRunner(createRgResolver({}, process.env), { excludeGlobs: ['*.log'] });
+  const res = await withGlob.files({ path: base });
+  assert.equal(res.scope.skippedSymlinks.files, 0, 'the search excluded it, so it was not skipped by the link policy');
 });

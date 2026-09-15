@@ -16,13 +16,28 @@ import path from 'node:path';
 
 export const SYMLINK_SCAN_DEFAULTS = Object.freeze({ maxDepth: 3, maxEntries: 4000, maxExamples: 5 });
 
-function excluded(name, excludeGlobs) {
+// The search hands these globs to ripgrep as '-g !<glob>', so the same string has to mean the
+// same thing here. A name check missed '*.log' and counted a file the search had already
+// excluded, which is a skip report for something nobody skipped.
+function globToRegExp(glob) {
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*') {
+      if (glob[i + 1] === '*') { out += '.*'; i++; if (glob[i + 1] === '/') i++; }
+      else out += '[^/]*';
+    } else if (c === '?') out += '[^/]';
+    else if ('\\^$+.()|{}[]'.includes(c)) out += '\\' + c;
+    else out += c;
+  }
+  return new RegExp('^' + out + '$');
+}
+
+function excluded(name, relPath, excludeGlobs) {
   for (const glob of excludeGlobs || []) {
     if (!glob) continue;
-    // The exclude list is a set of directory names and simple wildcards, matched the way the
-    // search applies it: on the entry name, not on the whole path.
-    if (glob === name) return true;
-    if (glob.endsWith('*') && name.startsWith(glob.slice(0, -1))) return true;
+    const re = globToRegExp(glob);
+    if (re.test(name) || re.test(relPath)) return true;
   }
   return false;
 }
@@ -57,8 +72,9 @@ export async function scanSkippedSymlinks(dir, {
       out.scanned += 1;
       const name = entry.name;
       if (!hidden && name.startsWith('.')) continue;
-      if (excluded(name, excludeGlobs)) continue;
       const child = path.join(abs, name);
+      const rel = path.relative(dir, child).split(path.sep).join('/');
+      if (excluded(name, rel, excludeGlobs)) continue;
       if (entry.isSymbolicLink()) {
         // A link's own type needs a stat to resolve, and a broken link would throw. The
         // distinction that matters to a caller is how much could be behind it, so a link is
@@ -73,4 +89,19 @@ export async function scanSkippedSymlinks(dir, {
     }
   }
   return out;
+}
+
+// What the count means, in one place, because two callers and a document have to agree.
+//
+// Only a skipped DIRECTORY lowers completeness. A skipped file link cannot hide a subtree: the
+// file it points at is either inside the search already or outside the roots entirely, and
+// flipping the flag for it was measured to mark ordinary repositories incomplete because of
+// three bin stubs. File links are still reported, because "why is this file missing" is a
+// question the count answers.
+//
+// A capped scan does not lower it either. Capping means the census stopped early, not that
+// something was skipped, and a result that called itself incomplete on every large tree would
+// be ignored within a day.
+export function symlinkSkipLowersCompleteness(skipped) {
+  return Boolean(skipped) && skipped.dirs > 0;
 }

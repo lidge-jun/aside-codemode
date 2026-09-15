@@ -11,7 +11,7 @@ import { execFileRg } from './child-opts.js';
 import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
 import { decorateSearchResult } from './search-result.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
-import { scanSkippedSymlinks } from './symlink-scan.js';
+import { scanSkippedSymlinks, symlinkSkipLowersCompleteness } from './symlink-scan.js';
 import { includesText } from './unicode.js';
 
 const execFileP = promisify(execFile);
@@ -166,8 +166,10 @@ function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeG
 // A search is only complete when nothing was cut short, nothing was unreadable
 // and nothing killed the process from outside.
 function completeness({ truncated, partial, killedBySignal, skippedSymlinks = null }) {
-  const skipped = skippedSymlinks ? skippedSymlinks.dirs + skippedSymlinks.files : 0;
-  return !truncated && partial.length === 0 && !killedBySignal && skipped === 0;
+  return !truncated
+    && partial.length === 0
+    && !killedBySignal
+    && !symlinkSkipLowersCompleteness(skippedSymlinks);
 }
 
 export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
@@ -218,7 +220,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         onOverflow: () => { out.pop(); },
       });
       const partial = partialLines(stderr);
-      const skippedSymlinks = await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(out, {
         truncated,
         partial,
@@ -333,7 +335,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         },
       });
       const partial = partialLines(stderr);
-      const skippedSymlinks = await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(hits, {
         truncated,
         partial,
@@ -403,7 +405,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         },
       });
       const partial = partialLines(stderr);
-      const skippedSymlinks = await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult({ matches, files: files.size }, {
         truncated: false,
         partial,

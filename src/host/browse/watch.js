@@ -23,7 +23,7 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
             blockKind: read.blockKind || null, status: read.status ?? null,
             reason: read.degradedReason || read.fallbackReason || null };
         }
-        const text = read.markdown || '';
+        const text = read.text || '';
         const hash = textHash(text);
         const prev = cache ? await cache.get(keyParts) : { hit: false };
         if (cache) await cache.put(keyParts, { hash, text });
@@ -87,7 +87,7 @@ export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
         ? { url, ok: false, chars: 0, source: read.source,
             blockKind: read.blockKind || null,
             reason: read.degradedReason || read.fallbackReason || null }
-        : { url, ok: true, chars: (read.markdown || '').length, source: read.source };
+        : { url, ok: true, chars: (read.text || '').length, source: read.source };
     }));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));
     return { items, warmed: items.filter((i) => i.ok).length, ok: true, note: 'prefetch is best-effort: failures are reported, never thrown' };

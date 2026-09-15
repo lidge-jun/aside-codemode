@@ -57,7 +57,8 @@ test('a browser fallback asks for the body and returns it', async () => {
   const out = await readText('https://a.test');
   assert.equal(asked.fullText, true, 'without this the only text available is a 160-character sample');
   assert.equal(out.ok, true);
-  assert.equal(out.markdown, 'the real article body');
+  assert.equal(out.text, 'the real article body');
+  assert.equal(out.format, 'markdown');
 });
 
 test('a warm entry is used, and a failed one is never stored', async () => {
@@ -143,7 +144,7 @@ test('prefetch leaves an entry the next reader can use as an answer', async () =
   assert.equal(fetches, 1, 'the warm entry was the one prefetch made');
   assert.equal(read.cached, true);
   assert.equal(read.ok, true, 'a thinner second write left the reader with no ok');
-  assert.equal(read.chars, read.markdown.length);
+  assert.equal(read.chars, read.text.length);
 });
 
 test('prefetch reports a refusal as one instead of counting it warm', async () => {

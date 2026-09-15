@@ -269,6 +269,28 @@ export function checkOptionValue(name, value) {
  * problem: EBADOPT for an unknown key, EBADVAL for a bad value, ENOTSUP for an
  * option that exists but cannot be honoured safely.
  */
+// An agent that reaches for the wrong name is usually one word away from the right call, and
+// the old message listed valid options without saying which of them replaced what it tried.
+// These two are the pair that actually got confused in use: content/count match text with
+// query, files filters paths with pattern.
+const MISDIRECTED = {
+  pattern: { belongsTo: 'search.files', insteadUse: 'query', appliesTo: ['search.content', 'search.count'] },
+  query: { belongsTo: 'search.content', insteadUse: 'pattern (a path substring) or glob', appliesTo: ['search.files'] },
+};
+
+const PATH_HINT = '. Give a directory inside a configured root, or an absolute path '
+  + '(relative paths resolve against --cwd).';
+
+function misdirectedOptionHint(fn, bad) {
+  const hints = [];
+  for (const name of bad) {
+    const rule = MISDIRECTED[name];
+    if (!rule || !rule.appliesTo.includes(fn)) continue;
+    hints.push(`In ${fn}, use ${rule.insteadUse}; ${JSON.stringify(name)} belongs to ${rule.belongsTo}.`);
+  }
+  return hints.length ? '. ' + hints.join(' ') : '';
+}
+
 export function validateSearchOptions(fn, opts) {
   const allowed = OPT_SETS[fn];
   if (!allowed) throw new Error(`validateSearchOptions: unknown entry point ${fn}`);
@@ -280,7 +302,8 @@ export function validateSearchOptions(fn, opts) {
   if (bad.length) {
     throw new SearchOptionError(
       `${fn}: unknown option(s) ${bad.map((b) => JSON.stringify(b)).join(', ')}. `
-      + `valid: ${[...allowed].join(', ')}`,
+      + `valid: ${[...allowed].join(', ')}`
+      + misdirectedOptionHint(fn, bad),
       'EBADOPT',
     );
   }
@@ -290,7 +313,11 @@ export function validateSearchOptions(fn, opts) {
     const present = name in opts && opts[name] !== undefined;
     if (!present) {
       if (spec.required) {
-        throw new SearchOptionError(`${fn}: ${name} (non-empty string) is required`, 'EBADVAL');
+        throw new SearchOptionError(
+          `${fn}: ${name} (non-empty string) is required`
+          + (name === 'path' ? PATH_HINT : ''),
+          'EBADVAL',
+        );
       }
       continue;
     }

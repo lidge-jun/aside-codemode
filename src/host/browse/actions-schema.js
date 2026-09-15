@@ -140,8 +140,8 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.readText',
-    description: 'Fetch-first page read: html to markdown with no browser unless the page rendered nothing.',
-    signature: "browse.readText(url, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,markdown,chars,blockKind,fallbackReason}>",
+    description: 'Fetch-first page read: html to markdown-shaped text, with no browser unless the page rendered nothing. Takes a url string or { url, ...options }.',
+    signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>",
     inputs: {
       url: { type: 'string', required: true, description: 'http(s) url' },
       timeoutMs: { type: 'number', required: false, description: 'Deadline for the fetch and, if one is needed, the browser read' },

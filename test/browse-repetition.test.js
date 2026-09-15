@@ -120,7 +120,7 @@ test('an unknown engine lists the valid ones', async () => {
 
 test('watch reports first sight distinctly from a change, and says nothing when unchanged', async () => {
   let text = 'a\nb';
-  const readText = async () => ({ markdown: text });
+  const readText = async () => ({ text, format: 'markdown' });
   const w = createWatch({ readText, cache: memoryCache() });
   const first = (await w(['https://x.test'])).items[0];
   assert.equal(first.changed, true);
@@ -155,7 +155,7 @@ test('a data recipe interpolates its arguments and runs with no model turn', asy
 
 test('prefetch reports failures instead of throwing them at the caller', async () => {
   // A warm-up that breaks the real run is worse than a cold cache.
-  const readText = async (u) => { if (u.includes('bad')) throw new Error('nope'); return { markdown: 'hello', source: 'fetch' }; };
+  const readText = async (u) => { if (u.includes('bad')) throw new Error('nope'); return { text: 'hello', format: 'markdown', source: 'fetch' }; };
   const p = createPrefetch({ readText, cache: memoryCache() });
   const r = await p(['https://ok.test', 'https://bad.test']);
   assert.equal(r.ok, true, 'prefetch itself never fails the caller');

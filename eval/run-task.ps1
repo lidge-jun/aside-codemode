@@ -12,7 +12,7 @@ $dump = Join-Path $ev "$ts-$Label.jsonl"
 if ($Probe) {
   $prompt = 'execute_code MCP 툴이 보이면 그걸로 return 40+2 만 실행하고 결과만 답하라. 다른 도구는 쓰지 마라. Do not ask me any questions.'
 } else {
-  $prompt = "C:/Users/super/.aside/u/0/codemode-eval/corpus 아래에서 $Needle 가 들어있는 파일을 모두 찾아 절대경로로 보고하라. 찾은 각 경로를 한 줄에 하나씩 적어라. Write and edit files only under C:/Users/super/.aside/u/0. Read other local paths only when this prompt names them, and never modify them. This prompt names C:/Users/super/.aside/u/0/codemode-eval as readable. Downloading to C:/Users/super/Downloads is fine; move anything you keep under C:/Users/super/.aside/u/0. Do not ask me any questions. If something is blocked or ambiguous, pick the most reasonable option and continue, or report exactly what blocked you and stop."
+  $prompt = "$env:USERPROFILE/.aside/u/0/codemode-eval/corpus 아래에서 $Needle 가 들어있는 파일을 모두 찾아 절대경로로 보고하라. 찾은 각 경로를 한 줄에 하나씩 적어라. Write and edit files only under $env:USERPROFILE/.aside/u/0. Read other local paths only when this prompt names them, and never modify them. This prompt names $env:USERPROFILE/.aside/u/0/codemode-eval as readable. Downloading to $env:USERPROFILE/Downloads is fine; move anything you keep under $env:USERPROFILE/.aside/u/0. Do not ask me any questions. If something is blocked or ambiguous, pick the most reasonable option and continue, or report exactly what blocked you and stop."
 }
 $out = Join-Path $env:TEMP 'aside-eval-out.txt'; $err = Join-Path $env:TEMP 'aside-eval-err.txt'
 $p = Start-Process -FilePath $aside -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err -ArgumentList @('exec','--permission','full-access','--log-dump',$dump,'--', $prompt)

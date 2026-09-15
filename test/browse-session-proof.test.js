@@ -136,8 +136,8 @@ test('an item still acting when the session proves gone stops, and does not clai
   const urls = ['a', 'b', 'c', 'd'].map((s) => 'https://portal.test/' + s);
   const job = validateJob({
     urls, timeoutMs: 5000, concurrency: 4, loggedInMarker: 'Signed in as',
-    actions: [{ ref: 'e1', click: true }, { ref: 'e1', click: true }, { ref: 'e1', click: true }],
-    allowStaleRefs: true,
+    actions: [{ selector: '#go', click: true }, { selector: '#go', click: true }, { selector: '#go', click: true }],
+    
   });
   let release = null;
   const held = new Promise((r) => { release = r; });

@@ -134,7 +134,7 @@ test('a tab disappearing does not decide what a write did', async () => {
   });
   // A real write, not a bare read: the flag is about what a sent step might have done, so
   // asserting it on a request that sent nothing would prove nothing.
-  const res = await attach.attach({ targetId: 'T-ours', actions: [{ ref: 'e1', click: true }] });
+  const res = await attach.attach({ targetId: 'T-ours', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
   // The tab being gone is an observation about the tab. If a click was sent before it went,
   // the click's outcome is not known, and ok:false must not be read as "nothing happened".
   assert.equal(res.effectsUnknown, true);

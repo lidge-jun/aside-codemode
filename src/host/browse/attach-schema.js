@@ -1,12 +1,18 @@
 // Input contract for browse.attach. Kept separate from the browse job schema so the two
 // evolve independently: attach has no urls, no navigation and no artifacts.
 
-import { validateActions, validateExtract } from './schema.js';
+import { validateActions, validateExtract, requireWriteFingerprint } from './schema.js';
 
 function bad(message) {
   const e = new Error(message);
   e.code = 'EINVAL';
   return e;
+}
+
+// Thrown by the shared fingerprint rule so it lands on this surface with this surface's
+// code, rather than arriving as something the batch path would have produced.
+class AttachOptionError extends Error {
+  constructor(message) { super(message); this.name = 'AttachOptionError'; this.code = 'EINVAL'; }
 }
 
 export function validateAttach(input = {}) {
@@ -67,7 +73,13 @@ export function validateAttach(input = {}) {
     snapshot,
     maxTreeChars: num('maxTreeChars', 1, 5000000, 20000),
     treeNodes: input.treeNodes === true,
-    actions: validateActions(input.actions),
+    actions: (() => {
+      const steps = validateActions(input.actions);
+      // The same rule as the batch path. attach reaches these verbs on the tab the person
+      // is signed into, so a rule that held on one path and not the other would not be one.
+      requireWriteFingerprint(steps, str('refsFingerprint'), input.allowStaleRefs === true, AttachOptionError);
+      return steps;
+    })(),
     stopOnError: input.stopOnError !== false,
     allowStaleRefs: input.allowStaleRefs === true,
     // Capped so the host deadline can always outlast it; the REPL cap is 120000ms and the

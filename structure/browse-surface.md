@@ -171,6 +171,21 @@ following a dirty step is re-fingerprinted before it runs. The guarantee is poin
 nothing can make it otherwise, so every ref step reports `guardAgeMs`, the measured width of the
 window between the check passing and the verb running.
 
+For a step that could change something and is aimed by ref, that guard is required rather than
+available. `refsFingerprint` must be present, it must be the full `snapshot.fingerprint` rather than
+`snapshot.fingerprintStructure` — which compares ref and role only, so a reordered list looks
+unchanged to it — and `allowStaleRefs` cannot be set beside it, because that flag skips the
+comparison entirely and would leave the first two rules satisfiable by any string of the right
+shape. All three are refused before anything spawns, on the batch path and the attach path, from
+one definition.
+
+A consequence worth stating: every verb that can be aimed by ref is an effect verb, since the three
+that are not — `waitFor`, `waitForLoadState` and `sleepMs` — take a selector or nothing. So
+`allowStaleRefs` no longer has a use alongside a ref-aimed step at all, and the catalog says so.
+
+There is no `guardAgeMs` threshold. A number would have to come from somewhere, and nothing here
+has measured what age is too old.
+
 ## Reading
 
 `read-text.js` answers with one body and a `format` saying whether it came from the fetch path as

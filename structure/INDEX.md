@@ -84,3 +84,4 @@ Not yet described, with the reason recorded in the manifest:
 - [`ADR-0006-the-write-gate-uses-the-effect-ledger.md`](decisions/ADR-0006-the-write-gate-uses-the-effect-ledger.md) — ADR-0006 — decision recorded under "Acting on a page"
 - [`ADR-0007-approval-ids-are-not-run-ids.md`](decisions/ADR-0007-approval-ids-are-not-run-ids.md) — ADR-0007 — decision recorded under "Acting on a page"
 - [`ADR-0008-ownership-lives-in-a-host-journal.md`](decisions/ADR-0008-ownership-lives-in-a-host-journal.md) — ADR-0008 — decision recorded under "Whose tab is whose"
+- [`ADR-0009-the-staleness-guard-is-mandatory-for-writes.md`](decisions/ADR-0009-the-staleness-guard-is-mandatory-for-writes.md) — ADR-0009 — decision recorded under "Acting on a page"

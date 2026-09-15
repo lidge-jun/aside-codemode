@@ -181,7 +181,7 @@ test('the cleanup budget is derived from the host deadline, not the script clock
 });
 
 test('the provably dead guard branch is gone from the shipped script', () => {
-  const src = compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }));
+  const src = compile(validateJob({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }));
   assert.equal(src.includes('verifiedClean'), false, 'a comment is a weaker guard than absence');
 });
 
@@ -201,7 +201,7 @@ function hostSource(raw) {
 
 const ACTING = {
   urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', snapshotAfter: true,
-  actions: [{ ref: 'e1', click: true }],
+  refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }],
 };
 const READING = {
   urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', extract: { a: { ref: 'e1' } },
@@ -220,8 +220,8 @@ test('the portable envelope fits the tightest command line any host has', () => 
     plain: hostSource({ urls: urls(1) }),
     twenty: hostSource({ urls: urls(20) }),
     snapshot: hostSource({ urls: urls(1), snapshot: 'interactive' }),
-    actions: hostSource({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }),
-    both: hostSource({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] }),
+    actions: hostSource({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
+    both: hostSource({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
     acting: hostSource(ACTING),
     reading: hostSource(READING),
   };
@@ -293,9 +293,9 @@ test('only the helpers the job can reach are shipped', () => {
   const plain = compile(validateJob({ urls: urls(1) }));
   assert.equal(plain.includes('function summarizeTree'), false, 'no snapshot asked, no tree code');
   assert.equal(plain.includes('async function runActions'), false, 'no actions asked, no action code');
-  const acting = compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }));
+  const acting = compile(validateJob({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }));
   assert.ok(acting.includes('async function runActions'));
-  assert.ok(compile(validateJob({ urls: urls(1), refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })).includes('function summarizeTree'),
+  assert.ok(compile(validateJob({ urls: urls(1), refsFingerprint: 'f', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] })).includes('function summarizeTree'),
     'a fingerprint guard needs the summariser even without a snapshot option');
 });
 

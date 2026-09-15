@@ -173,9 +173,9 @@ test('a hostile target cannot break out of the generated script', () => {
 });
 
 test('the step runner is injected into both generated scripts, not copied', () => {
-  assert.ok(compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }] }))
+  assert.ok(compile(validateJob({ urls: ['https://a.test'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }))
     .includes('async function runActions'));
-  assert.ok(compileAttach(validateAttach({ urlIncludes: 'x', actions: [{ ref: 'e1', click: true }] }))
+  assert.ok(compileAttach(validateAttach({ urlIncludes: 'x', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }))
     .includes('async function runActions'));
   assert.ok(ACTION_STEP_SRC.includes('EREFSTALE'), 'the guard travels with the code');
 });
@@ -201,7 +201,7 @@ test('a dollar sequence in a target or value survives compilation intact', () =>
   // page: parsed fine, silently wrong. A function replacer disables that.
   const payloads = ['a$&b', "x$'y", 'p$`q', '$$$&$`', 'tail$'];
   for (const value of payloads) {
-    const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', fill: value }] }));
+    const src = compile(validateJob({ urls: ['https://a.test'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', fill: value }] }));
     const start = src.indexOf('const JOB = ');
     const job = JSON.parse(src.slice(start + 12, src.indexOf(';\n', start)));
     assert.equal(job.actions[0].value, value, 'the value must reach the page unchanged: ' + value);
@@ -372,7 +372,7 @@ test('a missing locator or evaluate is still ENOTSUP for the verb that needed it
 });
 
 test('a raw line separator cannot land in the generated source', () => {
-  const src = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', fill: 'a\u2028b\u2029c' }] }));
+  const src = compile(validateJob({ urls: ['https://a.test'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', fill: 'a\u2028b\u2029c' }] }));
   assert.equal(src.includes('\u2028'), false, 'U+2028 must be escaped, not trusted to the REPL parser');
   assert.ok(src.includes('\\u2028'));
 });
@@ -453,7 +453,7 @@ test('a capture that fits the reserve no longer loses the item it follows', asyn
   const page = compiledPage({ slow: { screenshot: 3000 } });
   const src = compile(validateJob({
     urls: ['https://a.test'], timeoutMs: 4000,
-    actions: [{ ref: 'e1', click: true }],
+    actions: [{ selector: '#go', click: true }],
     screenshot: { type: 'png' },
   }));
   const out = await runCompiled(src, page);
@@ -468,7 +468,7 @@ test('when the item IS lost, the step that already ran is still on the record', 
   const page = compiledPage({ slow: { screenshot: 9000 } });
   const src = compile(validateJob({
     urls: ['https://a.test'], timeoutMs: 4000,
-    actions: [{ ref: 'e1', click: true }],
+    actions: [{ selector: '#go', click: true }],
     screenshot: { type: 'png' },
   }));
   const out = await runCompiled(src, page);
@@ -481,11 +481,11 @@ test('when the item IS lost, the step that already ran is still on the record', 
 });
 
 test('the reserve grows with the work that still has to happen after the steps', () => {
-  const bare = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }] }));
-  const heavy = compile(validateJob({ urls: ['https://a.test'], actions: [{ ref: 'e1', click: true }], screenshot: { type: 'png' }, pdf: {}, snapshot: 'tree' }));
+  const bare = compile(validateJob({ urls: ['https://a.test'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }));
+  const heavy = compile(validateJob({ urls: ['https://a.test'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }], screenshot: { type: 'png' }, pdf: {}, snapshot: 'tree' }));
   assert.ok(bare.includes('ACTION_RESERVE_MS'));
   assert.ok(heavy.includes('JOB.screenshot ? 3000 : 0'), 'a capture must buy itself room');
-  assert.throws(() => validateJob({ urls: ['https://a.test'], timeoutMs: 1000, actions: [{ ref: 'e1', click: true }] }),
+  assert.throws(() => validateJob({ urls: ['https://a.test'], timeoutMs: 1000, refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
     /cannot fit an action list/, 'an impossible budget is refused up front, not at runtime');
 });
 
@@ -496,7 +496,7 @@ test('attach refuses to call a run ok when its actions failed', async () => {
       contentVerified: null, actions: [{ i: 0, verb: 'click', ok: false, code: 'EACTION' }], actionsOk: false, refGuard: 'url-only' }] }),
   };
   const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
-  const r = await a.attach({ urlIncludes: 'x', actions: [{ ref: 'e1', click: true }] });
+  const r = await a.attach({ urlIncludes: 'x', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
   assert.equal(r.ok, false);
   assert.equal(r.code, 'EACTION');
   assert.equal(r.refGuard, 'url-only');
@@ -507,7 +507,7 @@ test('attach gives the repl longer than the action budget it just granted', asyn
   const seen = [];
   const session = { raw: async (_src, opts) => { seen.push(opts.hostMs); return { rows: [] }; } };
   const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
-  await a.attach({ urlIncludes: 'x', actionBudgetMs: 60000, actions: [{ ref: 'e1', click: true }] });
+  await a.attach({ urlIncludes: 'x', actionBudgetMs: 60000, refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
   assert.ok(seen[0] > 60000, 'a 60s budget under a 26.5s host deadline loses the whole report');
   assert.ok(seen[0] <= 120000, 'and it still has to fit the REPL cap');
 });

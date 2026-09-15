@@ -26,7 +26,7 @@ function harness() {
   return { browse, spawns };
 }
 
-const writingJob = (url = 'https://a.test/1') => ({ urls: [url], actions: [{ ref: 'e1', click: true }] });
+const writingJob = (url = 'https://a.test/1') => ({ urls: [url], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
 
 test('a refusal hands back an id that can actually be named', async () => {
   const { browse, spawns } = harness();
@@ -150,7 +150,7 @@ test('a stored job is not world readable', { skip: process.platform === 'win32' 
   // a password. Skipped rather than wrapped in an if: a test that runs and asserts nothing
   // reports as a pass, and this file already had one of those.
   const { browse } = harness();
-  const refused = await browse.exec({ urls: ['https://a.test/1'], actions: [{ ref: 'e1', fill: 'hunter2' }] });
+  const refused = await browse.exec({ urls: ['https://a.test/1'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', fill: 'hunter2' }] });
   const store = createApprovals();
   const file = path.join(store.dir, 'pending', refused.approvalId + '.json');
   const mode = statSync(file).mode & 0o777;

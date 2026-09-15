@@ -21,7 +21,7 @@ const session = () => createBrowseSession({ resolveAside: never('resolveAside'),
 test('a batch that could change something is refused before anything is spawned', async () => {
   const res = await session().run({
     urls: ['https://portal.test/a', 'https://portal.test/b'],
-    actions: [{ ref: 'e1', click: true }, { ref: 'e2', fill: 'hello' }],
+    refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }, { ref: 'e2', fill: 'hello' }],
   });
   // If the gate were even one line later this call would have thrown instead of answering.
   assert.equal(res.status, 'needs_input');
@@ -37,6 +37,7 @@ test('a batch that could change something is refused before anything is spawned'
 test('the refusal names the verbs it wanted, in the order they were asked for', async () => {
   const res = await session().run({
     urls: ['https://portal.test/a'],
+    refsFingerprint: 'r1-test',
     actions: [
       { ref: 'e1', click: true },
       { waitFor: '.ready' },
@@ -51,7 +52,7 @@ test('the refusal names the verbs it wanted, in the order they were asked for', 
 });
 
 test('the refusal is an ordinary envelope, not a second shape to learn', async () => {
-  const res = await session().run({ urls: ['https://portal.test/a'], actions: [{ ref: 'e1', click: true }] });
+  const res = await session().run({ urls: ['https://portal.test/a'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
   assert.deepEqual(checkResultEnvelope(res), [], 'the contract checker must accept it unchanged');
   // The fields a settled run carries. An envelope missing half of them makes the caller
   // branch on which kind of answer it got, which is the thing the contract exists to avoid.
@@ -70,7 +71,7 @@ test('a job that only reads is not asked to approve anything', async () => {
 
 test('saying so lets the same batch through', async () => {
   const run = session().run({
-    urls: ['https://portal.test/a'], approveWrites: true, actions: [{ ref: 'e1', click: true }],
+    urls: ['https://portal.test/a'], approveWrites: true, refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }],
   });
   await assert.rejects(run, /the gate let the run reach resolveAside/);
 });
@@ -89,7 +90,7 @@ test('the declaration cannot be set on a job that has nothing to declare', () =>
 test('consent is a boolean and is not coerced from anything else', () => {
   for (const value of ['true', 'false', 1, 0, {}, []]) {
     assert.throws(
-      () => validateJob({ urls: ['https://portal.test/a'], approveWrites: value, actions: [{ ref: 'e1', click: true }] }),
+      () => validateJob({ urls: ['https://portal.test/a'], approveWrites: value, refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
       (e) => e.code === 'EBADVAL',
       'approveWrites: ' + JSON.stringify(value) + ' must not read as consent',
     );
@@ -133,7 +134,7 @@ test('every verb outside that set is gated, and the wait verbs are not', () => {
     'reload', 'scroll', 'sleepMs'];
   assert.equal(ALL.length, 18, 'the verb catalogue changed; this sweep has to change with it');
   for (const verb of ALL) {
-    const job = validateJob({ urls: ['https://portal.test/a'], actions: [step(verb)] });
+    const job = validateJob({ urls: ['https://portal.test/a'], refsFingerprint: 'r1-test', actions: [step(verb)] });
     const gated = gatedVerbs(job.actions);
     if (NO_EFFECT_VERBS.includes(verb)) {
       assert.deepEqual(gated, [], verb + ' waits; it must not ask for consent');
@@ -142,4 +143,3 @@ test('every verb outside that set is gated, and the wait verbs are not', () => {
     }
   }
 });
-

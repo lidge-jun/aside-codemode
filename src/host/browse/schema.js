@@ -27,6 +27,38 @@ export function gatedVerbs(actions) {
   return seen;
 }
 
+// A step that could change something, aimed by ref, has to prove the page has not moved
+// under it. The tool's own measurement is the argument: one click grew a tree from 3,126
+// characters to 23,530 and renumbered it, so a ref minted before that click names a
+// different element after it. The guard already existed and was never required.
+//
+// Shared by the batch schema and the attach schema, because attach reaches the same verbs
+// on a tab the person is signed into, and a rule that holds on one path and not the other
+// is not a rule.
+export function requireWriteFingerprint(actions, refsFingerprint, allowStaleRefs, ErrorClass) {
+  // Only ref steps. A selector does not use the numbering this protects, so asking for a
+  // fingerprint there would be a ritual.
+  const steps = (actions || []).filter((s) => s.targetKind === 'ref' && !NO_EFFECT_VERBS.includes(s.verb));
+  if (!steps.length) return;
+  const verbs = [...new Set(steps.map((s) => s.verb))].join(', ');
+  const refuse = (message) => { throw new ErrorClass(message, 'EBADVAL'); };
+  if (!refsFingerprint) {
+    refuse(`refsFingerprint is required for ${verbs} by ref: pass snapshot.fingerprint from the read that produced the refs, so the step can prove the page has not been renumbered since. Aim by selector instead if you do not have one`);
+  }
+  // The structure fingerprint compares ref and role only, which is why a reordered list is
+  // invisible to it — and clicking the item next to the one you meant is exactly the shape
+  // of accident this refuses. The tool's own note says not to use it to click anything
+  // destructive; this stops that being advice.
+  if (/^s\d+-/.test(refsFingerprint)) {
+    refuse(`snapshot.fingerprintStructure cannot authorise ${verbs} by ref: it compares ref and role only, so a reordered list looks unchanged to it. Use snapshot.fingerprint`);
+  }
+  // Without this the two rules above are satisfiable by any string at all: allowStaleRefs
+  // skips the comparison and stamps refGuard 'disabled'. It stays available for reads.
+  if (allowStaleRefs === true) {
+    refuse(`allowStaleRefs turns off the check that ${verbs} by ref depends on, so the two cannot be asked for together. Drop it, or aim those steps by selector`);
+  }
+}
+
 export const ASIDE_REPL_CAP_MS = 120000;
 export const DEFAULT_INNER_CAP_MS = 25000;
 export const SLACK_MS = 1500;
@@ -337,6 +369,16 @@ export function validateJob(raw, browseCaps = {}) {
     throw new BrowseOptionError("snapshotAfter must be true, false or 'diff'", 'EBADVAL');
   }
   const snapshotAfter = raw.snapshotAfter === 'diff' ? 'diff' : raw.snapshotAfter === true;
+
+  // A step that could change something, aimed by ref, has to prove the page has not moved
+  // under it. The tool's own measurement is the argument: one click grew a tree from 3,126
+  // characters to 23,530 and renumbered it, so a ref minted before that click names a
+  // different element after it. The guard exists and was never required.
+  //
+  // Only ref steps. A selector does not use the numbering this protects, so requiring a
+  // fingerprint there would be a ritual.
+  requireWriteFingerprint(actions, refsFingerprint, raw.allowStaleRefs === true, BrowseOptionError);
+
   // The rendered body, asked for by name. Without it the only text a batch returns is the
   // 160-character sample the render check keeps, and a summary is not an article.
   if (raw.fullText !== undefined && typeof raw.fullText !== 'boolean') {

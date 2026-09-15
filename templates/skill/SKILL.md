@@ -70,6 +70,49 @@ is a real answer, not a reason to run it again:
 An effect that is `indeterminate` was started and never confirmed. Do not retry it. A
 second submit is a second order.
 
+## Success signals are not success
+
+`ok`, `completed`, HTTP 200 and `contentVerified` all describe the call. None of them
+describes what came back. A page can answer 200 with a correct `<title>` and hold a
+sign-in form, an error template, or a shell the data never arrived into, and every one of
+those four signals stays green.
+
+This is not hypothetical. An expired portal session returned 200, the right title,
+`completed` and `contentVerified: true`, and the run was read as a success until someone
+opened the page.
+
+So say what the content must be. `requireContent` takes the text the page has to contain
+and is itself the check, and `requireSelector` and `minTextChars` describe the same thing
+structurally. Without one of them `contentVerified` is `null`, which means nobody asked —
+it does not mean the page was fine.
+
+Two failures the tool can now see on its own. A navigation that ended on the browser's own
+error page is `EDEADEND`, because a DNS failure and a refused connection both load a page
+that has a title. A sign-in wall or a challenge is `needs_input` rather than a failure,
+because a person can clear it; an origin refusing the client is a plain failure, because
+nobody can.
+
+What it still cannot see: a page that rendered a real 404, or an API that answered with an
+empty list. HTTP status is not available on this path at all. Those are yours to describe.
+
+## Signed-in work
+
+The session is inherited, so a signed-in site is batchable and this is the strongest thing
+the tool does. What breaks is the premise underneath batching: the items are supposed not
+to depend on each other's state, and every item in a signed-in run shares one session. If
+it expires halfway, the rest read a login page and report success.
+
+Three steps, in order. Sign in natively, outside the batch — two-factor and SSO are a
+person's job and never belong inside a run. Then pass the text that proves you are signed
+in as `requireContent`, so an expired session fails its items instead of returning a login
+page as content. Then batch.
+
+Do not ask the tool to work out whether you are signed in. It was measured and the general
+heuristic fails both ways: a JSON API answering with your own account data contains no
+sign-out wording and reads as logged out, while a signed-out portal page need not contain
+the word for signing in either, and reads as fine. Proof of a live session is knowledge
+about that target, which the caller has and the tool does not.
+
 ## Failure and resume
 
 A failed item names its cause: `EOPEN` the tab never opened, `ETABBUDGET` the run was

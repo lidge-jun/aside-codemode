@@ -349,6 +349,14 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
   async function raw(replSource, opts = {}) {
     const effective = opts.signal || signal;
     if (effective && effective.aborted) { const e = new Error('browse cancelled'); e.code = 'ECANCELLED'; throw e; }
+    // Same wire limit as the generated job path. This entry point skipped the check, so a
+    // caller that injected a helper found out by way of a platform error from the OS rather
+    // than a sentence naming the limit.
+    if (String(replSource).length > 30000) {
+      const e = new Error(`the repl source is ${String(replSource).length} characters, over the 30000 wire limit; send less source or split the work`);
+      e.code = 'ESOURCETOOLONG';
+      throw e;
+    }
     const bin = await resolveAside();
     const child = await spawnAside(bin, ['repl', replSource], { hostMs: opts.hostMs || 30000, signal: effective });
     const stdout = String(child && child.stdout !== undefined ? child.stdout : '');

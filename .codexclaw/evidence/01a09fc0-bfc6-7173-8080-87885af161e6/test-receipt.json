@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "3749e59c8fcee6e44b1481a01e21927e038789f5",
+    "commitSha": "88dd74d0a52eb79826a309a5004694bffc7e83e6",
     "dirty": false,
-    "capturedAt": "2026-09-15T03:07:23.520Z"
+    "capturedAt": "2026-09-15T03:23:37.434Z"
   },
-  "command": "node --test test/call-shapes.test.js test/search-hardening.test.js test/browse-observation.test.js test/browse-readtext.test.js test/browse-repetition.test.js",
+  "command": "node --test test/symlink-visibility.test.js test/search-hardening.test.js test/wire-hardening.test.js test/regressions.test.js",
   "exitCode": 0,
-  "createdAt": "2026-09-15T03:07:23.533Z",
+  "createdAt": "2026-09-15T03:23:37.447Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915030723-20690f"
+  "checkEpoch": "c-20260915032336-1f892a"
 }

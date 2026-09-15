@@ -27,14 +27,29 @@ export function deadlineMath(requestedMs, browseCaps = {}) {
 // Aside's snapshot rows look like:  - link "과제 및 평가" [ref=e21]
 // and a child frame arrives as its own row with an f-prefixed ref, which is why exposing
 // the tree also solves iframe discovery.
-export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, capChars) {
+export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, capChars, opts) {
   var ROW_REF = /\[ref=([^\]]+)\]/;
   var ROW_ROLE = /^[\s-]*([a-zA-Z][a-zA-Z0-9_-]*)/;
   var ROW_NAME = /"([^"]*)"/;
+  // A row names itself either in quotes (link "x") or after a colon (text: x). Reading only
+  // the first left every text and heading row nameless, which is exactly the content a
+  // grouped read needs.
+  var ROW_COLON_NAME = /^[\s-]*[a-zA-Z][a-zA-Z0-9_-]*:\s*(.+)$/;
+  var ROW_PASSWORD = /\[type=password\]/;
+  var ROW_ATTR = /\[([a-zA-Z][a-zA-Z0-9_-]*)=([^\]]*)\]/g;
   var ACTIONABLE = /^[\s-]*(link|button|textbox|searchbox|checkbox|radio|combobox|listbox|option|menuitem|menuitemcheckbox|menuitemradio|tab|switch|slider|spinbutton|treeitem|iframe)\b/;
   var lines = String(tree == null ? '' : tree).split('\n');
+  var maxNodes = opts && opts.maxNodes > 0 ? opts.maxNodes : 2000;
+  // Nodes share the tree's character budget rather than adding a second unbounded payload.
+  // Measured before this line existed: a 1200-row page produced a 238KB result against a
+  // 65536-byte envelope, so the shrinker dropped whole keys and the caller lost the tree it
+  // had asked for.
+  var nodeBudget = (capChars > 0 ? capChars : 20000);
+  var nodeChars = 0;
   var kept = [];
   var refs = [];
+  var nodes = [];
+  var nodesTruncated = false;
   for (var li = 0; li < lines.length; li++) {
     var line = lines[li];
     var m = ROW_REF.exec(line);
@@ -45,6 +60,39 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     }
     if (mode === 'tree') { kept.push(line); }
     else if (m && ACTIONABLE.test(line)) { kept.push(line.replace(/^\s+/, '')); }
+
+    // Parsed here, from the untruncated line, because a tree cut to fit a byte budget loses
+    // the indentation of whatever row the cut landed in.
+    if (!nodesTruncated && (mode === 'tree' || (m && ACTIONABLE.test(line)))) {
+      if (nodes.length >= maxNodes) { nodesTruncated = true; }
+      else if (line.trim()) {
+        var indent = /^(\s*)/.exec(line)[1].length;
+        var role2 = ROW_ROLE.exec(line);
+        var quoted = ROW_NAME.exec(line);
+        var colon = quoted ? null : ROW_COLON_NAME.exec(line);
+        var isPw = ROW_PASSWORD.test(line);
+        var attrs = {};
+        var am;
+        ROW_ATTR.lastIndex = 0;
+        while ((am = ROW_ATTR.exec(line)) !== null) {
+          if (am[1] === 'ref') continue;
+          // A password field's value is the one thing in a tree nobody should carry around.
+          if (isPw && am[1] === 'value') continue;
+          attrs[am[1]] = am[2];
+        }
+        var node = {
+          depth: Math.floor(indent / 2),
+          role: role2 ? role2[1] : null,
+          name: quoted ? quoted[1] : (colon ? colon[1].trim() : null),
+          ref: m ? m[1] : null,
+          attrs: attrs,
+          line: li
+        };
+        var cost = (node.role ? node.role.length : 0) + (node.name ? node.name.length : 0) + 40;
+        if (nodeChars + cost > nodeBudget) { nodesTruncated = true; }
+        else { nodeChars += cost; nodes.push(node); }
+      }
+    }
   }
   var body = kept.join('\n');
   var cap = capChars > 0 ? capChars : 20000;
@@ -77,6 +125,8 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     refCount: refs.length,
     refs: refs.slice(0, 500),
     refsTruncated: refs.length > 500,
+    nodes: nodes,
+    nodesTruncated: nodesTruncated,
     fingerprint: 'r' + refs.length + '-' + __fp(refs, true),
     fingerprintStructure: 's' + refs.length + '-' + __fp(refs, false)
   };

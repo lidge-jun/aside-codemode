@@ -1,0 +1,14 @@
+{
+  "kind": "test",
+  "sourceIdentity": {
+    "kind": "resolved",
+    "commitSha": "2ca0217d41573c1e156cf6c05c0618d26ecf8e01",
+    "dirty": false,
+    "capturedAt": "2026-09-15T01:34:06.044Z"
+  },
+  "command": "node --test test/install-lifecycle.test.js test/install-manifest.test.js test/docs-guidance.test.js test/loader-path.test.js",
+  "exitCode": 0,
+  "createdAt": "2026-09-15T01:34:06.059Z",
+  "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
+  "checkEpoch": "c-20260915013405-5d1fb0"
+}

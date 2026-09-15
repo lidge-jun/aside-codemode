@@ -6,10 +6,15 @@
 // absent from this catalog, so actions.check() called a working option unknown
 // (measured 2026-09-13). Value rules come from the same module, so `check` and a
 // real call agree on what is acceptable.
-import { SEARCH_ACTIONS, checkOptionValue } from '../search-schema.js';
+import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../search-schema.js';
+import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS, checkBrowseArgs } from './browse/actions-schema.js';
 
 const REGISTRY = [
   ...SEARCH_ACTIONS,
+  ...BROWSE_ACTIONS,
+  ...REPORT_ACTIONS,
+  ...API_ACTIONS,
+  ...RECIPE_ACTIONS,
   {
     path: 'read_file',
     description: 'Read a file using the Aside read_file shape. offset/limit are 1-indexed lines.',
@@ -42,7 +47,7 @@ const REGISTRY = [
   {
     path: 'apply_patch',
     description: 'Apply a Codex-shaped freeform patch string. Add/Update only. Success {}. No rollback.',
-    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument.',
+    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument. Update hunks are line-based; a substring that is not a whole line does not match. CRLF files keep CRLF.',
     signature: 'apply_patch(text) => Promise<{}>',
     inputs: {
       text: { type: 'string', required: true, description: 'Freeform *** Begin Patch … *** End Patch string' },
@@ -72,13 +77,15 @@ const REGISTRY = [
   {
     path: 'fs.grepFile',
     description: 'Return only matching lines (with optional context) from ONE file. Use instead of fs.read on a large file.',
-    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase? }?) => Promise<{line,text,context?}[]>',
+    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase?, normalize? }?) => Promise<{line,text,context?}[]>',
+    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100). A non-ASCII pattern also tries the NFC-folded line so a decomposed file still matches; .scope.normalize reports whether that was in force, and normalize:false turns it off. Returned text and line numbers are always the raw file.',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
       pattern: { type: 'string', required: true, description: 'Regex source or literal' },
       context: { type: 'number', required: false, description: 'Lines of context to include' },
-      max: { type: 'number', required: false, description: 'Max matches (default 100)' },
+      max: { type: 'number', required: false, description: 'Max matches (default 100). Positive integer; invalid values throw. Hitting max sets .truncated after a one-match lookahead.' },
       ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive' },
+      normalize: { type: 'boolean', required: false, description: 'Fold Unicode normalization when the pattern is non-ASCII (default true). Match decision only; returned bytes are untouched.' },
     },
   },
   {
@@ -182,17 +189,33 @@ export function createActions() {
       // typeErrors so the existing shape is unchanged for type mismatches.
       const invalid = [];
       const isSearch = rec.path.startsWith('search.');
+      // browse catalogues several options as unions ('boolean|string'). A plain !== check
+      // reads that as one literal type and refuses true for an option the runtime accepts.
+      const accepts = (want, got) => String(want).split('|').map((s) => s.trim()).includes(got);
       for (const [name, spec] of Object.entries(rec.inputs)) {
         if (spec.required && !(name in args)) missing.push(name);
-        else if (name in args && typeOf(args[name]) !== spec.type) {
+        else if (name in args && !accepts(spec.type, typeOf(args[name]))) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
-        } else if (name in args && isSearch) {
-          const problem = checkOptionValue(name, args[name]);
+        } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
+          // fs.grepFile deliberately keeps the plain check. Its `pattern` is a
+          // REGEX, where 'a*' is a quantifier, while search.files' `pattern` is a
+          // substring filter that refuses glob metacharacters. Routing both
+          // through the entry-scoped checker would make discovery report a valid
+          // grepFile regex as invalid while the real call kept running it.
+          const problem = isSearch
+            ? checkEntryOptionValue(rec.path, name, args[name])
+            : checkOptionValue(name, args[name]);
           if (problem) invalid.push(problem);
         }
       }
       for (const name of Object.keys(args)) {
         if (!(name in rec.inputs)) unknown.push(name);
+      }
+      // The runtime validator IS the answer for browse, and it only answers about a whole
+      // call. Asking it about arguments already reported as missing, unknown or mistyped
+      // would return that same problem a second time in different words.
+      if (missing.length === 0 && unknown.length === 0 && typeErrors.length === 0) {
+        invalid.push(...checkBrowseArgs(rec.path, args));
       }
       return {
         ok: missing.length === 0 && unknown.length === 0 && typeErrors.length === 0 && invalid.length === 0,

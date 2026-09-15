@@ -1,6 +1,6 @@
 # make aside 50x faster
 
-로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md).
+로컬 개발 폴더에서 `find`+`grep` 조합은 **55초**, `codemode --code` 한 번은 **1초**였습니다. 대략 **51배**입니다. 파일 50개를 찾으면 `read_file` 카드가 50장 쌓였는데, 지금은 bash 카드 한 장입니다. [폴더 측정](evidence/dev-folder-51x.md). 그 노트에는 argv·반올림 전 시간·결과 집합 일치까지 적힌 합성 대조가 있습니다. 그 대조는 55초 폴더가 아닙니다.
 
 예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
 
@@ -53,8 +53,22 @@ npm install -g --prefix=/opt/homebrew .
 | `apply_patch(text)` | 게스트 헬퍼. Codex `*** Begin Patch` 텍스트를 `write_file` / `edit_file`로 바꿉니다. 성공은 `{}`. AGENTS 동사가 아닙니다 |
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | 묶음 헬퍼. `fs.read` / `fs.write`는 바이트/덮어쓰기용 구형 별칭입니다 |
 | `actions.list` / `find` / `describe` / `check` | 샌드박스 안 탐색 |
+| `browse.probe()` | 설치된 Aside 빌드를 실제로 재서 만든 기능표. 어떤 page 메서드가 있는지, 어떤 옵션이 조용히 무시되는지, 왜 거절되는지를 돌려줍니다 |
+| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. `browseCaps.enabled`로 켜야 동작하고, `{ items, partial, leakedUrls }`를 돌려줍니다. 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
+
+**브라우징은 옵트인이고, Aside가 못 하는 일은 못 한다고 말합니다.** `page.route`, 스크린샷
+`maxWidth`, `pdf({format:'A4'})`, `file://` 주소, `networkidle`은 프로세스를 띄우기 전에
+`ENOTSUP`으로 막습니다. 전부 받아들여지는 척하고 조용히 무시되거나 바뀌는 것을 직접 재서
+확인했기 때문입니다. `format:'A4'`는 레터를 만들고, `maxWidth`는 원본 크기를 그대로 돌려줍니다.
+Aside CLI는 실패해도 종료코드가 `0`이라, 성공 판정은 끝줄 `[ok | Nms]` 마커와 만들었다는 파일을
+직접 확인하는 것뿐입니다. CLI를 죽이면 그 탭은 영구히 남고 이후 세션에서 닫을 수 없어서,
+스크립트 자체 데드라인이 호스트 데드라인보다 항상 먼저 끝나도록 잡았습니다. 강제 종료가 나면
+깨끗한 결과인 척하지 않고 `partial: ['host-kill']`과 해당 URL을 함께 돌려줍니다.
+`codemode --doctor --browse`로 전체 표를 볼 수 있습니다.
 
 **기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
+
+포함형 `glob`(예: `**/*.js`)은 ripgrep `-g` / `--glob`입니다. `noIgnore`와 `hidden`이 false여도 gitignore나 숨김 파일 일부가 맞을 수 있습니다. 워크스페이스 탈출이 아니라 ripgrep의 glob 우선순위이며, `-uuu`와는 다릅니다. 제외 glob(`-g '!…'`)은 여전히 가립니다. ignore/점파일을 glob 없이 다루려면 `noIgnore` / `hidden`을 직접 켜세요.
 
 **`max`는 전체 행 상한**입니다. 파일마다 자르는 ripgrep `--max-count`가 아닙니다. 한 행을 추가로 확인해 정확히 `max`개인 완전한 결과와 그보다 많은 결과를 구분한 뒤 중단합니다.
 
@@ -81,7 +95,7 @@ return { hits, excerpts };
 
 `edit_file`과 덮어쓰기 헬퍼는 정규화한 파일 경로의 프로세스 간 잠금을 사용합니다. 원본 읽기부터 교체 검증과 반영까지 잠금을 유지합니다. 같은 도구를 사용하는 두 프로세스의 수정 유실을 막기 위한 장치이며, 잠금을 무시하는 외부 편집기나 다른 하드링크 경로까지 보호하지는 않습니다. 잠금은 `os.tmpdir()/codemode-locks`에 저장하므로, 협력하는 프로세스는 같은 임시 디렉터리를 사용해야 합니다. 서로 다른 `TMPDIR` 값은 조정하지 않습니다.
 
-`apply_patch`는 Add와 여러 hunk를 가진 Update를 지원합니다. Delete·Move·Environment는 지원하지 않습니다. Add는 마지막 개행이 있는 텍스트 파일을 생성합니다. 성공 응답은 기존과 같은 `{}`입니다. 중간 실패 시 오류의 `applied`·`failedFile`로 앞서 적용된 파일과 실패 대상을 알립니다. 출력 예산이 충분하면 CLI 오류에도 보존됩니다. 앞선 변경은 남으므로 **여러 파일 전체의 트랜잭션이나 rollback을 보장하지 않습니다.**
+`apply_patch`는 Add와 여러 hunk를 가진 Update를 지원합니다. Delete·Move·Environment는 지원하지 않습니다. Add는 마지막 개행이 있는 텍스트 파일을 생성합니다. Update hunk는 줄 단위로 맞추며(줄 중간 부분 문자열은 실패), 줄을 지울 때 빈 줄을 남기지 않고, 원래 줄바꿈(LF 또는 CRLF)을 유지합니다. 성공 응답은 기존과 같은 `{}`입니다. 중간 실패 시 오류의 `applied`·`failedFile`로 앞서 적용된 파일과 실패 대상을 알립니다. 출력 예산이 충분하면 CLI 오류에도 보존됩니다. 앞선 변경은 남으므로 **여러 파일 전체의 트랜잭션이나 rollback을 보장하지 않습니다.**
 
 ## Dual path
 
@@ -195,3 +209,5 @@ npm test   # node --test "test/*.test.js" — 의존성 없음
 ```
 
 macOS의 `"command"`는 절대 node 경로입니다. args는 이 클론을 가리킵니다. 오늘 성공은 여전히 AGENTS + `codemode --code`입니다.
+
+라이선스: MIT (LICENSE 참고).

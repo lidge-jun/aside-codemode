@@ -1,6 +1,6 @@
 {
   "name": "aside-codemode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI code mode for the Aside agent: one `codemode --code` guest with Aside-shaped file tools and rg-backed search",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\""
+    "test": "node scripts/run-tests.mjs"
   },
   "bin": {
     "codemode": "bin/codemode.mjs"
@@ -20,6 +20,7 @@
     "templates/",
     "codemode.config.example.json",
     "README.md",
-    "README.ko.md"
+    "README.ko.md",
+    "LICENSE"
   ]
 }

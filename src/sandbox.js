@@ -4,7 +4,7 @@ import { Worker, MessageChannel } from 'node:worker_threads';
 import { errorFields, fitEnvelope, requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
 
 const HOST_DRAIN_MS = 1000;
-const ROOTS = ['search', 'fs', 'actions', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
+const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
 
 function hostMethods(globals) {
   const methods = new Map();
@@ -107,7 +107,8 @@ export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResult
           const value = await fn(...msg.args);
           if (settled) return;
           // Array metadata is deliberately transferred, not lost to structuredClone.
-          const search = msg.name.startsWith('search.') && typeof value?.toJSON === 'function';
+          const search = typeof value?.toJSON === 'function'
+            && (msg.name.startsWith('search.') || msg.name === 'fs.grepFile');
           worker.postMessage({ type: 'reply', id: msg.id, value: search ? value.toJSON() : value, search });
         } catch (e) {
           if (!settled) worker.postMessage({ type: 'reply', id: msg.id, error: errorFields(e) });

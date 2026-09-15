@@ -71,12 +71,55 @@ test('no Linux install recipe', () => {
   }
 });
 
-test('AGENTS template keeps three placeholders and Windows Git Bash', () => {
+test('51x evidence names the companion bench and equality check', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'dev-folder-51x.md'), 'utf8');
+  assert.match(note, /eval\/bench-search\.mjs/);
+  assert.match(note, /equality/);
+});
+
+test('AGENTS template keeps its placeholders and Windows Git Bash', () => {
   const names = [...agents.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
-  assert.deepEqual([...new Set(names)].sort(), ['{{CLI}}', '{{CWD_HINT}}', '{{NODE}}']);
-  assert.match(agents, /Git Bash/);
-  assert.match(agents, /PowerShell/);
-  assert.match(agents, /no Linux install path/);
-  assert.match(agents, /Do not invoke `src\/cli\.js`/);
+  // {{HELPER}} joined the set when the loader line stopped being session-relative: the path
+  // differs per account root, so it has to be filled rather than written once.
+  assert.deepEqual([...new Set(names)].sort(), ['{{CLI}}', '{{CWD_HINT}}', '{{HELPER}}', '{{NODE}}']);
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /Git Bash/);
+  assert.match(flat, /PowerShell/);
+  assert.match(flat, /no Linux install path/);
+  assert.match(flat, /Do not invoke `src\/cli\.js`/);
+  assert.match(flat, /`rg`/);
   assert.equal(/[\uac00-\ud7a3]/.test(agents), false, 'template must stay English');
+});
+
+// wp9 moved the long form out of the account-wide block and into a skill. The block is read
+// on every turn and a skill is read when it is loaded, so the split has to be deliberate:
+// the block routes and forbids, the skill explains. These two cases keep it that way.
+test('the managed block stays short enough to be read every time', () => {
+  const lines = agents.trimEnd().split('\n').length;
+  assert.ok(lines <= 35, 'the AGENTS block is ' + lines + ' lines; it belongs in the skill');
+});
+
+test('what left the block landed in the skill, not on the floor', () => {
+  const skill = readFileSync(path.join(root, 'templates', 'skill', 'SKILL.md'), 'utf8');
+  const paths = readFileSync(path.join(root, 'templates', 'skill', 'references', 'execution-paths.md'), 'utf8');
+  const windows = readFileSync(path.join(root, 'templates', 'skill', 'references', 'windows-invocation.md'), 'utf8');
+
+  assert.match(skill, /browse\.attach/);
+  assert.match(skill, /contentVerified/);
+  assert.match(skill, /ENOACTIVE/);
+  assert.match(skill, /checkpoint/);
+
+  assert.match(paths, /--code-file/);
+  assert.match(paths, /noIgnore/);
+  assert.match(paths, /normalize\("NFC"\)/);
+  assert.match(paths, /fs\.list/);
+  assert.match(paths, /apply_patch/);
+
+  assert.match(windows, /Unexpected token/);
+  assert.match(windows, /ESOURCETOOLONG/);
+  assert.match(windows, /ENOACTIVE/);
+
+  for (const doc of [skill, paths, windows]) {
+    assert.equal(/[\uac00-\ud7a3]/.test(doc), false, 'installed docs stay English');
+  }
 });

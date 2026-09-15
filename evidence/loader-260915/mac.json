@@ -1,0 +1,14 @@
+{
+  "host": "gimbyeongjun-ui-MacBookPro-2.local",
+  "platform": "darwin",
+  "account": "0",
+  "accountRoot": "/Users/jun/.aside/u/0",
+  "loader": "const src = await fs.readFile(\"/Users/jun/.aside/u/0/codemode/cm.js\", 'utf8'); (0, eval)(src);",
+  "loaded": {
+    "version": "1.1.0",
+    "hasRun": "function"
+  },
+  "expected": "1.1.0",
+  "ok": true,
+  "error": null
+}

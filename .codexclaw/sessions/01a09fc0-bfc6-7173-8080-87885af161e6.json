@@ -1,0 +1,43 @@
+{
+  "phase": "P",
+  "sessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
+  "slug": "aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b",
+  "updatedAt": "2026-09-15T01:34:25.876Z",
+  "flags": {
+    "interview": false,
+    "auditPassed": false,
+    "checkPassed": false
+  },
+  "supersededBy": null,
+  "injectedTurns": [
+    "01a09fc0-c578-72a3-a3a8-e957487c8f5f",
+    "01a09fc5-c514-79b2-b743-08082a8980df",
+    "01a0a004-f551-7100-b271-3390cb4a61e4",
+    "01a0a042-9f4f-7543-820f-2a0841deb177",
+    "01a0a047-a0a1-7591-a043-87be39736887",
+    "01a0a04b-1504-7ff2-a27a-3758c07e5182",
+    "01a0a062-aa7c-70f2-bd01-df4da375c326",
+    "01a0a14b-7f7a-7653-bf88-853ea44526a3",
+    "01a0a232-078a-7b30-9253-f9febd199c09"
+  ],
+  "lastInjectedPhase": "P",
+  "orchestrationActive": true,
+  "interview": null,
+  "stopBlockPhase": null,
+  "stopBlockCount": 0,
+  "stopBlockWorkPhaseId": "wp7",
+  "stopMetricCursor": 0,
+  "stopBlockTotal": 3,
+  "loopArmSeen": false,
+  "idleEditNudges": 0,
+  "memoryWriteRequested": false,
+  "memoryWriteTurn": null,
+  "memoryWriteGrant": false,
+  "unverifiedSubagents": [],
+  "unverifiedCorrupt": false,
+  "phaseEntrySource": null,
+  "planUnit": null,
+  "planEpoch": null,
+  "checkEpoch": null,
+  "dcloseRecovery": null
+}

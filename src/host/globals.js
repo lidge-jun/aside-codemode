@@ -4,10 +4,13 @@ import { createSearch } from './search.js';
 import { createFs } from './fs.js';
 import { createApplyPatch } from './patch.js';
 import { createActions } from './actions.js';
+import { createBrowse } from './browse/browse.js';
+import { createReport, createApiNamespace } from './namespaces.js';
 
 export function createHostGlobals(config, assertInside, signal) {
   const rgRunner = createRgRunner(createRgResolver(config, process.env, { signal }), { excludeGlobs: config.excludeGlobs, signal });
   const hostFs = createFs({ assertInside, signal });
+  const browse = createBrowse({ config, signal, assertInside });
   return {
     search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
     fs: hostFs,
@@ -16,5 +19,9 @@ export function createHostGlobals(config, assertInside, signal) {
     edit_file: hostFs.edit_file,
     apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
     actions: createActions(),
+    browse,
+    report: createReport({ config, signal, assertInside }),
+    api: createApiNamespace(),
+    recipes: browse._recipes,
   };
 }

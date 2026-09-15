@@ -1,6 +1,6 @@
 # make aside 50x faster
 
-On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md).
+On a local development folder, a `find`+`grep` combo took **55s** and one `codemode --code` search took **1s** (~**51x**). Finding 50 files used to stack 50 `read_file` cards; the same job is one bash card. [Folder measurement](evidence/dev-folder-51x.md). A synthetic companion with exact argv, unrounded times, and match-set equality is in that note; it is not the 55s folder.
 
 Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
 
@@ -53,8 +53,40 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `apply_patch(text)` | Guest helper. Codex `*** Begin Patch` text → `write_file` / `edit_file`. Success `{}`. Not an AGENTS verb |
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
+| `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
+| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+
+**`ok` is not "I read the page".** `ok` means the run completed; `contentVerified` means the
+content actually rendered. Threads returned `ok: true` with the correct title while the body
+was 530KB of server bootstrap JSON and no posts. Pass `requireSelector` and/or
+`minTextChars` to get a real verdict, and `requireContent: true` to make a failed check fail
+the item. Without them `contentVerified` is `null` — nobody asked, so nothing is claimed.
+`scriptRatio` is reported but never decides the verdict: every bundled SPA ships large inline
+scripts, so judging on it would trade a false success for a false failure.
+| `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
+| `browse.readText(url)` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. Reports `source` and `fallbackReason` so you know which path answered |
+| `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |
+| `api.batch(requests)` | Parallel API-first lookups. `youtube` and `itunes` are public no-key endpoints; `play` and `slack` refuse with `ENOTSUP` and the reason, because neither has an honest public path |
+| `report.build({ items, outFile })` | Assembles a paged HTML report, prints it over an ephemeral loopback origin (`file://` is refused by Aside), and **verifies the real MediaBox**. `pdf({format:'A4'})` was measured to yield US Letter, so the size is proven rather than requested |
+| `browse.searchMany(queries, { engine })` | N queries in parallel, URL-deduped, date-filtered. `youtube` works; `google` is callable but answers with a bot challenge, so it returns `EBLOCKED` with the URL to open rather than an empty result set; `duckduckgo` is the no-key default and gets the same challenge detection |
+| `browse.downloadMedia(urls, { outDir })` | Original images by direct fetch. The **magic bytes gate the write**, so a block page claiming `image/png` is refused instead of landing on disk as a `.png` |
+| `browse.watch(urls)` | Per-URL text hash. An unchanged URL returns `changed:false` with no body; first sight is `first:true` so it is never mistaken for a change |
+| `recipes.list / describe / run` | Site recipes as **data** (`{ url, waitSelector, extract }`), executed with no model turn. A `.js` recipe is refused: host-loaded code would bypass the guest sandbox |
+| `browse.prefetch(urls)` | Best-effort cache warm-up. Failures are reported, never thrown — a warm-up that breaks the real run is worse than a cold cache |
+
+**Browsing is opt-in and honest about what Aside cannot do.** `page.route`, screenshot
+`maxWidth`, `pdf({format:'A4'})`, `file://` URLs and `networkidle` all throw `ENOTSUP` before
+anything spawns, because each was measured to be accepted and then silently ignored or
+downgraded — `format:'A4'` produces US Letter, and `maxWidth` returns the full-size image.
+The Aside CLI also exits `0` on failure, so success is the trailing `[ok | Nms]` marker plus
+inspection of the files a run claims to have written. A killed CLI leaks its tabs permanently
+and no later session can close them, so the script's own deadline always fires before the host
+deadline, and a host kill is reported as `partial: ['host-kill']` with the affected URLs rather
+than as a clean result. `codemode --doctor --browse` prints the whole matrix.
 
 **`.gitignore` is on by default** and can hide a whole project. A parent ignore once dropped 126 of 356 hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
+
+Inclusive `glob` values (for example `**/*.js`) are ripgrep `-g` / `--glob` globs. They can match some gitignored or hidden files even when `noIgnore` and `hidden` are false. That is ripgrep glob precedence, not a workspace escape, and it is **not** the same as `-uuu`: ignore rules still apply to paths the glob does not force in. Exclusive globs (`-g '!…'`) still hide paths. Set `noIgnore` / `hidden` explicitly when you want ignore-or-dotfile control without an inclusive glob.
 
 **`max` is a global row cap**, not ripgrep `--max-count` (per file). The reader probes one extra match to distinguish a complete result of exactly `max` rows from a truncated one, then stops.
 
@@ -81,13 +113,42 @@ Migration: callers parsing a directly returned search array must now read `resul
 
 `edit_file` and the overwrite helper coordinate cooperating processes on the canonical file path. The lock covers reading the original, validating replacements and committing the update. Separate processes editing different parts of the same file no longer silently overwrite each other's successful changes. This is not protection against an editor that ignores the lock or another hard-link alias. Locks are stored in `os.tmpdir()/codemode-locks`; cooperating processes must share that directory. Different `TMPDIR` settings are not coordinated.
 
-`apply_patch` supports Add and multi-hunk Update; Delete, Move and Environment remain unsupported. Add creates a newline-terminated text file. Successful application still returns `{}`. A later failure is a thrown error carrying `applied` and `failedFile`, also preserved by CLI error responses when they fit the output budget. Earlier files remain changed: this is **not a multi-file transaction**.
+`apply_patch` supports Add and multi-hunk Update; Delete, Move and Environment remain unsupported. Add creates a newline-terminated text file. Update hunks match whole lines (not mid-line substrings), delete lines without leaving a blank, and keep the file's original newline (LF or CRLF). Successful application still returns `{}`. A later failure is a thrown error carrying `applied` and `failedFile`, also preserved by CLI error responses when they fit the output budget. Earlier files remain changed: this is **not a multi-file transaction**.
 
 ## Dual path
 
 - Visible single-file cards in Aside: native `read_file` / `write_file` / `edit_file` (same schemas as the guest).
 - Search, multi-file read, summarize: one bash call to the CLI. That shows as a bash card.
 - Do not call `rg`, `find`, `grep`, or `Get-ChildItem -Recurse` directly.
+
+### Choosing a path
+
+Native is the default, and staying native is the right answer more often than not. Reach for a
+batch only when all three hold: the steps repeat, the items do not share state with each other,
+and you can say in one sentence what a finished item looks like. A first look at an unfamiliar
+page, a single click, a fresh visual judgement, or anything that needs an account or an
+approval stays native — batching those trades a correct answer for a faster wrong one.
+
+When the work does qualify, the cost of doing it by hand is real — but how much depends
+entirely on what there is to batch, and the four workloads measured here batch different
+things. Thirty alternating pairs each, cold and warm, on one machine, with no failed runs:
+
+| work | by hand | batched | what the saving is |
+|---|---|---|---|
+| one known click | 1249 ms | 1244 ms | nothing; it is a tie |
+| find something on a new page | 3257 ms, 3 calls | 1249 ms, 1 call | two fewer page loads |
+| read six independent pages | 8413 ms | 4429 ms | two tabs at once |
+| count matches in six files | 399 ms, 6 calls | 82 ms, 1 call | five fewer processes |
+
+Do not collapse those into one number. A single click gains nothing from batching, and the
+62% on the middle row is the price of opening two more `aside repl` sessions rather than a
+cleverer way to explore: recovering from a wrong selector costs 6 ms. Raw runs are in
+[eval/out](eval/out) rather than summarised out of reach.
+
+A batch result is not a boolean. `completed` means every requested item came back and no tab
+was left open; `partial`, `indeterminate` and `needs_input` are answers too, and each one has
+a different correct response. Rerunning an `indeterminate` side effect is how a second order
+gets placed.
 
 Agent recipe (absolute paths; replace with the values register printed):
 
@@ -196,3 +257,5 @@ Current Aside CLI exec does not spawn `mcp.servers`. Register may still merge th
 ```
 
 macOS: `"command"` is an absolute node path; args point at this clone. Success today is still AGENTS + `codemode --code`.
+
+License: MIT (see LICENSE).

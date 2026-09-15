@@ -24,6 +24,7 @@ import { mkdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { nfc } from '../unicode.js';
 
 const isWindows = process.platform === 'win32';
 
@@ -61,7 +62,13 @@ export class LockAbortError extends Error {
 // filesystem itself is case-insensitive. assertInside already realpath'd the
 // nearest existing ancestor, so this receives a canonical path.
 export function lockPathFor(target) {
-  const key = isWindows ? path.resolve(target).toLowerCase() : path.resolve(target);
+  const resolved = path.resolve(target);
+  // NFC the KEY, never the path we open. assertInside rejoins the tail of a
+  // not-yet-created file in whatever form the caller typed, so without this fold
+  // the two spellings of one new file hash to two different locks and both
+  // writers believe they hold it — the lost update this module exists to stop.
+  // Folding can only ever over-lock, which is the safe direction.
+  const key = nfc(isWindows ? resolved.toLowerCase() : resolved);
   const digest = createHash('sha256').update(key).digest('hex').slice(0, 40);
   return path.join(LOCK_DIR, `${digest}.lock`);
 }
@@ -93,10 +100,30 @@ function throwIfAborted(signal) {
 }
 
 /**
+ * Is this `open(lockPath, 'wx')` failure contention rather than a real fault?
+ *
+ * POSIX answers EEXIST when the lock file is already there. Windows does not:
+ * once a concurrent release calls `unlink`, the file enters a delete-pending
+ * state where it still exists but cannot be reopened, and the create fails with
+ * EPERM (sometimes EACCES) instead. Treating those as fatal turned an ordinary
+ * race between two writers into a thrown EPERM — observed on windows-latest as
+ * "same-process Promise.all of distinct replacements keeps every one" failing at
+ * Promise.all index 7 with
+ * `EPERM: operation not permitted, open '...codemode-locks/<hash>.lock'`.
+ *
+ * Scoped to win32 on purpose: on POSIX an EPERM/EACCES here is a genuine
+ * permission problem and must still fail fast instead of spinning until timeout.
+ */
+export function isContendedLockError(code, platform = process.platform) {
+  if (code === 'EEXIST') return true;
+  return platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
+}
+
+/**
  * Acquire the exclusive lock for `target`.
  * Resolves to a release function that is safe to call once, in a `finally`.
  */
-export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT_MS, signal } = {}) {
+export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT_MS, signal, openImpl = open } = {}) {
   throwIfAborted(signal);
   ensureLockDir();
   const lockPath = lockPathFor(target);
@@ -107,9 +134,9 @@ export async function acquireFileLock(target, { timeoutMs = DEFAULT_LOCK_TIMEOUT
   for (;;) {
     let handle;
     try {
-      handle = await open(lockPath, 'wx');
+      handle = await openImpl(lockPath, 'wx');
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!isContendedLockError(e.code)) throw e;
       const waited = Date.now() - startedAt;
       if (waited >= timeoutMs) {
         const holder = await readHolder(lockPath);

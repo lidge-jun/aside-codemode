@@ -1,11 +1,36 @@
 // Root allowlist enforcement (A-D2/A-D5). realpath first, then prefix check.
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
+import { normalizationVariants } from './unicode.js';
 
 const isWindows = process.platform === 'win32';
 
 function real(p) {
   return realpathSync.native ? realpathSync.native(p) : realpathSync(p);
+}
+
+// A name typed in the other Unicode normalization form is simply MISSING on a
+// byte-exact filesystem: measured on NTFS 2026-09-14, the NFC and NFD spellings
+// of one Korean name are two separate entries and realpath of the unused form
+// throws ENOENT. The caller then walked up to the parent, rejoined the name as an
+// unresolvable tail, and reported EROOT — "escapes configured roots" for a file
+// that was merely spelled the other way.
+//
+// So ask the OS about the other spelling, and adopt only what it actually
+// resolves. The result is a real path, so the containment test stays byte-exact.
+// Normalizing the comparison instead would have been a security regression: NFC
+// is not injective (U+212B and U+00C5 both compose to U+00C5), and on NTFS/ext4
+// two normalization forms are two different directories, so a folded comparison
+// can accept a sibling that was never configured as a root.
+function realVariant(p) {
+  for (const candidate of normalizationVariants(p)) {
+    try {
+      return real(candidate);
+    } catch {
+      // Not this spelling either; fall through to the caller's walk-up.
+    }
+  }
+  return null;
 }
 
 export class RootEscapeError extends Error {
@@ -84,6 +109,11 @@ export function makeRootGuard(roots, { cwd } = {}) {
         break;
       } catch (e) {
         if (e.code !== 'ENOENT') throw e;
+        const variant = realVariant(cur);
+        if (variant) {
+          realBase = variant;
+          break;
+        }
         tail.unshift(path.basename(cur));
         const parent = path.dirname(cur);
         if (parent === cur) throw e;

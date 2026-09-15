@@ -1,0 +1,38 @@
+{
+  "id": "independent-reads",
+  "note": "Six independent pages, read and closed. Both paths assert the full marker list, not just a count: a run that returned six nulls used to pass because the length was still six. The batch additionally asserts that it completed and leaked no tab. Pages are data: urls because the Aside browser cannot reach this machine's loopback and the daemon refuses file://. The programs load the helper with the session-relative path, which resolves only under aside repl - the surface this campaign runs on. Installed documents use the account-absolute path instead; these workloads keep the old form so the recorded runs stay comparable.",
+  "pairs": 30,
+  "expect": {
+    "count": 6,
+    "markers": [
+      "page-0-body",
+      "page-1-body",
+      "page-2-body",
+      "page-3-body",
+      "page-4-body",
+      "page-5-body"
+    ]
+  },
+  "paths": [
+    {
+      "id": "native-sequential",
+      "program": "const page = (i) => 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>batch page ' + i + '</title><main id=\"content\" data-page=\"' + i + '\"><h1>batch page ' + i + '</h1><p id=\"marker\">page-' + i + '-body</p></main>');\nconst must = (cond, why) => { if (!cond) throw new Error('check failed: ' + why); };\nconst WANT = [0,1,2,3,4,5].map((i) => 'page-' + i + '-body');\nconst markers = [];\nfor (let i = 0; i < 6; i++) {\n  const tab = await openTab(page(i));\n  markers.push(String(await tab.evaluate(() => document.querySelector('#marker').textContent)).trim());\n  await tab.close();\n}\nmust(JSON.stringify(markers) === JSON.stringify(WANT), 'every page has to return its own body: ' + JSON.stringify(markers));\nconsole.log('EVAL_JSON ' + JSON.stringify({ count: markers.length, markers: markers }));"
+    },
+    {
+      "id": "cm-batch-limit2",
+      "program": "const src = await fs.readFile('../../codemode/cm.js', 'utf8');\n(0, eval)(src);\nconst page = (i) => 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>batch page ' + i + '</title><main id=\"content\" data-page=\"' + i + '\"><h1>batch page ' + i + '</h1><p id=\"marker\">page-' + i + '-body</p></main>');\nconst must = (cond, why) => { if (!cond) throw new Error('check failed: ' + why); };\nconst WANT = [0,1,2,3,4,5].map((i) => 'page-' + i + '-body');\nconst out = await cm.run({\n  items: [0,1,2,3,4,5].map((i) => ({ url: page(i) })),\n  limit: 2, maxTabs: 2, deadlineMs: 60000,\n  onItem: async (tab) => String(await tab.evaluate(() => document.querySelector('#marker').textContent)).trim(),\n});\nmust(out.status === 'completed', 'a batch that did not complete is not an answer: ' + out.status);\nmust(out.tabs.leaked === 0, 'a leaked tab is not a clean run');\nconst markers = out.items.map((i) => i.value);\nmust(JSON.stringify(markers) === JSON.stringify(WANT), 'every item has to carry its own page body: ' + JSON.stringify(markers));\nconsole.log('EVAL_JSON ' + JSON.stringify({ count: markers.length, markers: markers, status: out.status }));",
+      "expect": {
+        "count": 6,
+        "markers": [
+          "page-0-body",
+          "page-1-body",
+          "page-2-body",
+          "page-3-body",
+          "page-4-body",
+          "page-5-body"
+        ],
+        "status": "completed"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "single-click",
+  "note": "One button whose location is already known. Batching should not help here and may cost: the helper has to be read from disk and evaluated before the first tab opens. Reported as measured either way. The programs load the helper with the session-relative path, which resolves only under aside repl - the surface this campaign runs on. Installed documents use the account-absolute path instead; these workloads keep the old form so the recorded runs stay comparable.",
+  "pairs": 30,
+  "expect": {
+    "clicked": true
+  },
+  "paths": [
+    {
+      "id": "native-click",
+      "program": "const PAGE = '<!doctype html><title>t</title><main><button id=\"go\">reveal the number</button><p id=\"out\">not clicked</p><div id=\"hidden\" style=\"display:none\">42</div>' + '<scr'+'ipt>document.getElementById(\"go\").addEventListener(\"click\",function(){document.getElementById(\"out\").textContent=\"clicked\";document.getElementById(\"hidden\").style.display=\"block\";});</scr'+'ipt></main>';\nconst URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(PAGE);\nconst tab = await openTab(URL);\nawait sleep(250);\nawait tab.locator('#go').click();\nconst out = await tab.evaluate(() => document.querySelector('#out').textContent);\nawait tab.close();\nconsole.log('EVAL_JSON ' + JSON.stringify({ clicked: out === 'clicked' }));"
+    },
+    {
+      "id": "cm-single-item",
+      "program": "const src = await fs.readFile('../../codemode/cm.js', 'utf8');\n(0, eval)(src);\nconst PAGE = '<!doctype html><title>t</title><main><button id=\"go\">reveal the number</button><p id=\"out\">not clicked</p><div id=\"hidden\" style=\"display:none\">42</div>' + '<scr'+'ipt>document.getElementById(\"go\").addEventListener(\"click\",function(){document.getElementById(\"out\").textContent=\"clicked\";document.getElementById(\"hidden\").style.display=\"block\";});</scr'+'ipt></main>';\nconst URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(PAGE);\nconst res = await cm.run({\n  items: [{ url: URL }], limit: 1, maxTabs: 2, deadlineMs: 30000,\n  onItem: async (tab) => {\n    await sleep(250);\n    await tab.locator('#go').click();\n    return tab.evaluate(() => document.querySelector('#out').textContent);\n  },\n});\nconsole.log('EVAL_JSON ' + JSON.stringify({ clicked: res.items[0].value === 'clicked', status: res.status }));"
+    }
+  ]
+}

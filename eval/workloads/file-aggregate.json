@@ -1,0 +1,53 @@
+{
+  "id": "file-aggregate",
+  "note": "Six files counted the same way, through the same CLI. The only difference is how many processes it takes: one invocation per file against one invocation for all six. Each call asserts its own count against a value pinned here, and the batched call additionally asserts the total 47, so the two paths are proven to compute the same thing rather than merely returning a well-shaped object. Those constants are tied to the six files as they stand at dev head 5af5127; editing them means re-pinning the workload, which is the point. Both paths answer with the codemode envelope, because a structured result is what that tool returns and asking it to print a marker line instead would measure the workaround.",
+  "pairs": 30,
+  "paths": [
+    {
+      "id": "cli-per-file",
+      "programs": [
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/cache.js\" });\nif (r.matches !== 6) throw new Error('count for src/host/browse/cache.js was ' + r.matches + ', expected 6');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 0, count: r.matches };",
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/media.js\" });\nif (r.matches !== 6) throw new Error('count for src/host/browse/media.js was ' + r.matches + ', expected 6');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 1, count: r.matches };",
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/read-text.js\" });\nif (r.matches !== 9) throw new Error('count for src/host/browse/read-text.js was ' + r.matches + ', expected 9');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 2, count: r.matches };",
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/search.js\" });\nif (r.matches !== 10) throw new Error('count for src/host/browse/search.js was ' + r.matches + ', expected 10');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 3, count: r.matches };",
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/watch.js\" });\nif (r.matches !== 8) throw new Error('count for src/host/browse/watch.js was ' + r.matches + ', expected 8');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 4, count: r.matches };",
+        "const r = await search.count({ query: 'function', path: \"src/host/browse/snapshot-cache.js\" });\nif (r.matches !== 8) throw new Error('count for src/host/browse/snapshot-cache.js was ' + r.matches + ', expected 8');\nif (r.complete !== true) throw new Error('an incomplete search is not an answer');\nreturn { file: 5, count: r.matches };"
+      ],
+      "bin": "node",
+      "args": [
+        "bin/codemode.mjs",
+        "--code"
+      ],
+      "answerFrom": "last-json-result",
+      "requireKeys": [
+        "count"
+      ],
+      "expect": {
+        "file": 5,
+        "count": 8
+      }
+    },
+    {
+      "id": "cli-one-call",
+      "program": "const files = [\"src/host/browse/cache.js\",\"src/host/browse/media.js\",\"src/host/browse/read-text.js\",\"src/host/browse/search.js\",\"src/host/browse/watch.js\",\"src/host/browse/snapshot-cache.js\"];\nconst want = [6,6,9,10,8,8];\nconst counts = [];\nfor (let i = 0; i < files.length; i++) {\n  const r = await search.count({ query: 'function', path: files[i] });\n  if (r.complete !== true) throw new Error('an incomplete search is not an answer');\n  if (r.matches !== want[i]) throw new Error('count for ' + files[i] + ' was ' + r.matches + ', expected ' + want[i]);\n  counts.push(r.matches);\n}\nconst total = counts.reduce((a, b) => a + b, 0);\nif (total !== 47) throw new Error('total was ' + total);\nreturn { files: files.length, counts: counts, total: total };",
+      "bin": "node",
+      "args": [
+        "bin/codemode.mjs",
+        "--code"
+      ],
+      "answerFrom": "last-json-result",
+      "expect": {
+        "files": 6,
+        "counts": [
+          6,
+          6,
+          9,
+          10,
+          8,
+          8
+        ],
+        "total": 47
+      }
+    }
+  ]
+}

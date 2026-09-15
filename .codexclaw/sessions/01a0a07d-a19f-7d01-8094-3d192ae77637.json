@@ -1,0 +1,33 @@
+{
+  "phase": "IDLE",
+  "sessionId": "01a0a07d-a19f-7d01-8094-3d192ae77637",
+  "slug": "",
+  "updatedAt": "2026-09-14T15:16:29.909Z",
+  "flags": {
+    "interview": false,
+    "auditPassed": false,
+    "checkPassed": false
+  },
+  "supersededBy": null,
+  "injectedTurns": [],
+  "lastInjectedPhase": null,
+  "orchestrationActive": false,
+  "interview": null,
+  "stopBlockPhase": null,
+  "stopBlockCount": 0,
+  "stopBlockWorkPhaseId": null,
+  "stopMetricCursor": 0,
+  "stopBlockTotal": 0,
+  "loopArmSeen": false,
+  "idleEditNudges": 0,
+  "memoryWriteRequested": false,
+  "memoryWriteTurn": null,
+  "memoryWriteGrant": false,
+  "unverifiedSubagents": [],
+  "unverifiedCorrupt": false,
+  "phaseEntrySource": null,
+  "planUnit": null,
+  "planEpoch": null,
+  "checkEpoch": null,
+  "dcloseRecovery": null
+}

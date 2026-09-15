@@ -1,35 +1,32 @@
-# aside-codemode (CLI)
+# code mode
 
-For local search and multi-file reads, do not call `rg`, `find`, `grep`, or
-`Get-ChildItem -Recurse` directly. Batch the work into one call:
-`{{NODE}} {{CLI}} --code '...'`
-Use this absolute node/CLI pair. Do not look up `node` or `codemode` on PATH.
-Do not invoke `src/cli.js`. The CLI path above is `bin/codemode.mjs`.
+Native is the default. A page you have not seen, a single click, a fresh visual
+judgement, anything needing an account or an approval: work the way you normally do
+and ignore this block.
 
-Code is an async function body. Use `await` for tool operations and `return` for
-the answer. Available tools: `search.files|content|count`,
-`read_file({path, offset?, limit?})` (1-indexed lines),
-`write_file({file_path, content})` (create-only),
-`edit_file({path, edits, appendText?})`, and compound `fs.*` helpers.
-`apply_patch(text)` is a guest helper, not a separate AGENTS command.
+Switch to a batch only when the structure repeats and the items do not share state
+with each other. How to run one, and what to do when part of it fails, is in the
+skill: `skills/user/aside-codemode/SKILL.md`
 
-Search arrays support iteration in guest code. Return the search result directly
-or preserve its `complete`, `truncated`, `partial`, and `scope` metadata when
-projecting it. A partial or truncated search is not proof that a file is absent.
-`noIgnore`, `hidden`, and `includeExcluded` select different scope controls.
-`followSymlinks: true` is unsupported and rejected.
-Search honors `.gitignore` unless `noIgnore: true`. A parent ignore can hide a
-whole project directory. If a file should exist, compare `search.count` with and
-without `noIgnore` (use `hidden: true` for dotfiles) before concluding it is absent.
-Default home-wide roots prune `Library`, `node_modules`, and caches. Use
-`includeExcluded: true` only when you need those paths. If resolution looks wrong,
-run `{{NODE}} {{CLI}} --doctor`.
+Batch helper, inside a REPL session:
 
-For visible single-file cards use Aside's native `read_file`, `write_file`, or
-`edit_file`. CLI calls render as bash cards. Do not claim a guest write made a
-native file card. File locks coordinate codemode writers, not arbitrary editors.
-A failed patch may have applied earlier files; inspect `applied` and `failedFile`.
+    const src = await fs.readFile({{HELPER}}, 'utf8'); (0, eval)(src);
 
-Resolve project-relative paths with `{{CWD_HINT}}` or run in that directory.
+Host file tree, structured results, or many files at once, from a shell. Do not call
+`rg`, `find`, `grep` or `Get-ChildItem -Recurse` yourself; batch the work into one call:
 
-On Windows, Aside's default shell is Git Bash. PowerShell is allowed for the same absolute `{{NODE}} {{CLI}} --code` call. Do not recurse with `Get-ChildItem`. On macOS, use the default bash/zsh card the same way. Aside has no Linux install path.
+    {{NODE}} {{CLI}} --code-file /abs/script.js      # quoting-proof; prefer this
+    {{NODE}} {{CLI}} --code "return actions.describe('browse.exec')"
+
+Use that absolute node/CLI pair; do not look up `node` or `codemode` on PATH. Do not
+invoke `src/cli.js`; the entry point is `bin/codemode.mjs`. Ask `actions.find`,
+`actions.describe` and `actions.check` for a call shape instead of guessing it or
+grepping for it. Resolve project-relative paths with `{{CWD_HINT}}`. If resolution looks
+wrong, run `{{NODE}} {{CLI}} --doctor`.
+
+Aside's default shell on Windows is Git Bash; PowerShell is fine for the same absolute
+call. macOS uses the default bash/zsh card. There is no Linux install path.
+
+Do not: drive one tab from two places at once, reuse a ref from an older observation,
+or retry a side effect whose outcome you do not know. A result that says `partial`,
+`indeterminate` or `needs_input` is an answer; report it rather than rerunning it.

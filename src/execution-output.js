@@ -56,6 +56,50 @@ export function fitString(text, jsonBytes) {
   return best;
 }
 
+// Fields that survive any budget. Without status and the counts a caller cannot tell a
+// completed run from a partial one, which is the whole point of the envelope.
+const KEEP_KEYS = Object.freeze([
+  'schema', 'status', 'runId', 'requested', 'completed', 'unreturned',
+  'complete', 'truncated', 'ok', 'reconciledBy',
+]);
+
+// Shrink an object without changing what it is. Arrays lose entries from the end and say
+// how many; long strings are cut but keep their key; anything that still does not fit is
+// named in omittedKeys rather than silently dropped.
+export function shrinkStructured(value, budget) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const out = {};
+  for (const k of KEEP_KEYS) if (k in value) out[k] = value[k];
+  const cost = (v) => Buffer.byteLength(JSON.stringify(v) ?? '');
+  let room = budget - cost(out);
+  for (const [k, v] of Object.entries(value)) {
+    if (k in out) continue;
+    if (Array.isArray(v)) {
+      const kept = [];
+      for (const el of v) {
+        const c = cost(el) + 1;
+        if (c > room) break;
+        room -= c;
+        kept.push(el);
+      }
+      out[k] = kept;
+      if (kept.length < v.length) out.omittedItems = (out.omittedItems || 0) + (v.length - kept.length);
+      continue;
+    }
+    const c = cost(v);
+    if (c <= room) { out[k] = v; room -= c; continue; }
+    if (typeof v === 'string' && room > 16) {
+      out[k] = v.slice(0, room - 16) + '…';
+      // A cut string keeps its key, so the loss has to be named somewhere else.
+      out.truncatedKeys = (out.truncatedKeys || []).concat(k);
+      room = 0;
+      continue;
+    }
+    out.omittedKeys = (out.omittedKeys || []).concat(k);
+  }
+  return out;
+}
+
 export function fitEnvelope(input, limit) {
   // Call with plain data. Guest serialization runs in the supervised worker.
   const out = { ...input, logs: [...(input.logs ?? [])] };
@@ -68,6 +112,15 @@ export function fitEnvelope(input, limit) {
   }
   if (size() <= limit) return out;
   const field = out.ok ? 'result' : 'error';
+  // A structured result keeps its shape. Turning it into a truncated JSON string took the
+  // caller's answer away: status, counts and the per-item ids all vanished into text that
+  // could no longer be parsed.
+  if (field === 'result' && out.result && typeof out.result === 'object') {
+    const room = limit - size() + Buffer.byteLength(JSON.stringify(out.result));
+    out.result = shrinkStructured(out.result, Math.max(0, room));
+    out.truncated = true;
+    if (size() <= limit) return out;
+  }
   const raw = field === 'error' ? String(out.error) : JSON.stringify(out.result) ?? '';
   out[field] = '';
   out.truncated = true;

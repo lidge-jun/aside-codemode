@@ -33,7 +33,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(here, '..', 'src');
 
 function host(opts = {}) {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'codemode-write-')));
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'codemode-write-')));
   const fs = createFs({ assertInside: makeRootGuard([root], { cwd: root }), ...opts });
   const apply_patch = createApplyPatch({ write_file: fs.write_file, edit_file: fs.edit_file });
   return { root, fs, apply_patch };

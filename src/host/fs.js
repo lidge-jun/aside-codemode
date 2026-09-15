@@ -14,6 +14,9 @@ import path from 'node:path';
 import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
+import { applyLineEdits } from './line-edit.js';
+import { decorateSearchResult } from '../search-result.js';
+import { hasNonAscii, nfc } from '../unicode.js';
 
 // A single returned line is bounded so one pathological minified file cannot
 // blow the result budget. The bound is the same 256 KB read cap rather than a
@@ -97,12 +100,35 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
     // Pull only matching lines out of one big file, with context. Avoids
     // spending the whole result budget on a file to find three lines. Streams,
     // so a 2 GB log does not become a 2 GB allocation, and stops at `max`.
-    async grepFile(p, pattern, { context = 0, max = 100, ignoreCase = false, maxLineBytes = MAX_LINE_BYTES } = {}) {
+    async grepFile(p, pattern, { context = 0, max = 100, ignoreCase = false, normalize = true, maxLineBytes = MAX_LINE_BYTES } = {}) {
+      if (!Number.isSafeInteger(max) || max <= 0) {
+        throw new Error(`fs.grepFile: max must be a positive integer (got ${JSON.stringify(max)})`);
+      }
+      if (!Number.isSafeInteger(context) || context < 0) {
+        throw new Error(`fs.grepFile: context must be a non-negative integer (got ${JSON.stringify(context)})`);
+      }
       const target = assertInside(p);
       const re = toMatcher(pattern, ignoreCase);
+      // A regex typed in one normalization form never matches a line stored in
+      // the other, even though both render identically. Fold BOTH sides into a
+      // second matcher and consult it only after the raw one misses, gated on a
+      // non-ASCII matcher so an ASCII grep over a 2 GB log pays nothing.
+      // toMatcher already stripped g/y, so neither regex carries lastIndex
+      // between lines. The hit text below is always the RAW line: boundLine's
+      // byte accounting has to describe what is actually on disk.
+      //
+      // FILE CONTENT is a different contract from a filename, so this is
+      // disclosed and reversible rather than silently global: folding can only
+      // ADD a match, never move a line number or change a returned byte, the
+      // effective policy is reported on .scope, and normalize:false restores
+      // byte-exact matching for a caller who is deliberately searching for one
+      // normalization form.
+      const folded = normalize && hasNonAscii(re.source) ? new RegExp(nfc(re.source), re.flags) : null;
+      const matches = (line) => re.test(line) || (folded !== null && folded.test(nfc(line)));
       const hits = [];
       const before = [];
       let pendingAfter = [];
+      let extraMatch = false;
 
       await eachLine(target, (line, lineNo) => {
         // Finish the trailing context of the previous hit first.
@@ -114,7 +140,7 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
         }
         pendingAfter = pendingAfter.filter((o) => o.remaining > 0);
 
-        if (hits.length < max && re.test(line)) {
+        if (hits.length < max && matches(line)) {
           const hit = { line: lineNo, text: boundLine(line, maxLineBytes) };
           if (context > 0) {
             const open = {
@@ -126,13 +152,16 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
             hit._open = open;
           }
           hits.push(hit);
+        } else if (hits.length >= max && !extraMatch && matches(line)) {
+          extraMatch = true;
+          return pendingAfter.length > 0;
         }
 
         if (context > 0) {
           before.push(line);
           if (before.length > context) before.shift();
         }
-        return hits.length < max || pendingAfter.length > 0;
+        return !extraMatch || pendingAfter.length > 0;
       }, { signal, maxLineBytes: MAX_GREP_LINE_BYTES });
 
       for (const hit of hits) {
@@ -141,7 +170,11 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
           delete hit._open;
         }
       }
-      return hits.slice(0, max);
+      return decorateSearchResult(hits.slice(0, max), {
+        truncated: extraMatch,
+        complete: !extraMatch,
+        scope: { kind: 'grepFile', max, context, ignoreCase, normalize: folded !== null },
+      });
     },
 
     async write(p, content) {
@@ -264,11 +297,11 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       });
     },
 
-    // `eof` is an INTERNAL opt-in used only by apply_patch's *** End of File
-    // marker. The public plain schema ({ path, edits, appendText }) is
-    // unchanged: without an explicit eof:true every edit keeps the strict
-    // unique-match contract.
-    async edit_file({ path: p, appendText, edits = [], eof = false } = {}) {
+    // `eof` and `lineMatch` are INTERNAL opt-ins used only by apply_patch.
+    // The public plain schema ({ path, edits, appendText }) is unchanged:
+    // without eof:true every substring edit stays unique-match; without
+    // lineMatch:true mid-line oldText still matches.
+    async edit_file({ path: p, appendText, edits = [], eof = false, lineMatch = false } = {}) {
       if (typeof p !== 'string' || !p) throw new Error('edit_file: path (non-empty string) is required');
       if (!Array.isArray(edits)) throw new Error('edit_file: edits must be an array');
       if (edits.length === 0 && (typeof appendText !== 'string' || appendText.length === 0)) {
@@ -282,6 +315,19 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       // replaced by the time we write.
       return withFileLock(target, lockOpts, async () => {
         const original = (await readBounded(target, { maxBytes: Infinity, signal })).text;
+        if (lineMatch === true) {
+          if (typeof appendText === 'string' && appendText.length) {
+            throw new Error('edit_file: appendText is not supported with lineMatch');
+          }
+          const next = applyLineEdits(original, edits, { eof });
+          await replaceAtomically(target, next, { signal });
+          return {
+            path: target,
+            replacements: edits.length,
+            appended: false,
+            diff: `--- a/${p}\n+++ b/${p}\n@@\n${original}\n→\n${next}`,
+          };
+        }
         const ranges = [];
         for (const ed of edits) {
           if (!ed || typeof ed.oldText !== 'string' || typeof ed.newText !== 'string') {

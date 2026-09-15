@@ -1,7 +1,17 @@
 // One-shot CLI: same execute_code semantics as the MCP tool, for hosts whose
 // agent can only run shell commands (aside exec's bash tool).
 // usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N]
+//        node src/cli.js --code-file <path> [--config <file>] [--timeout-ms N]
+//        node src/cli.js --code - < script.js
 //        node src/cli.js --doctor [--config <file>]
+//
+// --code-file and stdin exist because `--code '<js>'` is a quoting trap. Guest code almost
+// always contains quotes of its own, and a url like 'https://x' closes the agent's outer
+// single quote early: bash then waits forever for the quote that never arrives and the tool
+// call HANGS. (PowerShell does not hang; it mangles the argument into a parse error
+// instead.) Both were observed from a real Aside agent on 2026-09-14. Anything with a quote
+// in it should go through --code-file or stdin.
+import { readFileSync } from 'node:fs';
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
@@ -17,6 +27,10 @@ function flag(name) {
 }
 function has(name) {
   return argv.includes(name);
+}
+
+function readStdin() {
+  try { return readFileSync(0, 'utf8'); } catch (_) { return ''; }
 }
 
 // Startup failures used to escape as raw node stack traces (a Windows root in
@@ -74,14 +88,74 @@ if (has('--doctor')) {
     report.rgError = e.message;
     if (e.candidates) report.rgCandidates = e.candidates;
   }
+  // `--doctor --browse` answers "what will Aside actually do" from measurements rather
+  // than from its documentation, so a refused option is explainable before it is debugged.
+  if (has('--browse')) {
+    const { doctorPayload } = await import('./host/browse/probe.js');
+    const { createAsideResolver, verifyAside } = await import('./host/browse/resolve.js');
+    const resolveAside = createAsideResolver(config, process.env, { verify: (bin) => verifyAside(bin) });
+    let resolved = null;
+    let asideError = null;
+    try {
+      resolved = await resolveAside();
+    } catch (e) {
+      // Not fatal: the matrix is still worth printing, and the candidate list is the
+      // actionable part for someone whose install put the CLI somewhere else.
+      asideError = { code: e.code, message: e.message, candidates: e.candidates || [] };
+    }
+    report.browse = doctorPayload(config, resolved, asideError);
+    // Issue #20 asks for a navigate/snapshot/screenshot bottleneck report. A static matrix
+    // is not that, and printing zeros would read as a fast page — so the measurement is
+    // real or it is explicitly absent. Gated because CI must never launch a browser.
+    if (process.env.CODEMODE_ASIDE_LIVE === '1' && resolved) {
+      const probeUrl = process.env.CODEMODE_ASIDE_LIVE_URL || 'https://example.com';
+      try {
+        const { createBrowse } = await import('./host/browse/browse.js');
+        const live = createBrowse({
+          config: { ...config, browseCaps: { ...config.browseCaps, enabled: true } },
+        });
+        const res = await live.exec({ urls: [probeUrl], snapshot: true, screenshot: {}, timeoutMs: 20000 });
+        report.browse.liveProbe = {
+          url: probeUrl,
+          ok: res.ok,
+          byStep: res.timings.byStep,
+          slowest: res.timings.slowest,
+          totalMs: res.timings.totalMs,
+          replMs: res.timings.replMs,
+          partial: res.partial,
+          leakedUrls: res.leakedUrls,
+        };
+      } catch (e) {
+        report.browse.liveProbe = { url: probeUrl, error: e.message, code: e.code };
+      }
+    } else {
+      report.browse.liveProbe = 'skipped (set CODEMODE_ASIDE_LIVE=1)';
+    }
+  }
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
   process.exit(report.ok ? 0 : 1);
 }
 
-const code = flag('--code');
-if (!code) {
+// Three ways in, on purpose. --code is convenient for a one-liner; --code-file and stdin
+// are the ones that survive a shell, because guest code carries its own quotes.
+let code = null;
+const codeFile = flag('--code-file');
+if (codeFile) {
+  try {
+    code = readFileSync(codeFile, 'utf8');
+  } catch (e) {
+    fail(`--code-file could not be read: ${e.message}`);
+  }
+} else {
+  const inline = flag('--code');
+  // `--code -` reads the script from stdin, so nothing has to survive quoting at all.
+  code = inline === '-' ? readStdin() : inline;
+}
+if (!code || !code.trim()) {
   console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
-  console.error('       node src/cli.js --doctor [--config <file>] [--cwd <dir>]');
+  console.error('       node src/cli.js --code-file <path>   # safest: no shell quoting');
+  console.error('       node src/cli.js --code - < script.js  # same, via stdin');
+  console.error('       node src/cli.js --doctor [--browse] [--config <file>] [--cwd <dir>]');
   process.exit(2);
 }
 

@@ -65,6 +65,10 @@ test('the guest sandbox is described before it refuses, in both the block and th
     assert.match(flat, /EGUESTIMPORT/);
     assert.match(flat, /read_file/);
     assert.match(flat, /apply_patch/);
+    // Measured against the worker, not guessed: console is injected, so a list that omits
+    // it sends an agent looking for a print that is already there.
+    assert.match(flat, /console/);
+    assert.match(flat, /setTimeout/);
   }
   assert.match(agents, /--enable-browse/);
 });

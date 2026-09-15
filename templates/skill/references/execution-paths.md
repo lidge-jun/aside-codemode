@@ -46,18 +46,23 @@ Use the absolute node/CLI pair the AGENTS block gives you. Do not resolve `node`
 
 ## What the guest is allowed to reach
 
-`--code` evaluates inside a vm context, not inside Node. There is no module loader, so
-`await import('node:fs')` and `require('fs')` do not resolve; neither does `process`,
-`fetch`, or building code from a string. A dynamic import is refused with
-`EGUESTIMPORT` and the list of names you actually have. Those names are injected before
-your code runs:
+`--code` evaluates inside a vm context, not inside Node. There is no module loader, and the
+two ways of asking for one fail differently: `await import('node:fs')` is translated to
+`EGUESTIMPORT` and answered with the list of names you actually have, while `require` was
+never defined and throws a plain `require is not defined`. The translation happens at the
+edge, so a guest that catches its own rejection sees Node's words instead.
+
+Also absent, and worth knowing before the first call: `process`, `fetch`, `setTimeout`,
+`URL`, `Buffer`, and building code from a string. These are injected before your code runs:
 
     search  fs  actions  browse  report  api  recipes
     read_file  write_file  edit_file  apply_patch  console
 
 Read a file with `read_file`, not with a module. Reach the network through `browse`,
-not through `fetch`. The sandbox is a shape, not a security boundary: it exists so a
-batch cannot quietly depend on something the host never promised.
+not through `fetch` - and note that `browse` is injected whether or not it is allowed to run:
+until `--enable-browse` has been run once, every call on it refuses with `EDISABLED`.
+The sandbox is a shape, not a security boundary: it exists so a batch cannot quietly
+depend on something the host never promised.
 
 ## Discovering a call shape
 

@@ -14,7 +14,7 @@
 // user, and it is kept and named rather than overwritten.
 import { createHash } from 'node:crypto';
 import {
-  existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, unlinkSync,
+  existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, writeFileSync, unlinkSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -203,7 +203,10 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     // Only directories we created, and only when they are empty. A skills directory holding
     // something else is not ours to delete.
     for (const dir of [path.join(accountRoot, SKILL_DIR, 'references'), path.join(accountRoot, SKILL_DIR), path.join(accountRoot, 'codemode')]) {
-      try { if (!dryRun && existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: false }); } catch { /* leave it */ }
+      // rmSync without recursive throws EISDIR on a directory and the catch used to swallow
+      // it, so an uninstall left the empty references/ behind on every account. rmdirSync is
+      // the call that removes a directory, and it still refuses a non-empty one.
+      try { if (!dryRun && existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir); } catch { /* leave it */ }
     }
     return { ...base, removed, preserved, agentsBlock };
   }
@@ -219,6 +222,19 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       writeFile(path.join(accountRoot, file.path), file.content, dryRun);
       restored.push(file.path);
     }
+    // A generation that added a file has to lose it again. Restoring only what the snapshot
+    // holds leaves the newer file on disk under an older manifest that does not know it,
+    // and doctor then calls a file we wrote 'new'. Only untouched ones go: a file whose
+    // bytes no longer match the manifest was edited by the user and is theirs to keep.
+    const keep = new Set((previous.files || []).map((f) => f.path));
+    const dropped = [];
+    for (const known of manifest.files || []) {
+      if (keep.has(known.path)) continue;
+      const seen = inspectFile(accountRoot, known.path, manifest);
+      if (seen.state !== 'same') continue;
+      if (!dryRun) unlinkSync(seen.abs);
+      dropped.push(known.path);
+    }
     if (typeof previous.agentsBody === 'string') {
       const agentsPath = path.join(accountRoot, 'AGENTS.md');
       const prev = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
@@ -233,7 +249,7 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       files: previous.files.map(({ path: p, content }) => ({ path: p, sha256: sha256(content) })),
     };
     if (!dryRun) writeFile(manifestPath, JSON.stringify(rolled, null, 2) + '\n', dryRun);
-    return { ...base, ok: true, restored, version: previous.version };
+    return { ...base, ok: true, restored, dropped, version: previous.version };
   }
 
   // install | upgrade | repair

@@ -24,13 +24,14 @@ yourself you will see Node's own words instead, because the translation happens 
 
 `path` is required by all three: a directory or file inside a configured root. A relative
 path resolves against `--cwd`. Passing `pattern` to `search.content` is refused with the
-correct name, and a glob-shaped value is pointed at `glob` rather than at `query`.
+correct name, and when the value itself looks like a glob the refusal offers both, because
+either could be what you meant: `glob` to match the path, `query` to match the contents.
 
 ## Symlinks are stepped over, and said so
 
 Links are never followed. What was skipped comes back on the result:
 
-    scope.skippedSymlinks  { dirs, files, examples, capped }
+    scope.skippedSymlinks  { dirs, files, examples, capped, scanned }
 
 A skipped **directory** also sets `complete: false` — a subtree can hide behind it, and
 `noIgnore`/`hidden` will not bring it back. Point `path` at the link target instead. A skipped
@@ -43,7 +44,9 @@ file link is counted without lowering completeness. The count does not read `.gi
 
 The body comes back as `text`. `format` says what it is: `markdown` when the fetch path
 converted the html, `text` when the browser returned its rendered body. There is no
-`markdown` field any more — one field, so the byte budget never drops the copy you read.
+`markdown` field any more: one body, so the budget is not spent twice and the shrinker
+cannot drop one copy while you are reading the other. A body too large for the envelope is
+still cut - check `chars` against what you got before treating it as the whole page.
 
 ## browse.exec / browse.attach: asking for structure
 

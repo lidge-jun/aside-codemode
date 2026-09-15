@@ -66,6 +66,7 @@ scripts, so judging on it would trade a false success for a false failure.
 | `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
 | `browse.readText(url)` or `browse.readText({ url })` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. The body comes back as `text`, with `format` saying what it is (`markdown` from the fetch path, `text` from the browser's rendered body). Reports `source` and `fallbackReason` so you know which path answered |
 | `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |
+| `browse.exec({ treeNodes })` / `browse.attach({ treeNodes })` | Off by default. With `treeNodes: true` the accessibility tree also arrives parsed as `snapshot.nodes`, one `{ depth, role, name, ref, attrs, line }` row per node, so hierarchical data is grouped by depth rather than by a regex over the string form |
 | `api.batch(requests)` | Parallel API-first lookups. `youtube` and `itunes` are public no-key endpoints; `play` and `slack` refuse with `ENOTSUP` and the reason, because neither has an honest public path |
 | `report.build({ items, outFile })` | Assembles a paged HTML report, prints it over an ephemeral loopback origin (`file://` is refused by Aside), and **verifies the real MediaBox**. `pdf({format:'A4'})` was measured to yield US Letter, so the size is proven rather than requested |
 | `browse.searchMany(queries, { engine })` | N queries in parallel, URL-deduped, date-filtered. `youtube` works; `google` is callable but answers with a bot challenge, so it returns `EBLOCKED` with the URL to open rather than an empty result set; `duckduckgo` is the no-key default and gets the same challenge detection |
@@ -243,7 +244,7 @@ The comparator uses recorded timestamps and completion timestamps, counts failed
 Hardening verification (2026-09-13): [196 passing tests, source hashes and remaining limits](evidence/review-hardening-20260913.json).
 
 ```sh
-npm test   # node --test "test/*.test.js" — zero dependencies
+npm test   # node scripts/run-tests.mjs — zero dependencies
 ```
 
 `test/regressions.test.js` pins defects that actually shipped: the gitignore blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored options, a cross-OS root crash, `rgPath: null` being unable to clear an inherited value, and a Windows drive letter being split on `:`.

@@ -145,17 +145,31 @@ test('a stored job is validated again on the way out', async () => {
   assert.equal(spawns.length, 0, 'an altered record must not run');
 });
 
-test('a stored job is not world readable', async () => {
+test('a stored job is not world readable', { skip: process.platform === 'win32' ? 'POSIX mode bits do not carry the same meaning here' : false }, async () => {
   // It carries the urls it will visit and the values it will type, and a fill value can be
-  // a password.
+  // a password. Skipped rather than wrapped in an if: a test that runs and asserts nothing
+  // reports as a pass, and this file already had one of those.
   const { browse } = harness();
   const refused = await browse.exec({ urls: ['https://a.test/1'], actions: [{ ref: 'e1', fill: 'hunter2' }] });
   const store = createApprovals();
   const file = path.join(store.dir, 'pending', refused.approvalId + '.json');
   const mode = statSync(file).mode & 0o777;
-  if (process.platform !== 'win32') {
-    assert.equal(mode, 0o600, 'the record is 0' + mode.toString(8) + ' in a shared temp directory');
-  }
+  assert.equal(mode, 0o600, 'the record is 0' + mode.toString(8) + ' in a shared temp directory');
+});
+
+test('records do not pile up in the temp directory forever', () => {
+  // sweep() existed and nothing called it, which is the same as not having it. There is no
+  // process that outlives a tool call to run a timer, so opening an approval pays for the
+  // tidying — the one moment the directory is certainly in use.
+  let clock = 1000;
+  const dir = path.join(os.tmpdir(), 'codemode-approvals-test-' + process.pid + '-sweep');
+  const store = createApprovals({ dir, ttlMs: 500, now: () => clock });
+  const old = store.open({ job: {}, wants: ['click'], urls: ['https://a.test/1'] });
+  assert.equal(store.read(old.approvalId).state, 'pending', 'the record has to exist before its removal means anything');
+  clock += 500 + 24 * 60 * 60 * 1000 + 1;
+  const fresh = store.open({ job: {}, wants: ['click'], urls: ['https://a.test/2'] });
+  assert.equal(store.read(old.approvalId).state, 'unknown', 'the expired record should have been swept');
+  assert.equal(store.read(fresh.approvalId).state, 'pending', 'and the new one must survive its own sweep');
 });
 
 test('a winner that dies before it starts leaves a state that says so', () => {

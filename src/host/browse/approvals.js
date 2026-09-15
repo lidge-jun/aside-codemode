@@ -75,13 +75,50 @@ export function createApprovals({ dir = APPROVAL_DIR, ttlMs = DEFAULT_TTL_MS, no
     return Boolean(rec && Number.isFinite(rec.expiresAt) && now() >= rec.expiresAt);
   }
 
+  // Records do not accumulate. A day past its expiry a record is gone, whatever state it
+  // reached — a claimed record is evidence for as long as anyone would look at it.
+  //
+  // The age comes from the record's own expiresAt, not from the file's mtime. Those are two
+  // different clocks: expiresAt is written by now(), which a caller can inject, and mtime is
+  // the filesystem's. An earlier version compared one against the other and swept nothing,
+  // because a test clock starting at 1000 is thirty years behind every mtime on disk.
+  const KEEP_AFTER_EXPIRY_MS = 24 * 60 * 60 * 1000;
+  function sweep() {
+    if (!existsSync(dir)) return 0;
+    let removed = 0;
+    for (const state of STATES) {
+      const d = path.join(dir, state);
+      if (!existsSync(d)) continue;
+      for (const name of readdirSync(d)) {
+        const p = path.join(d, name);
+        try {
+          let deadline = null;
+          try {
+            const rec = JSON.parse(readFileSync(p, 'utf8'));
+            if (Number.isFinite(rec.expiresAt)) deadline = rec.expiresAt + KEEP_AFTER_EXPIRY_MS;
+          } catch { /* unreadable or not ours: fall back to the filesystem's own clock */ }
+          const gone = deadline === null
+            ? Date.now() - statSync(p).mtimeMs > ttlMs + KEEP_AFTER_EXPIRY_MS
+            : now() >= deadline;
+          if (gone) { unlinkSync(p); removed += 1; }
+        } catch { /* a record that vanished while we looked is a record we wanted gone */ }
+      }
+    }
+    return removed;
+  }
+
   return {
     dir,
+    sweep,
 
     // Called by the gate. The job stored here is the validated, normalized one, so approving
     // cannot smuggle in options the refusal never saw.
     open({ job, wants, urls }) {
       ensure();
+      // Swept here rather than on a timer, because there is no process that outlives a tool
+      // call to hold one. Opening an approval is the only moment this directory is certainly
+      // in use, so it is the only moment that can pay for tidying it.
+      try { sweep(); } catch { /* a sweep that fails must never stop an approval being offered */ }
       const approvalId = 'approval-' + randomUUID();
       const rec = {
         approvalId, wants, urls, job,
@@ -157,22 +194,5 @@ export function createApprovals({ dir = APPROVAL_DIR, ttlMs = DEFAULT_TTL_MS, no
       return { ok: true, changed: true, state: 'rejected', approvalId: id, record: readAt('rejected', id) };
     },
 
-    // Records do not accumulate. Anything past its expiry plus a day is gone, whatever state
-    // it reached — a claimed record is evidence for as long as anyone would look at it.
-    sweep() {
-      if (!existsSync(dir)) return 0;
-      let removed = 0;
-      for (const state of STATES) {
-        const d = path.join(dir, state);
-        if (!existsSync(d)) continue;
-        for (const name of readdirSync(d)) {
-          const p = path.join(d, name);
-          try {
-            if (now() - statSync(p).mtimeMs > ttlMs + 24 * 60 * 60 * 1000) { unlinkSync(p); removed += 1; }
-          } catch { /* a record that vanished while we looked is a record we wanted gone */ }
-        }
-      }
-      return removed;
-    },
   };
 }

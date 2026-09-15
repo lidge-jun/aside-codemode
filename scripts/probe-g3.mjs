@@ -28,7 +28,10 @@ const CHILD = '<!doctype html><title>child</title><button id="b">press me</butto
   + script('document.getElementById("b").addEventListener("click",function(){document.getElementById("out").textContent="child-clicked";});');
 const CLICKABLE = '<!doctype html><title>native</title><button id="b">act</button><p id="out">untouched</p>'
   + script('document.getElementById("b").addEventListener("click",function(){document.getElementById("out").textContent="native-1";});');
-const RACE = '<!doctype html><title>race</title><p id="out">idle</p>';
+// Two fields, written in sequence by each caller, so an interleaving is observable. One
+// field overwritten by both can only ever hold one writer's last word, which would make the
+// "not a mixture" check true by construction.
+const RACE = '<!doctype html><title>race</title><p id="first">idle</p><p id="second">idle</p>';
 
 // The iframe fixture is served over loopback rather than a data: url. A data: page has an
 // opaque origin, so its srcdoc child is cross-origin to it: the accessibility tree does not
@@ -130,6 +133,7 @@ try {
     beforeBatch: beforeBatch, afterBatch: afterBatch, stillThere: stillThere,
     reusable: reusable,
     status: batch.status, values: batch.items.map((i) => i.value), leaked: batch.tabs.leaked,
+    items: batch.items.map((i) => ({ jobId: i.jobId, value: i.value })),
   };
 } catch (e) { out.mixed = { error: String(e && e.message).slice(0, 300) }; }
 
@@ -159,8 +163,19 @@ try {
     try { const d = await display(shot); displayed = { ok: true, returned: d === undefined ? 'undefined' : typeof d }; }
     catch (e3) { displayed = { ok: false, error: String(e3 && e3.message).slice(0, 200) }; }
   } else displayed = { ok: false, error: 'no image to hand over: ' + firstError };
+  // What display() returns is undefined, so acceptance is all it can tell us. Read the
+  // bytes ourselves instead: a PNG signature and the IHDR dimensions say a real image of a
+  // real viewport is what was handed over.
+  let png = null;
+  if (shot) {
+    const b = (i) => Number(shot[i]);
+    const sig = [137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => b(i) === v);
+    const be = (o) => (b(o) << 24) | (b(o + 1) << 16) | (b(o + 2) << 8) | b(o + 3);
+    const ihdr = String.fromCharCode(b(12), b(13), b(14), b(15));
+    png = { signature: sig, chunk: ihdr, width: sig ? be(16) : null, height: sig ? be(20) : null };
+  }
   await tab.close();
-  out.image = { shot: shape, display: displayed, displayType: typeof display, bringToFront: bringToFront, firstError: firstError };
+  out.image = { shot: shape, png: png, display: displayed, displayType: typeof display, bringToFront: bringToFront, firstError: firstError };
 } catch (e) { out.image = { error: String(e && e.message).slice(0, 300) }; }
 
 // ---- 4. two calls racing on one page
@@ -168,17 +183,20 @@ try {
   const r = await openTab(url(RACE));
   await sleep(300);
   const one = r.evaluate(() => new Promise((res) => {
-    const s = Date.now(); const el = document.querySelector('#out'); el.textContent = 'one-start';
-    setTimeout(() => { el.textContent = 'one-done'; res({ who: 'one', start: s, end: Date.now() }); }, 400);
+    const s = Date.now(); document.querySelector('#first').textContent = 'one';
+    setTimeout(() => { document.querySelector('#second').textContent = 'one'; res({ who: 'one', start: s, end: Date.now() }); }, 400);
   }));
   const two = r.evaluate(() => new Promise((res) => {
-    const s = Date.now(); const el = document.querySelector('#out'); el.textContent = 'two-start';
-    setTimeout(() => { el.textContent = 'two-done'; res({ who: 'two', start: s, end: Date.now() }); }, 400);
+    const s = Date.now(); document.querySelector('#first').textContent = 'two';
+    setTimeout(() => { document.querySelector('#second').textContent = 'two'; res({ who: 'two', start: s, end: Date.now() }); }, 400);
   }));
   const both = await Promise.all([one, two]);
   const a = both[0]; const b = both[1];
   const overlapped = !(a.end <= b.start || b.end <= a.start);
-  const final = await r.evaluate(() => document.querySelector('#out').textContent);
+  const final = await r.evaluate(() => ({
+    first: document.querySelector('#first').textContent,
+    second: document.querySelector('#second').textContent,
+  }));
   await r.close();
   out.race = { a: a, b: b, overlapped: overlapped, final: final };
 } catch (e) { out.race = { error: String(e && e.message).slice(0, 300) }; }
@@ -229,26 +247,35 @@ if (!data) {
 
   const m = data.mixed || {};
   check('2a the native click landed before the batch', m.beforeBatch === 'native-1', String(m.beforeBatch || m.error));
-  check('2b the batch completed with every item', m.status === 'completed' && Array.isArray(m.values) && m.values.length === 3,
-    m.status + ' ' + JSON.stringify(m.values || null));
-  check('2c the batch did not disturb the tab the native work was using',
+  check('2b each batch item came back under its own jobId, with its own page body',
+    m.status === 'completed' && Array.isArray(m.items) && m.items.length === 3
+      && m.items.every((it, i) => it.jobId === 'j' + String(i).padStart(3, '0') && it.value === 'page-' + i + '-body'),
+    m.status + ' ' + JSON.stringify(m.items || null));
+  check('2c the batch left the native tab on its own page and result',
     m.afterBatch === 'native-1' && m.stillThere === true, JSON.stringify({ afterBatch: m.afterBatch, stillThere: m.stillThere }));
   check('2d the tab is still drivable after the batch, not merely open',
     m.reusable === 'native-1', String(m.reusable));
   check('2e the batch left no tab of its own open', m.leaked === 0, String(m.leaked));
 
   const img = data.image || {};
-  check('3a a screenshot came back with bytes', img.shot && (img.shot.bytes > 0), JSON.stringify(img.shot || img.error || null));
-  check('3b display() accepted the image', img.display && img.display.ok === true, JSON.stringify(img.display || null));
-  skip('3c a downscaled image maps coordinates back',
+  check('3a a screenshot came back with bytes', img.shot && (img.shot.bytes > 0),
+    JSON.stringify({ shot: img.shot || img.error || null, bringToFront: img.bringToFront, firstAttempt: img.firstError }));
+  check('3b those bytes are a real PNG of a real viewport',
+    img.png && img.png.signature === true && img.png.chunk === 'IHDR' && img.png.width > 0 && img.png.height > 0,
+    JSON.stringify(img.png || null));
+  check('3c display() accepted that image without throwing (acceptance is all it returns)',
+    img.display && img.display.ok === true, JSON.stringify(img.display || null));
+  skip('3d a downscaled image maps coordinates back',
     'not run: no API produces the stimulus - screenshot.maxWidth is accepted and ignored, host resize is ENOTSUP, page.setViewportSize is absent');
-  skip('3d DPI 100/125/150/200%, zoom and clip', 'not run: same reason as 3c');
+  skip('3e DPI 100/125/150/200%, zoom and clip', 'not run: same reason as 3d');
+  skip('3f that a model actually received the image', 'not run: display() returns undefined; the model side is not observable from the REPL');
 
   const r = data.race || {};
   check('4a the two calls on one page actually overlapped', r.overlapped === true,
     JSON.stringify({ a: r.a, b: r.b }) || String(r.error));
-  check('4b the page ended in one call\'s complete result, not a half-finished one',
-    r.final === 'one-done' || r.final === 'two-done', String(r.final || r.error));
+  check('4b both fields carry the same writer, so the two calls did not interleave',
+    r.final && r.final.first === r.final.second && (r.final.first === 'one' || r.final.first === 'two'),
+    JSON.stringify(r.final || r.error || null));
   skip('4c native mouse/keyboard equivalence on an explicitly chosen page',
     'not run: needs a separate native fixture; cua is not in the capability matrix at all');
 }

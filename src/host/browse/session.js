@@ -132,11 +132,31 @@ export function settleEffects(rows = [], { killed = false } = {}) {
 // that human action unblocks this item, and a code that did not say so has not earned it.
 const HUMAN_CLEARABLE = new Set(['login-wall', 'captcha']);
 
+// Chrome's own error page is a page. It loads, it has a title, openTab resolves, and the
+// script records a finalUrl like any other — so a DNS failure and a refused connection
+// arrive looking exactly like a success and nothing downstream disagrees.
+//
+// The scheme is the only tell available here. HTTP status is not: waitForResponse is absent
+// from this surface, so the batch never sees one. That is also why a RENDERED 404 is left
+// to the content check instead of being guessed at — a page that loaded and says Not Found
+// is a page the caller has to describe, and inventing a rule for it would trade this false
+// success for a false failure.
+const DEAD_END = /^chrome-error:/i;
+
+export function deadEndReason(item) {
+  if (!item || typeof item.finalUrl !== 'string') return null;
+  if (!DEAD_END.test(item.finalUrl)) return null;
+  return 'the navigation ended on the browser\'s own error page (' + item.finalUrl
+    + '), so no page was loaded; the host, the scheme or the network is the place to look';
+}
+
 export function itemStatus(item) {
   if (!item) return 'unreturned';
   if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
   if (item.code === 'EUNRETURNED') return 'unreturned';
   if (item.actionsOk === false) return 'failed';
+  // Ahead of the ok check on purpose: this is the case where ok is true and wrong.
+  if (deadEndReason(item)) return 'failed';
   if (item.ok) return 'completed';
   if (item.code === 'ESKIP' || item.code === 'ETABBUDGET') return 'skipped';
   if (item.code === 'EBLOCKED') return HUMAN_CLEARABLE.has(item.blockKind) ? 'needs_input' : 'failed';
@@ -273,10 +293,6 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const partial = final && Array.isArray(final.partial) ? final.partial.slice() : [];
     if (marker === 'error') partial.push('script-error');
     if (leakedUrls.length) partial.push('tab-leak');
-    // Two tags, because the two blocks now mean different things to the caller: one is
-    // waiting for a person and one is an origin that will keep saying no.
-    if (items.some((i) => i.status === 'needs_input')) partial.push('needs-input');
-    if (items.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
     // A page that arrived but did not render is a DIFFERENT outcome from a clean read,
     // and the caller must not have to infer it from the item bodies.
     if (items.some((i) => i.contentVerified === false || i.code === 'EUNRENDERED')) partial.push('content-unverified');
@@ -306,7 +322,17 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const reconciled = requested.map((r, i) => {
       const hit = byJob.get(r.jobId) || (positional ? items[i] : null);
       if (!hit) return { jobId: r.jobId, url: r.url, ok: false, code: 'EUNRETURNED', status: 'unreturned' };
-      return { ...hit, jobId: r.jobId, url: hit.url || r.url, status: itemStatus(hit) };
+      const merged = { ...hit, jobId: r.jobId, url: hit.url || r.url };
+      // Stamp the code only where the item still looks successful. An item that already
+      // named why it failed keeps its own reason; overwriting it would hide the cause
+      // behind the symptom.
+      const dead = deadEndReason(merged);
+      if (dead && !merged.code) {
+        merged.ok = false;
+        merged.code = 'EDEADEND';
+        merged.error = dead;
+      }
+      return { ...merged, status: itemStatus(merged) };
     });
     // Only an item that names a jobId we never issued is an extra. Items with no jobId at
     // all are either the position-matched path or the unreconciled one.
@@ -316,6 +342,15 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (job.snapshotAfter === 'diff') for (const it of reconciled) attachDiff(it);
     const orphans = unreconciled ? items.slice() : [];
     if (reconciled.some((i) => i.status === 'unreturned')) partial.push('unreturned');
+    // These three read the RECONCILED items, because they describe a verdict rather than
+    // something the script reported. An earlier revision tagged them off the raw items,
+    // which carry a code and no status, so the needs-input tag was never once emitted.
+    //
+    // Two block tags, because the two blocks mean different things to the caller: one is
+    // waiting for a person and one is an origin that will keep saying no.
+    if (reconciled.some((i) => i.status === 'needs_input')) partial.push('needs-input');
+    if (reconciled.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
+    if (reconciled.some((i) => i.code === 'EDEADEND')) partial.push('dead-end');
     if (unreconciled) partial.push('unreconciled');
     if (extra.length) partial.push('extra-items');
     if (duplicates.length) partial.push('duplicate-jobid');

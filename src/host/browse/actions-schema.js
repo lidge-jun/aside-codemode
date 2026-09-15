@@ -95,7 +95,7 @@ export const BROWSE_ACTIONS = [
       detect: { type: 'boolean', required: false, description: 'Block detection, default true. Set false for your own generated pages.' },
       requireSelector: { type: 'array|string', required: false, description: 'Css selectors that MUST exist for the content to count as read. A string is accepted.' },
       minTextChars: { type: 'number', required: false, description: 'Minimum visible (innerText) characters for the content to count as read' },
-      requireContent: { type: 'boolean', required: false, description: 'Fail the item when a render check fails, instead of only warning' },
+      requireContent: { type: 'boolean|string', required: false, description: 'A string is a regular expression the page must contain, and is itself the check: an item without it fails. true instead enforces the requireSelector/minTextChars checks beside it, and is refused when there are none, because a verdict of verified with nothing verified is the failure this option exists to prevent' },
     },
     notes: 'ok means the run completed; contentVerified means the page actually rendered. They are DIFFERENT: Threads returned ok:true with the right title while the body was server bootstrap JSON and no posts. Pass requireSelector/minTextChars to get a real verdict; without them contentVerified is null (nobody asked) rather than true. items[] carries per-url ok/error so one failure never empties the rest. A blocked page returns EBLOCKED with an alternate route; an arrived-but-unrendered page returns EUNRENDERED or partial:[content-unverified].',
   },

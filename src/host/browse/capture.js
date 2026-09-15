@@ -140,8 +140,14 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     // item.ok left a batch reporting status:'completed' next to an item that did not.
     // wp3 replaces this index join with a jobId join; the status arithmetic stays.
     const done = items.filter((i) => i.status === 'completed').length;
-    const status = res.status === 'indeterminate'
-      ? 'indeterminate'
+    // This arithmetic only knows how to count completions, so every run with none of them
+    // used to land on 'failed'. That erased a run which stopped because someone has to sign
+    // in: a request became a failure on the way back through the artifact join. Statuses
+    // that describe the RUN rather than its artifacts pass through untouched, and there is
+    // nothing this step could learn that would improve on them.
+    const PRESERVED = new Set(['indeterminate', 'needs_input']);
+    const status = PRESERVED.has(res.status)
+      ? res.status
       : (done === items.length && items.length > 0 ? res.status : (done > 0 ? 'partial' : 'failed'));
     return {
       ...res, items, partial, status,

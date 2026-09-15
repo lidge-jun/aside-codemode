@@ -89,13 +89,35 @@ This is where `needs_input` finally has a producer. The installed skill has alwa
 that `needs_input` means a login wall and should be handed back rather than retried; until now the
 code never emitted it, so the document described a status the tool could not reach.
 
-## Where the implementation and this contract still disagree
+## Arriving nowhere
 
-**No gate reads the destination.** `itemStatus` reaches `completed` from `item.ok` alone. The
-script records `finalUrl` but never inspects its scheme, so a navigation that ended on the browser's
-own error page counts as a page that arrived. HTTP status is not available on this path at all: it
-is read only in `read-text.js`, and even there 404 is absent from the list of statuses that mean
-failure.
+Chrome's own error page is a page: it loads, it has a title, and opening it resolves. A DNS failure
+and a refused connection therefore used to arrive looking exactly like a success. An item whose
+final url carries the browser's error scheme is stamped `EDEADEND` and fails, and the run reports
+`dead-end` among its reasons. The stamp is applied only where the item still looked successful, so
+an item that already named its own failure keeps that reason rather than having the symptom written
+over the cause.
+
+The scheme is the only signal available here. HTTP status is not: `waitForResponse` is absent from
+this surface, so the batch never sees one, and `read-text.js` is the only place a status is read at
+all. A page that loaded and says Not Found is therefore left to the content check, because
+inventing a rule for it would trade this false success for a false failure.
+
+## Saying what counts as content
+
+`requireSelector` and `minTextChars` describe what the page must have. `requireContent` decides
+what a failed check costs, and it takes two shapes. A string is a regular expression the page must
+contain, and is itself the check, so it stands alone and produces a real verdict. `true` enforces
+the checks declared beside it, and is refused when there are none: a run cannot report that content
+was verified when nothing verified it, which is the same false success one field over.
+
+The pattern is tested against the document's own text with script, style and template content
+removed. The rendered view is not used, because it collapses on a page the browser has not laid
+out — one page answered 2,024 characters that way and 271,303 the other — and a marker that is
+present would read as absent. Script bodies are excluded for the mirror reason: a bootstrap payload
+that mentions the string would match while nobody could see it.
+
+## Where the implementation and this contract still disagree
 
 **An empty result is not suspicious to anything.** A search whose every query returned nothing, and
 a batch whose selector returned zero on every item, both end normally. This is the same disease as

@@ -367,6 +367,9 @@ export function compile(job, plan = null) {
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
+    // The source, not a compiled RegExp: the script rebuilds it, the same way the
+    // block-detection patterns travel. schema.js has already refused an invalid one.
+    requireContentPattern: job.requireContentPattern || null,
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
@@ -594,6 +597,23 @@ async function one(item) {
         (hit ? matched : unmatched).push(sel);
       }
       const skeletonNodes = document.querySelectorAll('[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i],[aria-busy="true"]').length;
+      // The text a required pattern is tested against is the DOM's own, with script and
+      // style removed. innerText is the rendered view and collapses on a page the browser
+      // has not laid out — the same page answered 2,024 characters that way and 271,303
+      // the other — so a marker that is present would read as absent. Keeping script
+      // bodies out matters just as much: a bootstrap payload mentioning the very string
+      // being looked for would match while no one could see it.
+      let patternMatched = null;
+      if (req.pattern) {
+        let hay = '';
+        if (body) {
+          const clone = body.cloneNode(true);
+          const noisy = clone.querySelectorAll('script,style,template,noscript');
+          for (let i = 0; i < noisy.length; i++) noisy[i].remove();
+          hay = clone.textContent || '';
+        }
+        patternMatched = new RegExp(req.pattern).test(hay);
+      }
       return {
         textChars: visibleText.length,
         rawChars: rawLen,
@@ -602,19 +622,21 @@ async function one(item) {
         scriptRatio: totalLen ? Math.round((scriptLen / totalLen) * 100) / 100 : 0,
         requiredSelectorsMatched: matched,
         requiredSelectorsMissing: unmatched,
+        patternMatched,
         skeletonNodes,
         sample: visibleText.slice(0, 160),
         // Only when the caller asked. Shipping the whole body by default is how a batch of
         // twenty pages turns into a megabyte of stdout.
         full: req.ft ? visibleText.slice(0, req.m || 200000) : null,
       };
-      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars });
+      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars, pattern: JOB.requireContentPattern });
     } catch (_) { render = null; }
 
     if (render) {
     const reasons = [];
     if (JOB.minTextChars && render.textChars < JOB.minTextChars) reasons.push('only ' + render.textChars + ' visible characters (wanted >= ' + JOB.minTextChars + ')');
     if (render.requiredSelectorsMissing.length) reasons.push('missing required selectors: ' + render.requiredSelectorsMissing.join(', '));
+    if (render.patternMatched === false) reasons.push('the page does not contain the required content /' + JOB.requireContentPattern + '/');
     // scriptRatio is REPORTED but is deliberately not a verdict input. Any bundled SPA
     // ships large inline scripts, so a ratio test fails pages that rendered perfectly well
     // — it would trade the false success we are fixing for a false failure, which is no
@@ -622,7 +644,10 @@ async function one(item) {
     if (render.skeletonNodes > 0 && render.textChars < 400) reasons.push(render.skeletonNodes + ' loading-skeleton nodes still present and almost no text');
     render.reasons = reasons;
     // null means nobody asked and no heuristic fired; true/false is a real verdict.
-    const asked = Boolean((JOB.requireSelector && JOB.requireSelector.length) || JOB.minTextChars);
+    // A pattern counts as asking, because it IS the check. A bare requireContent does not,
+    // and cannot arrive alone: schema.js refuses it without a check beside it, so there is
+    // no path here where the verdict is true and nothing was verified.
+    const asked = Boolean((JOB.requireSelector && JOB.requireSelector.length) || JOB.minTextChars || JOB.requireContentPattern);
     render.contentVerified = reasons.length ? false : (asked ? true : null);
     out_render = render;
     if (reasons.length && JOB.requireContent) {

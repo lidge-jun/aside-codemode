@@ -334,6 +334,39 @@ export function validateJob(raw, browseCaps = {}) {
   // the steps that would invalidate it.
   const extract = validateExtract(raw.extract, { actions, refsFingerprint });
 
+  // requireContent carries two shapes, and the difference is whether it brings its own
+  // check. A PATTERN is the check: this text has to be on the page, and an item without it
+  // is a failure. `true` is only a modifier on the checks declared beside it, so it needs
+  // one — enforcing a check nobody described would leave contentVerified asserting that
+  // content was verified when nothing verified it, which is the false success this whole
+  // layer exists to stop, moved one field over.
+  const requireSelector = raw.requireSelector === undefined
+    ? []
+    : (Array.isArray(raw.requireSelector) ? raw.requireSelector : [raw.requireSelector]);
+  const minTextChars = Number.isSafeInteger(raw.minTextChars) ? raw.minTextChars : null;
+  let requireContentPattern = null;
+  if (typeof raw.requireContent === 'string') {
+    if (!raw.requireContent.length) {
+      throw new BrowseOptionError('requireContent cannot be an empty pattern; pass the text the page must contain', 'EBADVAL');
+    }
+    // Compiled here so a bad pattern is a refusal rather than a check that silently never
+    // matches. The source travels to the script as data and is rebuilt there, the same way
+    // the block-detection patterns do.
+    try { new RegExp(raw.requireContent); }
+    catch (e) {
+      throw new BrowseOptionError('requireContent is not a valid regular expression: ' + String(e && e.message || e), 'EBADVAL');
+    }
+    requireContentPattern = raw.requireContent;
+  } else if (raw.requireContent !== undefined && typeof raw.requireContent !== 'boolean') {
+    throw new BrowseOptionError('requireContent must be true, or a regular expression source naming the text the page must contain', 'EBADVAL');
+  }
+  if (raw.requireContent === true && requireSelector.length === 0 && minTextChars === null) {
+    throw new BrowseOptionError(
+      'requireContent: true enforces the render checks beside it, and none were given. Add requireSelector or minTextChars, or pass the expected text as requireContent itself',
+      'EBADVAL',
+    );
+  }
+
   return Object.freeze({
     urls,
     timeoutMs,
@@ -371,8 +404,10 @@ export function validateJob(raw, browseCaps = {}) {
     // Rendering checks. requireSelector/minTextChars say what "the content is there" MEANS
     // for this page; requireContent turns a failed check into a failed item instead of a
     // warning, for callers who would rather get nothing than get a bootstrap page.
-    requireSelector: raw.requireSelector === undefined ? [] : (Array.isArray(raw.requireSelector) ? raw.requireSelector : [raw.requireSelector]),
-    minTextChars: Number.isSafeInteger(raw.minTextChars) ? raw.minTextChars : null,
-    requireContent: raw.requireContent === true,
+    requireSelector,
+    minTextChars,
+    // Either shape enforces; the pattern additionally says what to look for.
+    requireContent: raw.requireContent === true || requireContentPattern !== null,
+    requireContentPattern,
   });
 }

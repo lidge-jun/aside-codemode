@@ -42,6 +42,15 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   commit: git('rev-parse', 'HEAD'),
   branch: git('rev-parse', '--abbrev-ref', 'HEAD'),
+  // The tag this describes, when it exists. A record stamped with the commit it happened to
+  // be generated on is not wrong, but it is not the artifact either: an auditor reading
+  // 'commit' wants the thing that shipped.
+  releaseTag: (() => {
+    try { return git('describe', '--tags', '--abbrev=0'); } catch { return null; }
+  })(),
+  releaseTagCommit: (() => {
+    try { return git('rev-list', '-n1', git('describe', '--tags', '--abbrev=0')); } catch { return null; }
+  })(),
   // Two axes on purpose. The package version moves with a release; the helper version moves
   // only when cm.js changes. One string cannot name both, and a receipt that names one is
   // unable to point at the artifact an account is actually running.

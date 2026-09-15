@@ -77,6 +77,41 @@ test('51x evidence names the companion bench and equality check', () => {
   assert.match(note, /equality/);
 });
 
+
+// The browsing number leads the page now, so it gets the same treatment the 51x folder bench
+// got: the README may not carry a figure the evidence note does not. Both baselines have to stay
+// named, because 421x and 16x answer different questions and either one alone is a half-truth.
+test('the browsing figures in both READMEs match the measurement they cite', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'browse-compression-260915.md'), 'utf8');
+  for (const doc of [readmeEn, readmeKo]) {
+    assert.match(doc, /1,865,043/);
+    assert.match(doc, /4,430/);
+    assert.match(doc, /71,983/);
+    assert.match(doc, /421/);
+    assert.match(doc, /browse-compression-260915\.md/);
+  }
+  for (const figure of [/1,865,043/, /71,983/, /63,825/, /4,430/, /421x/, /16\.3x/]) {
+    assert.match(note, figure);
+  }
+});
+
+// A ratio nobody can recompute is a slogan. The note carries the inputs, so the arithmetic
+// is checkable here rather than trusted.
+test('the stated ratios are what the stated bytes produce', () => {
+  assert.equal(Math.round((1865043 / 4430) * 10) / 10, 421);
+  assert.equal(Math.round((71983 / 4430) * 10) / 10, 16.2);
+  assert.equal(Math.round((63825 / 4430) * 10) / 10, 14.4);
+});
+
+// The captcha pages were dropped from the set. Saying so is the difference between a benchmark
+// and a selected result.
+test('the note says which pages were dropped and why', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'browse-compression-260915.md'), 'utf8');
+  assert.match(note, /EBLOCKED/);
+  assert.match(note, /captcha/);
+  assert.match(note, /news\.ycombinator\.com/);
+  assert.match(note, /truncated/);
+});
 test('AGENTS template keeps its placeholders and Windows Git Bash', () => {
   const names = [...agents.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
   // {{HELPER}} joined the set when the loader line stopped being session-relative: the path

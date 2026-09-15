@@ -1,7 +1,7 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
-<p align="center"><b>카드 50장이 한 장이 되는 지점</b><br>
-검색하고, 읽고, 브라우저까지 자바스크립트 한 블록 안에서 끝낸 다음, 더미가 아니라 답만 돌려줍니다.</p>
+<p align="center"><b>페이지 대신 행, 카드 50장 대신 한 장</b><br>
+실제 페이지 다섯 개는 HTML 1.87MB입니다. 거기서 알고 싶은 것의 답은 4.4KB입니다. 호출 한 번이 그 4.4KB를 돌려줍니다.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -16,6 +16,33 @@ codemode --doctor
 ```
 
 <p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
+
+### 브라우징: 1.87MB가 들어가고 4.4KB가 나옵니다
+
+페이지 다섯 개, 각각에 대해 알고 싶은 것 하나 — 제목과 첫 링크입니다.
+
+|  | 페이지를 읽을 때 | `browse.exec` 한 번 |
+| --- | --- | --- |
+| fetch 기반 도구가 모델에 넣는 것 | HTML 1,865,043바이트 | 타입 있는 행 4,430바이트 |
+| 네이티브로 읽는 에이전트가 넣는 것 | 접근성 트리 71,983자, 다섯 중 셋은 상한에서 잘림 | 같은 4,430 |
+| 왕복 | 5번 | 1번 |
+| 다섯 페이지 실측 시간 | — | 2.5초 |
+
+```js
+const res = await browse.exec({
+  urls,
+  extract: { title: 'title', firstLink: { selector: 'a', attr: 'href' } },
+});
+return res.items;   // 타입 있는 행 다섯 개, 4,430바이트, status completed
+```
+
+**원본 페이지 대비 421배, Aside가 모델에 보여줬을 것 대비 16배입니다.** 두 숫자 모두
+[측정 노트](evidence/browse-compression-260915.md)에 페이지별 바이트, 세 번의 실행, 그리고 captcha로
+답해서 뺀 페이지 두 개까지 적혀 있습니다. 압축되는 것은 **답**입니다. 페이지 전체를 달라고 하면
+페이지 전체가 옵니다. 접근성 트리 다섯 중 셋이 20,000자 상한에 걸렸으니, 그 세 페이지에서는
+네이티브 경로도 완전한 답을 들고 있지 않았습니다.
+
+### 파일: 55초가 1초가 됩니다
 
 프로젝트에서 `TODO`가 들어간 파일 50개를 찾아 경로만 돌려받는 일입니다.
 

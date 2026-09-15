@@ -1,7 +1,7 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
-<p align="center"><b>One call where Aside used to spend fifty</b><br>
-Search, read, and drive the browser inside one sandboxed JavaScript block, then hand back the answer instead of the pile it came out of.</p>
+<p align="center"><b>Rows instead of pages, files instead of fifty cards</b><br>
+Five real pages are 1.87 MB of HTML. The answer to a question about them is 4.4 KB. One call returns the 4.4 KB.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -16,6 +16,34 @@ codemode --doctor
 ```
 
 <p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
+
+### Browsing: 1.87 MB in, 4.4 KB out
+
+Five pages, and one thing to know about each — its title and its first link.
+
+|  | reading the pages | one `browse.exec` call |
+| --- | --- | --- |
+| what a fetch-based tool puts in the model | 1,865,043 bytes of HTML | 4,430 bytes of typed rows |
+| what an agent reading natively puts there | 71,983 chars of accessibility tree, three of five cut off at the cap | the same 4,430 |
+| round trips | five | one |
+| wall clock, five pages | — | 2.5s |
+
+```js
+const res = await browse.exec({
+  urls,
+  extract: { title: 'title', firstLink: { selector: 'a', attr: 'href' } },
+});
+return res.items;   // five typed rows, 4,430 bytes, status completed
+```
+
+**421x against the raw pages, 16x against what Aside itself would have shown the model.** Both
+numbers are in [the measurement](evidence/browse-compression-260915.md) with the per-page bytes,
+three runs, and the two pages that were dropped because they answered with a captcha. The
+compression is of the **answer**: ask for the whole page and you get the whole page. Three of
+the five accessibility trees hit the 20,000-character cap, so on those pages the native path was
+not holding a complete answer either.
+
+### Files: 55s becomes 1s
 
 Find the fifty files in a project that mention `TODO`, and hand back the paths.
 

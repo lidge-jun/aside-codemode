@@ -43,3 +43,31 @@ rollback은 `inspectFile` 없이 previous를 덮어쓴다. 리허설 5단계에�
 repair, uninstall, rollback, 파일 삭제 — 전부 임시 루트에서만 했다. 설치기에는 backup이
 없고 uninstall은 previous를 담은 manifest를 지운다. 라이브는 wp6a 백업 뒤 wp3b에서
 doctor와 upgrade만 한다.
+
+## 감사가 바꾼 것
+
+감사(grok-4.6)가 FAIL을 냈고 지적이 맞았다.
+
+**repair의 해시 기록이 반대쪽으로 틀렸다.** 건너뛴 파일에 **디스크** 해시를 적으면, 사용자가
+정말로 고친 파일이 manifest와 일치하게 되어 다음 upgrade가 그 수정을 말없이 덮는다. 규칙을
+"건너뛴 파일은 **기록돼 있던** 해시를 유지한다"로 바꿨다. `same`이면 기록 해시가 곧 디스크
+해시라 원래 고치려던 함정은 그대로 닫히고, `modified`는 계속 수정으로 남아 보존되며,
+manifest가 모르는 파일은 planned 해시가 남아 역시 보존된다. 반례 둘을 추가했다 — repair 뒤
+upgrade가 사용자 수정을 보존하는가, 그리고 030이 테스트로 고정하라고 한 "upgrade **뒤**의
+수정은 rollback이 덮는다"를 고정했다.
+
+## 라이브 상태 정정
+
+030과 이 문서의 초판은 "네 루트 모두 helper 1.0.0 `63562408f207`, previous null"이라고 적었다.
+감사가 그게 이미 틀렸다고 지적했고, 다시 재보니 맞다.
+
+    mac u/0   디스크 cm.js = f5584a8081bd (1.1.0)   manifest는 1.0.0   doctor: modified
+    mac u/1   디스크 cm.js = 63562408f207 (1.0.0)   manifest는 1.0.0   doctor: stale
+    mac u/2   디스크 cm.js = 63562408f207 (1.0.0)   manifest는 1.0.0   doctor: stale
+
+이유는 프로브다. `probe-native-helper.mjs`와 `probe-g3.mjs`는 실제 설치 경로를 시험하려고
+`helperSource()`를 계정 루트에 직접 쓴다. 이번 세션에 mac u/0에서 그 프로브들을 돌렸으므로
+u/0의 helper만 새 바이트가 됐다. 설치기를 거치지 않았으니 manifest는 1.0.0 그대로다.
+
+따라서 **u/0의 1.0.0 바이트는 그 계정에 더는 없다.** 되돌릴 곳은 wp6a의 백업과 git 이력
+(이전 커밋의 `templates/native-helper/cm.js`)이다. wp6a 백업은 이 사실을 알고 뜬다.

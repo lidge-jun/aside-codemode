@@ -85,3 +85,39 @@ test('repair still restores a file that is actually missing', (t) => {
   assert.deepEqual(out.written, ['skills/user/aside-codemode/SKILL.md']);
   assert.equal(existsSync(path.join(f.root, 'skills/user/aside-codemode/SKILL.md')), true);
 });
+
+// The other half of the same rule. Recording what is on disk would make a file the user
+// really edited start agreeing with the manifest, and the next upgrade would take their work
+// away while reporting nothing.
+test('a repair does not turn a user edit into something upgrade may overwrite', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  const skill = 'skills/user/aside-codemode/SKILL.md';
+  const mine = read(f.root, skill) + '\n<!-- mine -->\n';
+  writeFileSync(path.join(f.root, skill), mine, 'utf8');
+
+  const rep = runInstaller({ verb: 'repair', asideHome: f.home, account: '0' });
+  assert.ok(rep.skipped.includes(skill));
+
+  const up = runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  assert.ok(up.preserved.includes(skill), 'the edit stopped looking like an edit after a repair');
+  assert.equal(read(f.root, skill), mine, 'the upgrade overwrote a file the user had edited');
+});
+
+// 030 asked for this to be pinned rather than described: rollback writes the snapshot back
+// without asking what happened since. An edit made AFTER the upgrade is not in that snapshot
+// and does not survive. That is why the live accounts do not get this verb.
+test('rollback overwrites an edit made after the upgrade, and the test says so', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  const skill = 'skills/user/aside-codemode/SKILL.md';
+  runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  const afterUpgrade = read(f.root, skill);
+  writeFileSync(path.join(f.root, skill), afterUpgrade + '\n<!-- written after the upgrade -->\n', 'utf8');
+
+  runInstaller({ verb: 'rollback', asideHome: f.home, account: '0' });
+  assert.equal(read(f.root, skill).includes('written after the upgrade'), false,
+    'rollback is documented as restoring the snapshot whole; if it now preserves later edits, the note in 090 and operating-notes must change');
+});

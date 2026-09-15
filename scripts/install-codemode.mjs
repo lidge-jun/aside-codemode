@@ -250,17 +250,24 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     agentsBlock = 'current';
   }
 
-  // A file repair left alone keeps the hash of what is on disk. Recording the planned hash
-  // for a file we did not write tells the next upgrade that the user edited it, and that
-  // upgrade then preserves the old copy forever.
-  const untouched = new Map(skipped.filter((s) => s.actual).map((s) => [s.rel, s.actual]));
+  // A file repair left alone keeps whatever the manifest already said about it. Writing the
+  // planned hash for a file we did not touch tells the next upgrade that the user edited it,
+  // and that upgrade preserves a stale copy forever. Writing the DISK hash is the opposite
+  // mistake: a file the user really did edit would start agreeing with the manifest, and the
+  // next upgrade would overwrite their work. Keeping the recorded hash is the only answer
+  // that leaves both judgements where they were.
+  const skippedPaths = new Set(skipped.map((s) => s.rel));
+  const recorded = new Map((manifest && Array.isArray(manifest.files) ? manifest.files : []).map((f) => [f.path, f.sha256]));
   const next = {
     schema: 'codemode-install/1',
     version: HELPER_VERSION,
     installedAt: new Date().toISOString(),
     accountRoot,
     agentsBody: body,
-    files: files.map((f) => ({ path: f.path, sha256: untouched.get(f.path) || sha256(f.content) })),
+    files: files.map((f) => ({
+      path: f.path,
+      sha256: skippedPaths.has(f.path) && recorded.has(f.path) ? recorded.get(f.path) : sha256(f.content),
+    })),
     previous: outgoing,
   };
   if (!dryRun) writeFile(manifestPath, JSON.stringify(next, null, 2) + '\n', dryRun);

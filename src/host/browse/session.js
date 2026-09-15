@@ -567,7 +567,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // captured a stack-trace tail and hid the actual message, which turned a detectable
       // bot challenge into a generic upstream failure.
       const text = stripAnsi(stdout).trim();
-      return { error: text || 'the run produced no marker', rows: [] };
+      // The transcript travels with the failure, not only with the success. An effect line
+      // is printed the moment a step is requested, so this is the only place a click that
+      // went out on a live tab before the run died can still be recovered from.
+      return { error: text || 'the run produced no marker', rows: [], raw: { stdout, marker } };
     }
     return { rows: (final && final.rows) || [], raw: { stdout, marker } };
   }

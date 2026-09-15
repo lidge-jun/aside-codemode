@@ -1,7 +1,7 @@
 // Input contract for browse.attach. Kept separate from the browse job schema so the two
 // evolve independently: attach has no urls, no navigation and no artifacts.
 
-import { validateActions, validateExtract, requireWriteFingerprint } from './schema.js';
+import { validateActions, validateExtract, requireWriteFingerprint, gatedVerbs } from './schema.js';
 
 function bad(message) {
   const e = new Error(message);
@@ -23,7 +23,7 @@ export function validateAttach(input = {}) {
     'targetId', 'urlIncludes', 'titleIncludes',
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
     'snapshot', 'maxTreeChars', 'treeNodes',
-    'actions', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
+    'actions', 'approveWrites', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
     'refsFingerprint', 'extract', 'snapshotAfter',
   ]);
   for (const k of Object.keys(input)) {
@@ -79,6 +79,19 @@ export function validateAttach(input = {}) {
       // is signed into, so a rule that held on one path and not the other would not be one.
       requireWriteFingerprint(steps, str('refsFingerprint'), input.allowStaleRefs === true, AttachOptionError);
       return steps;
+    })(),
+    // The same declaration the batch needs, for the same reason and more of it: this tab is
+    // the one the person is signed into and looking at. Naming a targetId chose WHERE, not
+    // what may be done there.
+    approveWrites: (() => {
+      if (input.approveWrites !== undefined && typeof input.approveWrites !== 'boolean') {
+        throw bad('approveWrites must be a boolean: it is a statement that this call may change things, not a value to coerce');
+      }
+      const declared = input.approveWrites === true;
+      if (declared && gatedVerbs(validateActions(input.actions)).length === 0) {
+        throw bad('approveWrites is set on a call with no step that could change anything; drop it, or add the step you meant');
+      }
+      return declared;
     })(),
     stopOnError: input.stopOnError !== false,
     allowStaleRefs: input.allowStaleRefs === true,

@@ -496,7 +496,7 @@ test('attach refuses to call a run ok when its actions failed', async () => {
       contentVerified: null, actions: [{ i: 0, verb: 'click', ok: false, code: 'EACTION' }], actionsOk: false, refGuard: 'url-only' }] }),
   };
   const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
-  const r = await a.attach({ urlIncludes: 'x', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
+  const r = await a.attach({ urlIncludes: 'x', refsFingerprint: 'r1-test', approveWrites: true, actions: [{ ref: 'e1', click: true }] });
   assert.equal(r.ok, false);
   assert.equal(r.code, 'EACTION');
   assert.equal(r.refGuard, 'url-only');
@@ -507,7 +507,7 @@ test('attach gives the repl longer than the action budget it just granted', asyn
   const seen = [];
   const session = { raw: async (_src, opts) => { seen.push(opts.hostMs); return { rows: [] }; } };
   const a = createAttach({ config: { browseCaps: { enabled: true } }, session });
-  await a.attach({ urlIncludes: 'x', actionBudgetMs: 60000, refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
+  await a.attach({ urlIncludes: 'x', actionBudgetMs: 60000, refsFingerprint: 'r1-test', approveWrites: true, actions: [{ ref: 'e1', click: true }] });
   assert.ok(seen[0] > 60000, 'a 60s budget under a 26.5s host deadline loses the whole report');
   assert.ok(seen[0] <= 120000, 'and it still has to fit the REPL cap');
 });

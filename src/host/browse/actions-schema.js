@@ -137,7 +137,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.attach',
     description: "Read the tab the user already has open, with their session, scroll position and current screen. Never opens or closes a tab.",
-    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, requireSelector?, minTextChars?, includeText?, maxTextChars?, sampleChars? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified}>',
+    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, approveWrites?, requireSelector?, minTextChars?, includeText?, maxTextChars?, sampleChars? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
@@ -151,6 +151,7 @@ export const BROWSE_ACTIONS = [
       maxTreeChars: { type: 'number', required: false, description: 'Cap on the returned tree, default 20000' },
       treeNodes: { type: 'boolean', required: false, description: 'Also return snapshot.nodes parsed from the same tree (depth, role, name, ref, attrs). Off by default; see browse.exec for the shape and its limits.' },
       actions: { type: 'array', required: false, description: 'Same step shape as browse.exec, run against the live tab. The tab is still never closed.' },
+      approveWrites: { type: 'boolean', required: false, description: "Say that this call may change things. Required for the same verbs browse.exec gates, and for a stronger reason: this is the tab the person is signed into and looking at. Naming a targetId chose WHERE, not what may be done there. Without it nothing is sent and the answer is {ok:false, code:'EWRITEAPPROVAL', wants:[...]}." },
       stopOnError: { type: 'boolean', required: false, description: 'Default true' },
       allowStaleRefs: { type: 'boolean', required: false, description: 'Default false. It cannot be combined with a step aimed by ref, because every verb that can be aimed by ref is one that could change something, and this turns off the check that such a step depends on. It is left for jobs whose steps are aimed by selector or at the page.' },
       actionBudgetMs: { type: 'number', required: false, description: 'Shared deadline for the whole step list, default 20000' },

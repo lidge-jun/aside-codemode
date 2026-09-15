@@ -159,6 +159,22 @@ Two things it does not cover, both named rather than implied. `browse.attach` re
 by its own path. And a URL whose GET changes state is a change this tool cannot see: the gate governs
 what the tool sends, not what the page does.
 
+`browse.attach` is covered now. It compiles its own source and calls the REPL directly, so
+`session.run` never saw it, and it reached the same verbs on the tab the person is signed into and
+looking at — the more dangerous of the two paths, and the one with nothing in front of it. It takes
+the same `approveWrites` declaration, refused the same way but in attach's own flat shape, because a
+caller reading one surface should not have to learn the other to understand being turned down.
+Naming a `targetId` chose where, not what may be done there.
+
+It also issues a run id and reports `effects`. Before this an attached click produced no ledger
+entry at all: the call passed neither a run id nor an effect callback, and `session.raw` answered a
+failed marker with no transcript, so a click that went out and then lost its process left nothing
+behind. Requested and never confirmed reads `indeterminate` here, the same vocabulary the batch
+answers in, and it survives the failure that follows it.
+
+What still is not covered: a URL whose GET changes state. The gate governs what the tool sends, not
+what the page does.
+
 The refusal carries an `approvalId`, and `browse.approve` runs that stored job for the first time
 under its own `runId`, which the returned envelope carries back beside the `approvalId` so the pair
 can be joined. It is not a resume: nothing was started, which is the reason the gate sits before

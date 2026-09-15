@@ -34,8 +34,17 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // One store per host-globals instance, but backed by the filesystem rather than memory:
   // a batch is refused in one tool call and approved in another, and the host scope does
   // not survive between them.
-  const approvals = createApprovals({ ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined });
-  const tabJournal = createTabJournal();
+  // The directory is configurable so a test can be given its own. Found by dogfooding: the
+  // suite was writing every refusal, claim and rejection into the shared one and leaving
+  // them there, which is litter in somebody's temp directory and a test that can see
+  // another run's records.
+  const approvals = createApprovals({
+    ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined,
+    dir: typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : undefined,
+  });
+  const tabJournal = createTabJournal({
+    dir: typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : undefined,
+  });
   const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine

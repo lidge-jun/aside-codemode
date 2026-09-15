@@ -16,14 +16,19 @@ const FINAL = JSON.stringify({
   items: [{ jobId: 'j000', url: 'https://a.test/1', ok: true }],
 }) + '\n[ok | 5ms]';
 
+// Its own directory per harness. The suite used to share the real one, so a run of npm test
+// left hundreds of records in the user's temp directory and any test could have read
+// another's. Found by installing this build and looking at what it had written.
+let harnessSeq = 0;
 function harness() {
   const spawns = [];
+  const approvalDir = path.join(os.tmpdir(), 'codemode-approvals-test-' + process.pid + '-h' + (harnessSeq += 1));
   const browse = createBrowse({
-    config: { browseCaps: { enabled: true } },
+    config: { browseCaps: { enabled: true, approvalDir } },
     resolveAside: async () => 'C:/fake/aside.exe',
     spawnAside: async (bin, args) => { spawns.push(args); return { stdout: FINAL, killed: false }; },
   });
-  return { browse, spawns };
+  return { browse, spawns, approvalDir };
 }
 
 const writingJob = (url = 'https://a.test/1') => ({ urls: [url], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });
@@ -134,9 +139,9 @@ test('an id that tries to leave the directory is not an id', async () => {
 test('a stored job is validated again on the way out', async () => {
   // The record sits in a shared temp directory. A job that skipped validation because it
   // had been validated once, somewhere else, earlier, is a job nobody is checking now.
-  const { browse, spawns } = harness();
+  const { browse, spawns, approvalDir } = harness();
   const refused = await browse.exec(writingJob());
-  const store = createApprovals();
+  const store = createApprovals({ dir: approvalDir });
   const file = path.join(store.dir, 'pending', refused.approvalId + '.json');
   const rec = JSON.parse(readFileSync(file, 'utf8'));
   rec.job.thisOptionDoesNotExist = true;
@@ -149,9 +154,9 @@ test('a stored job is not world readable', { skip: process.platform === 'win32' 
   // It carries the urls it will visit and the values it will type, and a fill value can be
   // a password. Skipped rather than wrapped in an if: a test that runs and asserts nothing
   // reports as a pass, and this file already had one of those.
-  const { browse } = harness();
+  const { browse, approvalDir } = harness();
   const refused = await browse.exec({ urls: ['https://a.test/1'], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', fill: 'hunter2' }] });
-  const store = createApprovals();
+  const store = createApprovals({ dir: approvalDir });
   const file = path.join(store.dir, 'pending', refused.approvalId + '.json');
   const mode = statSync(file).mode & 0o777;
   assert.equal(mode, 0o600, 'the record is 0' + mode.toString(8) + ' in a shared temp directory');

@@ -72,18 +72,24 @@ the second is checked, and only when the caller asked.
 caller comparing a reported character count against what arrived is the only way to know a body was
 cut.
 
-## Where the implementation and this contract disagree
+## A blocked page, and who can clear it
 
-Three divergences hold in the tree right now. They are stated here because a contract document that
-describes only the intent is the reason nobody notices the gap.
+`EBLOCKED` is one code carrying two answers, and which one it is decides the status. A sign-in wall
+or a challenge is something a person can clear, so the item is `needs_input`. An origin refusing
+this client, or an upstream answering 5xx, is not cleared by anyone sitting down at the browser, so
+the item is `failed`. An `EBLOCKED` that never named its kind stays `failed`: `needs_input` is a
+claim that human action unblocks the item, and a code that did not say so has not earned it.
 
-**`blocked` is returned and is not in the vocabulary.** `itemStatus` answers `'blocked'` for an
-`EBLOCKED` item, and `ITEM_STATUSES` does not list it. A blocked item is therefore produced in
-normal operation and fails `checkResultEnvelope`. Whichever way it is resolved, the two files have
-to agree: either the vocabulary gains the word, or a blocked item maps onto one that is already
-there. Mapping it splits a real distinction — a login wall or a challenge is something a person can
-clear, and an origin refusing the client is not — and it would give `needs_input` the producer it
-has never had.
+A run inherits the request. If nothing finished and something needs a person, the run is
+`needs_input`; if other items did finish, it is `partial` and the tag says which kind of block was
+met. Both rank below `indeterminate` and below a ledger that does not reconcile, because a run we
+cannot account for is not a run a person fixes by signing in.
+
+This is where `needs_input` finally has a producer. The installed skill has always told an agent
+that `needs_input` means a login wall and should be handed back rather than retried; until now the
+code never emitted it, so the document described a status the tool could not reach.
+
+## Where the implementation and this contract still disagree
 
 **No gate reads the destination.** `itemStatus` reaches `completed` from `item.ok` alone. The
 script records `finalUrl` but never inspects its scheme, so a navigation that ended on the browser's

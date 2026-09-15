@@ -109,14 +109,28 @@ test('a batch where nothing ran is failed, and skipped items say so', async () =
   assert.ok(res.items.every((i) => i.status === 'skipped'));
 });
 
-test('a login wall is blocked, and wp2 still reports the run as partial', async () => {
+test('a sign-in wall asks for a person, and the run stays partial when other items worked', async () => {
+  const out = ok(finalLine({ items: [
+    { jobId: 'j000', url: 'https://a.test', ok: true },
+    { jobId: 'j001', url: 'https://b.test', ok: true },
+    { jobId: 'j002', url: 'https://c.test', ok: false, code: 'EBLOCKED', blockKind: 'login-wall' },
+  ] }));
+  const res = await run(out);
+  assert.equal(res.items[2].status, 'needs_input');
+  assert.equal(res.status, 'partial');
+});
+
+// The kind is the whole of the decision, so an EBLOCKED that never named one must not
+// inherit the friendlier answer. Saying needs_input here would invite a person to clear
+// something nobody established a person can clear.
+test('an EBLOCKED with no kind is a failure rather than a request', async () => {
   const out = ok(finalLine({ items: [
     { jobId: 'j000', url: 'https://a.test', ok: true },
     { jobId: 'j001', url: 'https://b.test', ok: true },
     { jobId: 'j002', url: 'https://c.test', ok: false, code: 'EBLOCKED' },
   ] }));
   const res = await run(out);
-  assert.equal(res.items[2].status, 'blocked');
+  assert.equal(res.items[2].status, 'failed');
   assert.equal(res.status, 'partial');
 });
 

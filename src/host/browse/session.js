@@ -119,6 +119,19 @@ export function settleEffects(rows = [], { killed = false } = {}) {
 // Order matters here. A host-kill item carries ok:false, but so does an ordinary failure,
 // and script.js only lowers out.ok when stopOnError is set — so an item whose action list
 // half ran arrives with ok:true. Reading ok first would call both of those completed.
+//
+// EBLOCKED is one code carrying two different answers, and collapsing them was this
+// module's only contract violation: 'blocked' was returned here and never listed in
+// ITEM_STATUSES, so a blocked item was produced in ordinary operation and then failed
+// checkResultEnvelope. What separates the two is what the caller can do about it. A
+// sign-in wall or a challenge is something a person can clear, which is what needs_input
+// has always meant. An origin refusing this client, or an upstream answering 5xx, is not
+// cleared by a person sitting down at the browser.
+//
+// An EBLOCKED that never said which kind it was stays a failure. needs_input is a claim
+// that human action unblocks this item, and a code that did not say so has not earned it.
+const HUMAN_CLEARABLE = new Set(['login-wall', 'captcha']);
+
 export function itemStatus(item) {
   if (!item) return 'unreturned';
   if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
@@ -126,13 +139,14 @@ export function itemStatus(item) {
   if (item.actionsOk === false) return 'failed';
   if (item.ok) return 'completed';
   if (item.code === 'ESKIP' || item.code === 'ETABBUDGET') return 'skipped';
-  if (item.code === 'EBLOCKED') return 'blocked';
+  if (item.code === 'EBLOCKED') return HUMAN_CLEARABLE.has(item.blockKind) ? 'needs_input' : 'failed';
   return 'failed';
 }
 
-// completed | partial | failed | indeterminate. needs_input is part of the vocabulary but
-// nothing produces it yet: the login-wall mapping belongs to the readText work (060), and
-// claiming it here would mean guessing which EBLOCKED a person could actually clear.
+// completed | partial | failed | needs_input | indeterminate. needs_input reaches a run
+// through itemStatus above: a batch that stopped only because someone has to sign in is a
+// request, not a failure, and telling those apart is the difference between a caller who
+// retries forever and one who opens a tab.
 export function runStatus({ marker, items = [], leakedUrls = [], killed = false, effects = [], extras = 0 }) {
   if (killed || marker === null) return 'indeterminate';
   if (items.some((i) => i.status === 'indeterminate')) return 'indeterminate';
@@ -144,6 +158,10 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
   // never issued — means the run and the ledger disagree. Every request may look answered
   // and the run still cannot be called clean.
   if (extras > 0) return done > 0 ? 'partial' : 'failed';
+  // Ranked below the two above on purpose. A run we cannot account for is not a run whose
+  // problem a person can fix by signing in, so 'we do not know' and 'the ledger disagrees'
+  // both outrank the invitation.
+  if (items.some((i) => i.status === 'needs_input')) return done > 0 ? 'partial' : 'needs_input';
   if (items.length > 0 && done === items.length && leakedUrls.length === 0 && marker === 'ok') return 'completed';
   if (done === 0) return 'failed';
   return 'partial';
@@ -255,7 +273,10 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const partial = final && Array.isArray(final.partial) ? final.partial.slice() : [];
     if (marker === 'error') partial.push('script-error');
     if (leakedUrls.length) partial.push('tab-leak');
-    if (items.some((i) => i.code === 'EBLOCKED')) partial.push('blocked');
+    // Two tags, because the two blocks now mean different things to the caller: one is
+    // waiting for a person and one is an origin that will keep saying no.
+    if (items.some((i) => i.status === 'needs_input')) partial.push('needs-input');
+    if (items.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
     // A page that arrived but did not render is a DIFFERENT outcome from a clean read,
     // and the caller must not have to infer it from the item bodies.
     if (items.some((i) => i.contentVerified === false || i.code === 'EUNRENDERED')) partial.push('content-unverified');

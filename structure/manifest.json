@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "sizeBudgetLines": 300,
+  "grace": {
+    "undocumentedSourceAreas": [
+      {
+        "path": "src/host/report/",
+        "reason": "the report builder and its static server are not yet described by a contract doc; it lands with the local-work cycle"
+      }
+    ]
+  },
+  "tiers": [
+    {
+      "id": 1,
+      "name": "Foundation",
+      "purpose": "What code mode is, what the guest may reach, and the invariants nothing may break."
+    },
+    {
+      "id": 2,
+      "name": "Result contract",
+      "purpose": "The one vocabulary every batch answers in, whoever produced it."
+    },
+    {
+      "id": 3,
+      "name": "Browsing",
+      "purpose": "The batch surface that drives Aside, and how it refuses work that cannot succeed."
+    },
+    {
+      "id": 4,
+      "name": "Delivery",
+      "purpose": "What an install writes into an account, and the budget it spends there."
+    }
+  ],
+  "docs": [
+    {
+      "path": "overview.md",
+      "tier": 1,
+      "title": "Overview",
+      "scope": "The product boundary, the three execution paths, and the guest sandbox surface.",
+      "documents": [
+        "bin/",
+        "src/cli.js",
+        "src/sandbox.js",
+        "src/tools.js",
+        "src/host/globals.js",
+        "src/host/namespaces.js"
+      ]
+    },
+    {
+      "path": "batch-contract.md",
+      "tier": 2,
+      "title": "Batch result contract",
+      "scope": "The shared run envelope, the status vocabulary, reconciliation, effects, and tab accounting.",
+      "documents": [
+        "src/host/browse/result-contract.js",
+        "src/host/browse/session.js",
+        "src/execution-output.js"
+      ]
+    },
+    {
+      "path": "browse-surface.md",
+      "tier": 3,
+      "title": "Browse surface",
+      "scope": "The job schema, block detection and the breaker, capture verification, and ref-addressed actions.",
+      "documents": [
+        "src/host/browse/"
+      ]
+    },
+    {
+      "path": "local-surface.md",
+      "tier": 3,
+      "title": "Local file and search surface",
+      "scope": "The guest file tools, ripgrep-backed search, scope reporting, and write coordination.",
+      "documents": [
+        "src/host/fs.js",
+        "src/host/search.js",
+        "src/host/patch.js",
+        "src/host/file-lock.js",
+        "src/rg.js",
+        "src/search-schema.js"
+      ]
+    },
+    {
+      "path": "install-surface.md",
+      "tier": 4,
+      "title": "Install surface",
+      "scope": "The three artifacts an install writes per account, the marker contract, and the always-injected budget.",
+      "documents": [
+        "scripts/install-codemode.mjs",
+        "templates/",
+        "src/register.js",
+        "src/paths.js"
+      ]
+    }
+  ]
+}

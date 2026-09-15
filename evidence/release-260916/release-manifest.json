@@ -1,0 +1,84 @@
+{
+  "schema": "codemode-release/1",
+  "generatedAt": "2026-09-15T05:18:06.819Z",
+  "commit": "9e4b02735a4b024c72a8998d4df9a42aa14808f4",
+  "branch": "dev",
+  "releaseTag": "v0.3.0",
+  "releaseTagCommit": "782017379dec1c92e1dcdf9b44b357bd0d58dddd",
+  "packageVersion": "0.3.0",
+  "helper": {
+    "version": "1.1.0",
+    "installPath": "codemode/cm.js",
+    "sha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99",
+    "bytes": 6456
+  },
+  "supported": {
+    "node": ">=18",
+    "os": [
+      "macOS (arm64, measured)",
+      "Windows (x64, Git Bash, measured)"
+    ],
+    "notSupported": [
+      "Linux - there is no Aside install path for it"
+    ],
+    "asideCliMeasured": null
+  },
+  "installs": [
+    {
+      "host": "MacBook",
+      "platform": "darwin",
+      "account": "0",
+      "accountRoot": "/Users/jun/.aside/u/0",
+      "installedVersion": "1.1.0",
+      "upToDate": true,
+      "agentsBlock": "current",
+      "allFilesOk": true,
+      "helperSha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99"
+    },
+    {
+      "host": "MacBook",
+      "platform": "darwin",
+      "account": "1",
+      "accountRoot": "/Users/jun/.aside/u/1",
+      "installedVersion": "1.1.0",
+      "upToDate": true,
+      "agentsBlock": "current",
+      "allFilesOk": true,
+      "helperSha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99"
+    },
+    {
+      "host": "MacBook",
+      "platform": "darwin",
+      "account": "2",
+      "accountRoot": "/Users/jun/.aside/u/2",
+      "installedVersion": "1.1.0",
+      "upToDate": true,
+      "agentsBlock": "current",
+      "allFilesOk": true,
+      "helperSha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99"
+    },
+    {
+      "host": "macmini-cf",
+      "platform": "darwin",
+      "account": "1",
+      "accountRoot": "/Users/junny/.aside/u/1",
+      "installedVersion": "1.1.0",
+      "upToDate": true,
+      "agentsBlock": "current",
+      "allFilesOk": true,
+      "helperSha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99"
+    },
+    {
+      "host": "Windows MINI",
+      "platform": "win32",
+      "account": "0",
+      "accountRoot": "C:\\Users\\super\\.aside\\u\\0",
+      "installedVersion": "1.1.0",
+      "upToDate": true,
+      "agentsBlock": "current",
+      "allFilesOk": true,
+      "helperSha256": "f5584a8081bdd41f935d2ba156953b27e13606eea4ab680ed88387ad4b898f99"
+    }
+  ],
+  "installsAgree": true
+}

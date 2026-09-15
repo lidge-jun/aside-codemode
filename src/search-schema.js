@@ -352,6 +352,7 @@ export function buildScope({
   followSymlinks = false,
   includeExcluded = false,
   excludeGlobs = [],
+  skippedSymlinks = null,
 }) {
   return {
     kind,
@@ -369,6 +370,9 @@ export function buildScope({
     includeExcluded,
     // The globs actually in force for this call: includeExcluded means none.
     excludeGlobs: includeExcluded ? [] : [...excludeGlobs],
+    // What a non-following search stepped over. Reported even when it is zero, so a caller
+    // can tell "nothing was skipped" from "nobody looked" (issue #24).
+    ...(skippedSymlinks ? { skippedSymlinks } : {}),
   };
 }
 

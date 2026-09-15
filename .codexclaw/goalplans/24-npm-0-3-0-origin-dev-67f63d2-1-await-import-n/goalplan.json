@@ -2,8 +2,8 @@
   "objective": "목표: 에이전트가 실제로 부딪힌 마찰 다섯 가지와 이슈 #24를 고치고, 가이드와 샌드박스 안내를 정리한 뒤, npm 배포 가능 여부를 판정해 다음 릴리즈(0.3.0)까지 낸다. 기준은 origin/dev 67f63d2다.\n\n달성할 결과:\n1) 게스트에서 await import(\"node:fs\") 같은 동적 임포트가 ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING으로 죽는 대신, 무엇이 막혀 있고 무엇을 써야 하는지 말하는 오류가 되게 한다.\n2) search.files와 search.content의 인자 이름 불일치(query vs pattern, path 필수 여부)를 없애거나, 틀린 이름을 줬을 때 맞는 이름을 알려주게 한다.\n3) browse.readText가 문자열과 {url} 양쪽을 받고, 결과에 text가 비어 있는 채로 markdown만 들어 있는 혼란을 없앤다.\n4) browse.attach의 접근성 트리를 계층 구조로도 돌려줘서, 과목-과제-마감일 같은 묶음을 정규식 상태 머신 없이 뽑을 수 있게 한다.\n5) 설치 직후 browse가 꺼져 있어 사용자가 손으로 config를 고쳐야 했던 경로를 없앤다. 켜는 방법이 한 번의 명령이거나, 거절 메시지가 정확한 명령을 알려준다.\n6) 이슈 #24: followSymlinks 거부로 건너뛴 링크 디렉터리가 결과에 보이게 한다. complete:true로 조용히 끝나지 않는다.\n7) 설치되는 안내(AGENTS 블록, 스킬, references)에 게스트 샌드박스 규칙과 이 API들의 호출 모양을 정확히 적는다.\n8) npm 배포 가능 여부를 실제로 판정한다 — 이름 가용성, files/bin/engines, pack 결과, 배포하면 안 되는 것이 들어가는지. 판정과 근거를 기록한다.\n9) 0.3.0을 정확한 head의 hosted CI 5조합 success 뒤 dev와 main에 반영하고 태그와 release를 만든다.\n\n파일 범위 IN: src/**, scripts/**, templates/**, test/**, devlog/_plan/260915_agent-friction/**, evidence/**, README*.\n범위 OUT: npm publish 실행 자체(가능 여부 판정과 준비까지), 캡차·금고, G5 수동 세션.\n\n검증: 각 마찰에 먼저 실패하는 반례, 정확한 head의 hosted CI 5조합, 세 기기 재검증. 돌리지 않은 것을 통과로 적지 않는다.\n\n완료 판정: DONE은 등록된 criteria 전부가 fresh 증거를 갖고, main에 0.3.0 태그와 release가 있으며, npm 판정이 기록된 상태다.\n\n첫 work-phase: wp1 - 마찰 여섯 건의 원인을 소스에서 확인하고 diff-level 로드맵을 쓴다 (코드 변경 없음).",
   "slug": "24-npm-0-3-0-origin-dev-67f63d2-1-await-import-n",
   "createdAt": "2026-09-15T02:11:38.714Z",
-  "updatedAt": "2026-09-15T02:48:15.592Z",
-  "activeWorkPhaseId": "w3",
+  "updatedAt": "2026-09-15T03:07:24.190Z",
+  "activeWorkPhaseId": "w4",
   "workPhases": [
     {
       "id": "w1",
@@ -25,7 +25,7 @@
     {
       "id": "w3",
       "title": "호출 모양 정리: search 인자 이름, readText 인자와 결과 필드",
-      "status": "in_progress",
+      "status": "done",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [
@@ -35,7 +35,7 @@
     {
       "id": "w4",
       "title": "이슈 #24: 건너뛴 심볼릭 링크를 결과에 드러내기",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [],
       "criteriaIds": [],
       "dependsOn": [
@@ -119,16 +119,16 @@
       "id": "c-3",
       "scenario": "search.files와 search.content가 틀린 인자 이름에 대해 맞는 이름을 알려주고, 두 메서드의 계약이 문서와 일치한다",
       "expectedEvidence": "",
-      "capturedEvidence": null,
-      "status": "open",
+      "capturedEvidence": "search.content나 search.count에 pattern을 주면 오류가 기존 valid: 목록을 유지한 채 'In search.content, use query; \"pattern\" belongs to search.files.'를 덧붙인다. 반대로 search.files에 query를 주면 pattern/glob과 search.content/count를 가리킨다. 값이 glob 모양(*.pdf)이면 query가 아니라 glob을 권한다 — 감사가 짚은 더 나쁜 함정을 피한다. path 누락은 '설정된 root 안의 디렉터리나 파일, 절대 경로도 루트 안이어야 하고 상대 경로는 --cwd 기준'을 말한다. MISDIRECTED 표는 OPT_SETS와 일치하고 actions.check의 구조화된 답과 같은 방향을 가리킨다. 반례 6건이 수정 전에 실패했다.",
+      "status": "met",
       "surface": "logic"
     },
     {
       "id": "c-4",
       "scenario": "browse.readText가 문자열과 {url} 양쪽을 받고, 결과의 본문 필드가 비어 있는 채로 다른 키에만 들어 있는 일이 없다",
       "expectedEvidence": "",
-      "capturedEvidence": null,
-      "status": "open",
+      "capturedEvidence": "browse.readText가 문자열과 { url, ...opts } 양쪽을 받고 두 호출이 같은 결과를 낸다. 본문은 text 한 필드로 오고 format이 무엇인지 말한다 — fetch 경로는 markdown, 브라우저 경로는 rendered innerText라 'text'다(감사가 거짓 주장을 짚어 고쳤다). markdown 키는 없앴다: 두 벌로 두면 JSON이 본문을 두 번 써서 10k 본문이 10029→20039 바이트가 되고 예산이 뒤 키를 잘라 res.text가 다시 비기 때문이다. 0.2.x가 남긴 캐시 엔트리는 읽을 때 text로 복원하고 chars가 본문 길이와 맞는지 테스트가 본다. watch와 prefetch, actions-schema 시그니처, README도 같이 맞췄다.",
+      "status": "met",
       "surface": "logic"
     },
     {

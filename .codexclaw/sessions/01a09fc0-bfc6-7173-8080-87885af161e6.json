@@ -1,11 +1,11 @@
 {
-  "phase": "B",
+  "phase": "P",
   "sessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
   "slug": "24-npm-0-3-0-origin-dev-67f63d2-1-await-import-n",
-  "updatedAt": "2026-09-15T02:29:11.737Z",
+  "updatedAt": "2026-09-15T02:30:18.478Z",
   "flags": {
     "interview": false,
-    "auditPassed": true,
+    "auditPassed": false,
     "checkPassed": false
   },
   "supersededBy": null,
@@ -21,7 +21,7 @@
     "01a0a232-078a-7b30-9253-f9febd199c09",
     "01a0a2d4-4899-7ad1-b23b-4269b84bd6e8"
   ],
-  "lastInjectedPhase": "B",
+  "lastInjectedPhase": "P",
   "orchestrationActive": true,
   "interview": null,
   "stopBlockPhase": null,
@@ -36,12 +36,7 @@
   "memoryWriteGrant": false,
   "unverifiedSubagents": [],
   "unverifiedCorrupt": false,
-  "phaseEntrySource": {
-    "kind": "resolved",
-    "commitSha": "0dd3f7d29eda1fc363b03e0af956d670fc1cbfc7",
-    "dirty": false,
-    "capturedAt": "2026-09-15T02:29:11.722Z"
-  },
+  "phaseEntrySource": null,
   "planUnit": null,
   "planEpoch": null,
   "checkEpoch": null,

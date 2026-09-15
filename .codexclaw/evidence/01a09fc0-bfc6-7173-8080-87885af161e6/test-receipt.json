@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "67f63d2df57e022f0de8a6c10405be4bf58f28bb",
+    "commitSha": "d02de8dc0cfcc6b66f1796231a83f5ae3f6dbcb9",
     "dirty": false,
-    "capturedAt": "2026-09-15T02:07:34.273Z"
+    "capturedAt": "2026-09-15T02:30:05.379Z"
   },
-  "command": "node scripts/run-tests.mjs",
+  "command": "node --test test/browse-doctor.test.js test/docs-guidance.test.js",
   "exitCode": 0,
-  "createdAt": "2026-09-15T02:07:34.293Z",
+  "createdAt": "2026-09-15T02:30:05.393Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915020703-6d3ab2"
+  "checkEpoch": "c-20260915023004-e3e7bb"
 }

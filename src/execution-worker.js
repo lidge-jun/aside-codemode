@@ -1,7 +1,9 @@
 import { parentPort, workerData, receiveMessageOnPort } from 'node:worker_threads';
 import vm from 'node:vm';
 import util from 'node:util';
-import { errorFields, fitEnvelope, fitString, stringifyResult } from './execution-output.js';
+import {
+  errorFields, fitEnvelope, fitString, stringifyResult, translateGuestError,
+} from './execution-output.js';
 
 const { code, timeoutMs, maxResultBytes, manifest, syncPort, syncBuffer } = workerData;
 const MAX_PENDING = 256;
@@ -83,7 +85,9 @@ try {
   const text = stringifyResult(value);
   out = { ok: true, ...(text === undefined ? {} : { result: JSON.parse(text) }) };
 } catch (e) {
-  out = { ok: false, ...errorFields(e) };
+  // Node's own words for "no module loader here" name an internal and offer nothing. The
+  // list of globals comes from the injection table so the advice cannot drift from reality.
+  out = { ok: false, ...errorFields(translateGuestError(e, Object.keys(injected))) };
 }
 out.logs = logs;
 if (hostCallFailures) out.hostCallFailures = hostCallFailures;

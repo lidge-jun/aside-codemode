@@ -97,7 +97,15 @@ test('one lost session stops the rest of the run instead of opening tabs that ca
   const out = payload();
   assert.equal(opened.length, 1, 'the second item must not have opened a tab');
   assert.equal(out.items[0].code, 'ENOTLOGGEDIN');
-  assert.ok(out.items.slice(1).every((i) => i.code === 'ESKIP' && i.reason === 'logged-out'));
+  // Count first. The earlier version of this line walked slice(1) of a one-element array,
+  // so every() answered true about nothing and the assertion passed while the run was in
+  // fact abandoning its queue. An assertion that walks a set has to establish the set is
+  // not empty before it means anything.
+  assert.equal(out.items.length, 3, 'every requested item must come back with an answer');
+  const rest = out.items.slice(1);
+  assert.equal(rest.length, 2);
+  assert.ok(rest.every((i) => i.code === 'ESKIP' && i.reason === 'logged-out'),
+    'a run that stopped on purpose must say so: ' + JSON.stringify(rest.map((i) => [i.code, i.reason])));
 });
 
 test('a caller who would rather see them all fail can say so', async () => {
@@ -180,4 +188,37 @@ test('a url that never loaded is not mistaken for an unrendered page', async () 
   });
   await done;
   assert.equal(payload().items[0].code, 'EDEADEND');
+});
+
+// A selector that never appeared used to end the item with no code, which threw away the
+// diagnosis: on a page you are not signed in to, the sign-in is why the selector is absent,
+// and the marker was never given the chance to say so. The run did not stop either.
+test('a selector that never appeared does not hide the reason it never appeared', async () => {
+  const urls = ['https://portal.test/a', 'https://portal.test/b'];
+  const job = validateJob({ urls, timeoutMs: 5000, concurrency: 1, loggedInMarker: 'Signed in as', waitSelector: '.course-list' });
+  const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), (u) => {
+    const page = makePage(u, fakeDocument(OUT));
+    page.waitForSelector = async () => { throw new Error('Timeout 5000ms exceeded'); };
+    return page;
+  });
+  await done;
+  const out = payload();
+  assert.equal(out.items.length, 2);
+  assert.equal(out.items[0].code, 'ENOTLOGGEDIN', 'the selector timeout buried the sign-in');
+  assert.equal(out.items[1].code, 'ESKIP', 'the run did not stop');
+  assert.equal(out.items[1].reason, 'logged-out');
+});
+
+// When the session is fine, the selector really is the story, and it says which one.
+test('a selector that never appeared on a signed-in page names itself', async () => {
+  const job = validateJob({ urls: ['https://portal.test/a'], timeoutMs: 5000, concurrency: 1, loggedInMarker: 'Signed in as', waitSelector: '.course-list' });
+  const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), (u) => {
+    const page = makePage(u, fakeDocument(IN));
+    page.waitForSelector = async () => { throw new Error('Timeout 5000ms exceeded'); };
+    return page;
+  });
+  await done;
+  const it = payload().items[0];
+  assert.equal(it.code, 'EWAITSELECTOR');
+  assert.match(it.error, /\.course-list/);
 });

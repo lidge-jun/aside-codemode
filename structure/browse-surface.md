@@ -23,6 +23,12 @@ than quietly dropped.
 The generated source travels as a command-line argument, so a script over 30,000 characters is
 refused with `ESOURCETOOLONG` rather than becoming a platform error that names nothing.
 
+That budget makes the script body unusual to edit: every comment inside it is shipped on the
+command line of every run, and the injected fragments are stripped of comments and blank lines
+before they travel while the main body is not. Two changes in this branch crossed the limit by
+writing an explanation into text that ships. Explanations belong in this folder, which does not
+ship; the script carries a line and a pointer.
+
 ## Refusing work that cannot succeed
 
 `policy.js` names a login wall, a CAPTCHA and a hard block, all of which look like "the page loaded"

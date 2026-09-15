@@ -490,6 +490,13 @@ const RX = JOB.detect ? {
 } : null;
 function hostOf(u) { try { return new URL(u).host.toLowerCase(); } catch (_) { return null; } }
 var RX_DEAD = JOB.deadEnd ? new RegExp(JOB.deadEnd, 'i') : null;
+// Every refusal names the same request, so the shape is written once. The script travels
+// on a 30000 character command line and these pushes are the most repeated code in it.
+function reject(item, code, extra) {
+  var o = { jobId: item.jobId, url: item.url, ok: false, code: code };
+  if (extra) for (var k in extra) o[k] = extra[k];
+  items.push(o);
+}
 function detectBlock(requestedUrl, finalUrl, title, tree) {
   if (!RX) return null;
   const hay = String(title) + '\\n' + String(tree);
@@ -505,9 +512,9 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
 }
 /*__REF_READ__*/
 async function one(item) {
-  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
-  if (item.skip) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
-  if (sessionGone) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'logged-out' }); return; }
+  if (deadlineHit) { reject(item, 'ESKIP', { reason: 'inner-deadline' }); return; }
+  if (item.skip) { reject(item, 'ESKIP', { reason: 'breaker-open' }); return; }
+  if (sessionGone) { reject(item, 'ESKIP', { reason: 'logged-out' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
@@ -521,9 +528,9 @@ async function one(item) {
   }
   // Re-check after waiting. The guard at the top of one() ran before the wait, so a worker
   // that queued behind the budget could still open a tab well past the inner deadline.
-  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
+  if (deadlineHit) { reject(item, 'ESKIP', { reason: 'inner-deadline' }); return; }
   if (owned() >= JOB.maxTabs) {
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
+    reject(item, 'ETABBUDGET', { owned: owned(), max: JOB.maxTabs, timings: t });
     return;
   }
   let pr;
@@ -534,7 +541,7 @@ async function one(item) {
     pr = openTab(item.url);
   } catch (e) {
     tabsRequested -= 1;
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    reject(item, 'EOPEN', { error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   // The record is held, not looked up later: two workers can be opening the same url, and
@@ -548,7 +555,7 @@ async function one(item) {
   } catch (e) {
     // A request that never became a tab must give its slot back, or the pool wedges.
     tabsRequested -= 1;
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    reject(item, 'EOPEN', { error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   if (owned() > tabsPeak) tabsPeak = owned();
@@ -557,7 +564,12 @@ async function one(item) {
   opened.push(rec);
   pend.rec = rec;
   try {
-    if (item.waitSelector) { await page.waitForSelector(item.waitSelector, { timeout: item.timeoutMs || JOB.innerMs }); }
+    // A missed selector is a symptom; the probe below may know the cause. structure/session-contract.md
+    var waitMissed = null;
+    if (item.waitSelector) {
+      try { await page.waitForSelector(item.waitSelector, { timeout: item.timeoutMs || JOB.innerMs }); }
+      catch (e) { waitMissed = item.waitSelector; }
+    }
     else if (typeof page.waitForLoadState === 'function') { await page.waitForLoadState(JOB.waitUntil); }
     t.waitFor = lap();
     // Probe read BEFORE any capture. Screenshotting a login wall and then calling it a
@@ -579,14 +591,12 @@ async function one(item) {
     // Arriving nowhere outranks every verdict below; see structure/batch-contract.md. The
     // wording is terse because this text travels on a 30000 character command line.
     if (RX_DEAD && RX_DEAD.test(finalUrl)) {
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EDEADEND',
-        error: 'no page was loaded; the navigation ended at ' + finalUrl,
-        finalUrl, title, timings: t });
+      reject(item, 'EDEADEND', { error: 'no page loaded; ended at ' + finalUrl, finalUrl: finalUrl, title: title, timings: t });
       return;
     }
     const blocked = detectBlock(item.url, finalUrl, title, tree);
     if (blocked) {
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });
+      reject(item, 'EBLOCKED', { blockKind: blocked.kind, alternate: blocked.alternate, finalUrl: finalUrl, title: title, timings: t });
       return;
     }
 
@@ -665,8 +675,7 @@ async function one(item) {
     // selectors when the actual problem is that nobody is signed in.
     if (JOB.loggedInMarker && render.loggedIn === false) {
       if (JOB.stopWhenLoggedOut) sessionGone = true;
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ENOTLOGGEDIN',
-        marker: JOB.loggedInMarker, finalUrl, title, render, timings: t });
+      reject(item, 'ENOTLOGGEDIN', { marker: JOB.loggedInMarker, finalUrl: finalUrl, title: title, render: render, timings: t });
       return;
     }
     const reasons = [];
@@ -687,9 +696,13 @@ async function one(item) {
     render.contentVerified = reasons.length ? false : (asked ? true : null);
     out_render = render;
     if (reasons.length && JOB.requireContent) {
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EUNRENDERED', finalUrl, title, render, timings: t });
+      reject(item, 'EUNRENDERED', { finalUrl: finalUrl, title: title, render: render, timings: t });
       return;
     }
+    }
+    if (waitMissed) {
+      reject(item, 'EWAITSELECTOR', { error: 'selector never appeared: ' + waitMissed, finalUrl: finalUrl, title: title, render: out_render, timings: t });
+      return;
     }
     const out = { jobId: item.jobId, url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
     // The body rides on the item, not inside the render summary: the render object is the
@@ -813,7 +826,12 @@ async function main() {
   const limit = Math.max(1, JOB.concurrency);
   const workers = [];
   for (let i = 0; i < limit; i++) {
-    workers.push((async () => { while (queue.length && !deadlineHit && !sessionGone) { await one(queue.shift()); } })());
+    // Drained unconditionally. Both stop flags used to be conditions here, which abandoned
+    // the queue and made the guards inside one() unreachable: the remaining items were never
+    // reported at all and the host filled them in as requests that never came back. That is
+    // the one outcome the contract cannot tell apart from a run that genuinely lost items.
+    // A guard returns synchronously, so draining a stopped run costs a push per item.
+    workers.push((async () => { while (queue.length) { await one(queue.shift()); } })());
   }
   await Promise.all(workers);
 }

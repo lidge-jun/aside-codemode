@@ -58,15 +58,22 @@ It is deliberately not `requireContent`. Content that is missing is a failure: t
 hold what was wanted. A session that is gone is a request. Two failures that ask different things
 of the caller need two options, or the answer collapses into the less useful one.
 
-Once one item reports the marker missing, the run stops taking new work. Every remaining item
-shares the session that just proved gone, so continuing only opens tabs that cannot succeed and
-spends the deadline doing it. `stopWhenLoggedOut: false` turns that off for a caller who would
-rather see every item fail on its own.
+Once one item reports the marker missing, the rest are skipped with `logged-out` as the reason.
+Every remaining item shares the session that just proved gone, so continuing only opens tabs that
+cannot succeed and spends the deadline doing it. `stopWhenLoggedOut: false` turns that off for a
+caller who would rather see every item fail on its own.
 
-What a caller sees for the items that never ran is `unreturned`, not a skip naming the session.
-The generated script stops draining its queue, so those items are never reported at all and the
-host fills them in as requests that never came back. That is the same answer it gives when a run
-genuinely lost items, so a deliberate stop and a broken run are currently indistinguishable.
+They are skipped rather than dropped, and the difference matters. An earlier revision stopped the
+worker loop instead, so the remaining items were never reported and the host filled them in as
+requests that never came back — the same answer a run gives when it genuinely loses items. The
+queue is drained either way now, and the guard answers each item with the reason it was not
+attempted.
+
+A `waitSelector` that never matches does not end the item on its own. On a page you are not
+signed in to, the sign-in is why the selector is absent, and ending there reported a bare timeout
+while the marker sat unread. The timeout is recorded, the probe runs, and the marker or the
+content check gets to name the cause. If neither claims the item, it fails with `EWAITSELECTOR`
+naming the selector, which is more than the bare timeout ever said.
 
 The marker is tested against the document's own text with script, style and template content
 removed, the same text `requireContent` reads. A bootstrap payload that mentions the marker is not

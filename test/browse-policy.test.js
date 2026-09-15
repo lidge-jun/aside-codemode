@@ -114,3 +114,50 @@ test('breakers are per domain, not global', () => {
   assert.equal(b.state('good.test'), 'closed');
   assert.equal(b.plan(['https://good.test/a'])[0].skip, false);
 });
+
+// These two patterns were merely noisy while a detected block produced a status the
+// contract rejected. They now produce needs_input, which a reader is taught to hand to a
+// person and not retry, so a false positive reads as a correct answer. Each case below is
+// a page that was being accused of something.
+const page = (o) => detect({
+  requestedUrl: o.from || 'https://a.test/x',
+  finalUrl: o.to || o.from || 'https://a.test/x',
+  title: o.title || '',
+  tree: o.tree || '',
+});
+
+test('a page that merely mentions cloudflare is not a challenge', () => {
+  assert.equal(page({ title: 'Pricing', tree: 'Protected by Cloudflare' }), null);
+  assert.equal(page({ title: 'Cloudflare Workers docs', tree: 'cloudflare workers runtime apis' }), null);
+});
+
+test('an actual challenge page is still a challenge', () => {
+  assert.equal(page({ title: 'Just a moment...', tree: 'Checking your browser before accessing' }).kind, 'captcha');
+  assert.equal(page({ title: 'Attention Required! | Cloudflare', tree: '' }).kind, 'captcha');
+  assert.equal(page({ tree: 'Please complete the captcha' }).kind, 'captcha');
+  assert.equal(page({ tree: 'verify you are human' }).kind, 'captcha');
+});
+
+// The signed-in case the bare word `account` was accusing.
+test('a settings page you are already signed in to is not a sign-in wall', () => {
+  const settings = page({
+    from: 'https://app.test/account/settings',
+    tree: 'Change password  Current password  New password',
+  });
+  assert.equal(settings, null, 'a password field on your own settings page is not a login wall');
+});
+
+test('a path segment is a segment, not a substring', () => {
+  // `auth` inside `author`, and `sso` inside `lesson`.
+  assert.equal(page({ from: 'https://blog.test/author/jane', tree: 'password' }), null);
+  assert.equal(page({ from: 'https://lms.test/lesson/3', tree: 'password reset help' }), null);
+});
+
+test('a real sign-in wall is still a sign-in wall', () => {
+  // Redirected to another host, landing on a sign-in path.
+  const wall = page({ from: 'https://app.test/dashboard', to: 'https://id.test/login?next=/dashboard' });
+  assert.equal(wall.kind, 'login-wall');
+  // Same host, a sign-in path and a password field.
+  assert.equal(page({ from: 'https://app.test/auth/callback', tree: 'Password' }).kind, 'login-wall');
+  assert.equal(page({ from: 'https://app.test/sso', tree: 'Password' }).kind, 'login-wall');
+});

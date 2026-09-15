@@ -8,6 +8,8 @@ import { createBreaker } from './policy.js';
 import { createCaptureMany } from './capture.js';
 import { createReadText } from './read-text.js';
 import { createCache } from './cache.js';
+import { createApprovals } from './approvals.js';
+import { createTabJournal } from './tab-journal.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
@@ -29,7 +31,21 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     failures: Number.isSafeInteger(caps.breakerFailures) ? caps.breakerFailures : 3,
     cooldownMs: Number.isSafeInteger(caps.breakerCooldownMs) ? caps.breakerCooldownMs : 30000,
   });
-  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker });
+  // One store per host-globals instance, but backed by the filesystem rather than memory:
+  // a batch is refused in one tool call and approved in another, and the host scope does
+  // not survive between them.
+  // The directory is configurable so a test can be given its own. Found by dogfooding: the
+  // suite was writing every refusal, claim and rejection into the shared one and leaving
+  // them there, which is litter in somebody's temp directory and a test that can see
+  // another run's records.
+  const approvals = createApprovals({
+    ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined,
+    dir: typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : undefined,
+  });
+  const tabJournal = createTabJournal({
+    dir: typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : undefined,
+  });
+  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
   // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
@@ -70,12 +86,64 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const prefetchImpl = createPrefetch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
-  const attachImpl = createAttach({ config, session });
+  const attachImpl = createAttach({ config, session, tabJournal });
+
+  // Tabs this tool opened, whose run is gone, that are still sitting in the browser. The
+  // live list is asked for first: a journal entry for a tab that is no longer open is a
+  // record of something already dealt with, and naming it would send someone looking for a
+  // tab that is not there. Nothing outside the journal is ever named, which is what keeps a
+  // user's own tabs out of this.
+  async function leakedTabs() {
+    if (caps.enabled !== true) throw disabledError();
+    const listed = await attachImpl.tabs();
+    if (!listed || listed.ok !== true) {
+      return { ok: false, code: listed && listed.code ? listed.code : 'ENOTABS', error: 'could not read the open tabs, so nothing can be called abandoned', tabs: [] };
+    }
+    // The whole tab objects, not just their ids: the journal matches on the url too, because
+    // a reused target id attached to a tab the person opened is exactly the case that must
+    // not be claimed.
+    const live = (listed.tabs || []).filter((t) => t && t.targetId);
+    return { ok: true, tabs: tabJournal.orphans(live), checked: live.length };
+  }
+
+  // Named explicitly, always. There is no implicit "the current run": a process can hold
+  // several refusals at once, and an approve() with no argument would be a guess about
+  // which one the caller meant.
+  async function approve(opts = {}) {
+    if (caps.enabled !== true) throw disabledError();
+    const id = opts && typeof opts.approvalId === 'string' ? opts.approvalId : null;
+    if (!id) { const e = new Error('browse.approve needs the approvalId the refusal returned'); e.code = 'EBADVAL'; throw e; }
+    const claimed = approvals.claim(id);
+    // Nothing moved. Whatever state it is in is the answer, and the caller is told which
+    // one rather than being left to infer it from a failure.
+    if (!claimed.ok) return { ok: false, changed: false, approvalId: id, state: claimed.state, runId: (claimed.record && claimed.record.runId) || null, startedAt: (claimed.record && claimed.record.startedAt) || null };
+    const rec = claimed.record;
+    const res = await session.run(rec.job, { approvedBy: id });
+    approvals.started(id, res && res.runId ? res.runId : null);
+    return { ...res, approvalId: id, changed: true };
+  }
+
+  async function reject(opts = {}) {
+    if (caps.enabled !== true) throw disabledError();
+    const id = opts && typeof opts.approvalId === 'string' ? opts.approvalId : null;
+    if (!id) { const e = new Error('browse.reject needs the approvalId the refusal returned'); e.code = 'EBADVAL'; throw e; }
+    const done = approvals.reject(id);
+    // A claimed record is never reported as rejected. By then the steps may have run, and
+    // saying otherwise is the one wrong answer this surface can give.
+    return {
+      ok: done.ok, changed: done.changed, approvalId: id, state: done.state,
+      runId: (done.record && done.record.runId) || null,
+      startedAt: (done.record && done.record.startedAt) || null,
+    };
+  }
 
   return Object.freeze({
     probe,
     exec,
+    approve,
+    reject,
     tabs: () => attachImpl.tabs(),
+    leakedTabs: () => leakedTabs(),
     attach: (o) => attachImpl.attach(o),
     captureMany,
     readText: (url, o) => readTextImpl(url, o),
@@ -90,6 +158,12 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 }
 
 export { CAPABILITY_MATRIX };
+
+function disabledError() {
+  const e = new Error(`browse is turned off on this machine. Turn it back on with: ${ENABLE_BROWSE_COMMAND}`);
+  e.code = 'EDISABLED';
+  return e;
+}
 
 // Exported for the test; a broken accounts.json must never take browsing down with it.
 export function resolveAccountRoot(asideHome) {

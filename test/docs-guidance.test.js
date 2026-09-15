@@ -89,3 +89,50 @@ test('readText and attach are in the tool description, with the field readText a
   assert.match(doc, /treeNodes/);
   assert.match(doc, /no module loader/i);
 });
+
+// Four things an agent got wrong in real sessions, each because the block did not say them.
+// The line budget itself lives in readme-51x.test.js, which has held it since the split.
+test('the block carries the session rule rather than telling an agent to avoid logins', () => {
+  const { agents } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  // Sessions ARE inherited. An earlier block read as though a signed-in site could not be
+  // batched at all, which sealed off the strongest thing this tool does.
+  assert.match(flat, /sign in natively first/i);
+  assert.match(flat, /loggedInMarker/);
+  // And the failure mode that makes the rule necessary.
+  assert.match(flat, /expires partway|login page/i);
+});
+
+test('the block says a successful call is not a correct result', () => {
+  const { agents, skill } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /`ok`, `completed`, HTTP 200 and `contentVerified`/);
+  assert.match(flat, /None of them says the page holds what you asked for/i);
+  // The skill owns the same rule at length, because the block cannot afford the detail.
+  assert.match(skill.replace(/\s+/g, ' '), /completed .*does not mean|success signals/i);
+});
+
+test('the block gives the routing test, not just the routing rule', () => {
+  const { agents } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /open API or a server-rendered page is a fetch/i);
+  assert.match(flat, /deleting the script tags/i);
+});
+
+// The ban existed and the replacement did not, so an agent read a prohibition with no way
+// out and reached for the shell anyway. They belong in one sentence.
+test('the search ban names its replacement in the same breath', () => {
+  const { agents } = rendered();
+  const sentence = agents.split(/\n\s*\n/).find((p) => /Do not call `rg`/.test(p));
+  assert.ok(sentence, 'the block no longer bans the shell search commands');
+  for (const api of ['search.content', 'fs.stat', 'fs.grepFile']) {
+    assert.ok(sentence.includes(api), api + ' is not offered where the ban is stated');
+  }
+});
+
+test('reading describe is a step before the first call, not a recovery from a refusal', () => {
+  const { agents } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /actions\.describe.? before the first call/i);
+  assert.match(flat, /actions\.check/);
+});

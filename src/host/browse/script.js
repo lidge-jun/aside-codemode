@@ -4,7 +4,7 @@
 // tabs permanently and no later session can close them (001 E5). So the script must always
 // finish under its OWN timer: inner deadline first, host deadline second.
 import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS, SLACK_MS } from './schema.js';
-import { detectionPatterns } from './policy.js';
+import { detectionPatterns, DEAD_END } from './policy.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { helperSource } from './helper-bundle.js';
 
@@ -336,10 +336,50 @@ export function stripForWire(src) {
   return out.join('\n');
 }
 
+// The same thing, plus the leading spaces, for the fragments that get INJECTED into the
+// template. stripForWire keeps indentation because the template it is applied to may hold a
+// multi-line string whose leading spaces are part of the value. None of these fragments
+// holds one — they contain no backtick at all, which a test asserts for every one of them,
+// because the day somebody adds a template literal here the indentation stops being free.
+// It is worth doing: across the fragments an acting job reaches, this is over a kilobyte of
+// command line that says nothing.
+export function stripFragment(src) {
+  return stripForWire(String(src).replace(/^ +/gm, ''));
+}
+
+// The wire cap, in one place, because two entry points enforce it and they used to carry
+// the same number twice. It is not a round number chosen for looks: the generated source is
+// handed to the CLI as a command-line ARGUMENT, and Windows caps a whole command line at
+// 32,767 characters, so 30,000 is that ceiling with room for the binary path and the verb.
+// No other platform is anywhere near it — macOS and Linux measure their limit in hundreds of
+// kilobytes — and holding every host to the tightest one meant `helper: true` could not be
+// used with a full batch at all. So the cap is the platform's, and the portable envelope is
+// pinned separately by the suite: the ordinary acting and reading jobs stay under 30,000 on
+// every host, and only the combinations beyond that envelope depend on where you are.
+export const WIRE_LIMIT = process.platform === 'win32' ? 30000 : 50000;
+export const WIRE_LIMIT_PORTABLE = 30000;
+
+// Fields the script only ever reads for truthiness, and one it never reads at all. They are
+// per-row, so on a twenty-url batch they are a kilobyte of command line spent saying
+// nothing: `breaker` is read by neither the script nor the host (the host's own view comes
+// from breaker.snapshot()), and a null waitSelector or a false skip is exactly what the
+// script assumes when the key is absent.
+function thinRow(row) {
+  const out = {};
+  for (const k of Object.keys(row)) {
+    if (k === 'breaker') continue;
+    if (k === 'skip' && row[k] === false) continue;
+    if (k === 'waitSelector' && (row[k] === null || row[k] === undefined)) continue;
+    out[k] = row[k];
+  }
+  return out;
+}
+
 export function compile(job, plan = null) {
-  const items = plan && plan.length
+  const items = (plan && plan.length
     ? plan
-    : job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }));
+    : job.urls.map((url) => ({ url, timeoutMs: job.timeoutMs, waitSelector: job.waitSelector, skip: false }))
+  ).map(thinRow);
   const payload = {
     items,
     // Issued host side and echoed back on every effect line, so a side effect can be tied
@@ -367,6 +407,11 @@ export function compile(job, plan = null) {
     requireSelector: job.requireSelector || [],
     minTextChars: job.minTextChars || null,
     requireContent: job.requireContent === true,
+    // The source, not a compiled RegExp: the script rebuilds it, the same way the
+    // block-detection patterns travel. schema.js has already refused an invalid one.
+    requireContentPattern: job.requireContentPattern || null,
+    loggedInMarker: job.loggedInMarker || null,
+    stopWhenLoggedOut: job.stopWhenLoggedOut === true,
     screenshot: job.screenshot,
     pdf: job.pdf && { ...A4_INCHES, ...job.pdf },
     extract: job.extract || null,
@@ -374,6 +419,9 @@ export function compile(job, plan = null) {
     // Only when asked. Every key here is bytes on a command line the host caps at 30000.
     ...(job.fullText === true ? { fullText: true, maxTextChars: job.maxTextChars || 200000 } : {}),
     detect: job.detect === false ? null : detectionPatterns(),
+    // Travels as data like the block patterns. The script rebuilds it and consults it
+    // before every other verdict.
+    deadEnd: DEAD_END.source,
   };
   // Function replacers, not string ones. String.prototype.replace interprets $&, $` and
   // $' in the REPLACEMENT, so a selector or a fill value carrying $& was substituted after
@@ -398,17 +446,17 @@ export function compile(job, plan = null) {
     // read from the same file an install copies, which is what lets the envelope's sha256
     // mean anything.
     .replace('/*__HELPER__*/', () => (job.helper === true ? stripForWire(helperSource().src) : ''))
-    .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
-    .replace('/*__TREE_NODES__*/', () => (needsTree && payload.treeNodes === true ? stripForWire(TREE_NODES_SRC) : ''))
+    .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripFragment(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__TREE_NODES__*/', () => (needsTree && payload.treeNodes === true ? stripFragment(TREE_NODES_SRC) : ''))
     .replace('/*__TREE_NODES_CALL__*/', () => (needsTree && payload.treeNodes === true
       ? 'if (out.snapshot) { var __n = summarizeNodes(tree, JOB.snapshot, { maxNodeChars: 8000 }); out.snapshot.nodes = __n.nodes; out.snapshot.nodesTruncated = __n.nodesTruncated; out.snapshot.nodesUnparsed = __n.nodesUnparsed; }'
       : ''))
-    .replace('/*__EXTRACT__*/', () => (payload.extract ? stripForWire(EXTRACT_SRC) : ''))
-    .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
-    .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripForWire(REF_SPLIT_SRC) : ''))
-    .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripForWire(REF_EXTRACT_SRC) : ''))
-    .replace('/*__SNAPSHOT_AFTER__*/', () => (payload.snapshotAfter ? stripForWire(SNAPSHOT_AFTER_SRC) : ''))
-    .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripForWire(ACTION_STEP_SRC) : ''));
+    .replace('/*__EXTRACT__*/', () => (payload.extract ? stripFragment(EXTRACT_SRC) : ''))
+    .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripFragment(REF_READ_SRC) : ''))
+    .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripFragment(REF_SPLIT_SRC) : ''))
+    .replace('/*__REF_EXTRACT__*/', () => (hasRefExtract ? stripFragment(REF_EXTRACT_SRC) : ''))
+    .replace('/*__SNAPSHOT_AFTER__*/', () => (payload.snapshotAfter ? stripFragment(SNAPSHOT_AFTER_SRC) : ''))
+    .replace('/*__ACTION_STEPS__*/', () => (needsActions ? stripFragment(ACTION_STEP_SRC) : ''));
   return stripForWire(src);
 }
 
@@ -463,12 +511,28 @@ function withCap(p, ms) {
 // page had been clicked. This survives that.
 const actionLog = [];
 let deadlineHit = false;
+// Counted, not latched. One miss is not proof: a marker can be absent because a page half
+// rendered, and cancelling a batch that would have worked sends someone to sign in again
+// for nothing. Three is the cost-asymmetric number, not a borrowed default — an item whose
+// marker is missing returns before it acts, so the two extra attempts are two navigations
+// and no clicks. What they are NOT allowed to do is keep acting on a session already
+// proven gone, which is what the stopped callback below is for.
+let markerMisses = 0;
 // Idempotent: it carries a counter now, so the invariant lives with the counter rather
 // than with every call site remembering to check rec.closed first.
+// Printed the moment a tab exists and the moment it stops existing, not gathered into the
+// final payload. A CLI killed on a hung close never writes that payload, and the tabs it
+// left are the ones somebody has to find later, so the record has to leave the process
+// before the process does. The run id and the clock are the host's: it issued one and owns
+// the other, and every key here is bytes on the command line.
+function tabEvent(e, r) {
+  try { console.log(JSON.stringify({ type: 'tab', ev: e, targetId: r.targetId || null, url: r.url, jobId: r.jobId })); } catch (x) {}
+}
 function markClosed(rec) {
   if (rec.closed) return;
   rec.closed = true;
   tabsClosed += 1;
+  tabEvent('close', rec);
 }
 const RX = JOB.detect ? {
   captcha: new RegExp(JOB.detect.captcha, 'i'),
@@ -477,6 +541,14 @@ const RX = JOB.detect ? {
   password: new RegExp(JOB.detect.password, 'i'),
 } : null;
 function hostOf(u) { try { return new URL(u).host.toLowerCase(); } catch (_) { return null; } }
+var RX_DEAD = JOB.deadEnd ? new RegExp(JOB.deadEnd, 'i') : null;
+// Every refusal names the same request, so the shape is written once. The script travels
+// on a 30000 character command line and these pushes are the most repeated code in it.
+function reject(item, code, extra) {
+  var o = { jobId: item.jobId, url: item.url, ok: false, code: code };
+  if (extra) for (var k in extra) o[k] = extra[k];
+  items.push(o);
+}
 function detectBlock(requestedUrl, finalUrl, title, tree) {
   if (!RX) return null;
   const hay = String(title) + '\\n' + String(tree);
@@ -492,8 +564,9 @@ function detectBlock(requestedUrl, finalUrl, title, tree) {
 }
 /*__REF_READ__*/
 async function one(item) {
-  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
-  if (item.skip) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'breaker-open' }); return; }
+  if (deadlineHit) { reject(item, 'ESKIP', { reason: 'inner-deadline' }); return; }
+  if (item.skip) { reject(item, 'ESKIP', { reason: 'breaker-open' }); return; }
+  if (markerMisses > 2) { reject(item, 'ELOGINREQUIRED', { reason: 'logged-out' }); return; }
   const t = { navigate: 0, waitFor: 0, detect: 0, actions: 0, snapshot: 0, screenshot: 0, pdf: 0 };
   let out_render = null;
   let mark = Date.now();
@@ -507,9 +580,9 @@ async function one(item) {
   }
   // Re-check after waiting. The guard at the top of one() ran before the wait, so a worker
   // that queued behind the budget could still open a tab well past the inner deadline.
-  if (deadlineHit) { items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ESKIP', reason: 'inner-deadline' }); return; }
+  if (deadlineHit) { reject(item, 'ESKIP', { reason: 'inner-deadline' }); return; }
   if (owned() >= JOB.maxTabs) {
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'ETABBUDGET', owned: owned(), max: JOB.maxTabs, timings: t });
+    reject(item, 'ETABBUDGET', { owned: owned(), max: JOB.maxTabs, timings: t });
     return;
   }
   let pr;
@@ -520,7 +593,7 @@ async function one(item) {
     pr = openTab(item.url);
   } catch (e) {
     tabsRequested -= 1;
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    reject(item, 'EOPEN', { error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   // The record is held, not looked up later: two workers can be opening the same url, and
@@ -534,16 +607,22 @@ async function one(item) {
   } catch (e) {
     // A request that never became a tab must give its slot back, or the pool wedges.
     tabsRequested -= 1;
-    items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EOPEN', error: String(e && e.message ? e.message : e), timings: t });
+    reject(item, 'EOPEN', { error: String(e && e.message ? e.message : e), timings: t });
     return;
   }
   if (owned() > tabsPeak) tabsPeak = owned();
   t.navigate = lap();
   const rec = { targetId: page && page.targetId, url: item.url, jobId: item.jobId, page, closed: false };
+  tabEvent('open', rec);
   opened.push(rec);
   pend.rec = rec;
   try {
-    if (item.waitSelector) { await page.waitForSelector(item.waitSelector, { timeout: item.timeoutMs || JOB.innerMs }); }
+    // A missed selector is a symptom; the probe below may know the cause. structure/session-contract.md
+    var waitMissed = null;
+    if (item.waitSelector) {
+      try { await page.waitForSelector(item.waitSelector, { timeout: item.timeoutMs || JOB.innerMs }); }
+      catch (e) { waitMissed = item.waitSelector; }
+    }
     else if (typeof page.waitForLoadState === 'function') { await page.waitForLoadState(JOB.waitUntil); }
     t.waitFor = lap();
     // Probe read BEFORE any capture. Screenshotting a login wall and then calling it a
@@ -562,9 +641,15 @@ async function one(item) {
     try { if (typeof page.title === 'function') title = await page.title(); } catch (_) {}
     try { if (typeof snapshot === 'function') { const snap = await snapshot(page); tree = (snap && snap.tree) || ''; } } catch (_) {}
     t.detect = lap();
+    // Arriving nowhere outranks every verdict below; see structure/batch-contract.md. The
+    // wording is terse because this text travels on a 30000 character command line.
+    if (RX_DEAD && RX_DEAD.test(finalUrl)) {
+      reject(item, 'EDEADEND', { error: 'no page loaded; ended at ' + finalUrl, finalUrl: finalUrl, title: title, timings: t });
+      return;
+    }
     const blocked = detectBlock(item.url, finalUrl, title, tree);
     if (blocked) {
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });
+      reject(item, 'EBLOCKED', { blockKind: blocked.kind, alternate: blocked.alternate, finalUrl: finalUrl, title: title, timings: t });
       return;
     }
 
@@ -594,6 +679,29 @@ async function one(item) {
         (hit ? matched : unmatched).push(sel);
       }
       const skeletonNodes = document.querySelectorAll('[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i],[aria-busy="true"]').length;
+      // Counted because it is the usual explanation for a selector that found nothing. The
+      // probe already walks the document, so this costs a query and answers the question a
+      // caller asks next.
+      const iframes = document.querySelectorAll('iframe').length;
+      // The text a required pattern is tested against is the DOM's own, with script and
+      // style removed. innerText is the rendered view and collapses on a page the browser
+      // has not laid out — the same page answered 2,024 characters that way and 271,303
+      // the other — so a marker that is present would read as absent. Keeping script
+      // bodies out matters just as much: a bootstrap payload mentioning the very string
+      // being looked for would match while no one could see it.
+      let patternMatched = null;
+      let loggedIn = null;
+      if (req.pattern || req.marker) {
+        let hay = '';
+        if (body) {
+          const clone = body.cloneNode(true);
+          const noisy = clone.querySelectorAll('script,style,template,noscript');
+          for (let i = 0; i < noisy.length; i++) noisy[i].remove();
+          hay = clone.textContent || '';
+        }
+        if (req.pattern) patternMatched = new RegExp(req.pattern).test(hay);
+        if (req.marker) loggedIn = new RegExp(req.marker).test(hay);
+      }
       return {
         textChars: visibleText.length,
         rawChars: rawLen,
@@ -602,19 +710,31 @@ async function one(item) {
         scriptRatio: totalLen ? Math.round((scriptLen / totalLen) * 100) / 100 : 0,
         requiredSelectorsMatched: matched,
         requiredSelectorsMissing: unmatched,
+        patternMatched,
+        loggedIn,
         skeletonNodes,
+        iframes,
         sample: visibleText.slice(0, 160),
         // Only when the caller asked. Shipping the whole body by default is how a batch of
         // twenty pages turns into a megabyte of stdout.
         full: req.ft ? visibleText.slice(0, req.m || 200000) : null,
       };
-      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars });
+      }, { selectors: JOB.requireSelector || [], ft: JOB.fullText, m: JOB.maxTextChars, pattern: JOB.requireContentPattern, marker: JOB.loggedInMarker });
     } catch (_) { render = null; }
 
     if (render) {
+    // Ahead of the content checks, because a signed-out page fails those too and the
+    // content miss is the less useful of the two answers: it sends the caller looking at
+    // selectors when the actual problem is that nobody is signed in.
+    if (JOB.loggedInMarker && render.loggedIn === false) {
+      if (JOB.stopWhenLoggedOut) markerMisses++;
+      reject(item, 'ENOTLOGGEDIN', { marker: JOB.loggedInMarker, finalUrl: finalUrl, title: title, render: render, timings: t });
+      return;
+    }
     const reasons = [];
     if (JOB.minTextChars && render.textChars < JOB.minTextChars) reasons.push('only ' + render.textChars + ' visible characters (wanted >= ' + JOB.minTextChars + ')');
     if (render.requiredSelectorsMissing.length) reasons.push('missing required selectors: ' + render.requiredSelectorsMissing.join(', '));
+    if (render.patternMatched === false) reasons.push('the page does not contain the required content /' + JOB.requireContentPattern + '/');
     // scriptRatio is REPORTED but is deliberately not a verdict input. Any bundled SPA
     // ships large inline scripts, so a ratio test fails pages that rendered perfectly well
     // — it would trade the false success we are fixing for a false failure, which is no
@@ -622,13 +742,20 @@ async function one(item) {
     if (render.skeletonNodes > 0 && render.textChars < 400) reasons.push(render.skeletonNodes + ' loading-skeleton nodes still present and almost no text');
     render.reasons = reasons;
     // null means nobody asked and no heuristic fired; true/false is a real verdict.
-    const asked = Boolean((JOB.requireSelector && JOB.requireSelector.length) || JOB.minTextChars);
+    // A pattern counts as asking, because it IS the check. A bare requireContent does not,
+    // and cannot arrive alone: schema.js refuses it without a check beside it, so there is
+    // no path here where the verdict is true and nothing was verified.
+    const asked = Boolean((JOB.requireSelector && JOB.requireSelector.length) || JOB.minTextChars || JOB.requireContentPattern);
     render.contentVerified = reasons.length ? false : (asked ? true : null);
     out_render = render;
     if (reasons.length && JOB.requireContent) {
-      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EUNRENDERED', finalUrl, title, render, timings: t });
+      reject(item, 'EUNRENDERED', { finalUrl: finalUrl, title: title, render: render, timings: t });
       return;
     }
+    }
+    if (waitMissed) {
+      reject(item, 'EWAITSELECTOR', { error: 'selector never appeared: ' + waitMissed, finalUrl: finalUrl, title: title, render: out_render, timings: t });
+      return;
     }
     const out = { jobId: item.jobId, url: item.url, ok: true, finalUrl, title, timings: t, render: out_render, contentVerified: out_render ? out_render.contentVerified : null, capture: { requested: {}, actual: {}, matched: true } };
     // The body rides on the item, not inside the render summary: the render object is the
@@ -676,7 +803,8 @@ async function one(item) {
         },
         urlAtSnapshot: urlBeforeActions,
         allowStaleRefs: JOB.allowStaleRefs,
-        stopOnError: JOB.stopOnError
+        stopOnError: JOB.stopOnError,
+        stopped: function () { return markerMisses > 2; }
       });
       t.actions = lap();
       out.actions = ran.steps;
@@ -689,7 +817,7 @@ async function one(item) {
       // render object, so the pair is never read as being about one document.
       out.contentVerifiedStage = 'pre-actions';
       if (ran.urlAfter) { finalUrl = ran.urlAfter; out.finalUrl = ran.urlAfter; }
-      if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = 'EACTION'; }
+      if (!ran.ok && JOB.stopOnError) { out.ok = false; out.code = markerMisses > 2 ? 'ESESSIONGONE' : 'EACTION'; }
     }
     // The observation this call leaves behind. Its id is what makes a follow-up ref read
     // legal, and a caller can ask for it without running any actions at all.
@@ -752,7 +880,12 @@ async function main() {
   const limit = Math.max(1, JOB.concurrency);
   const workers = [];
   for (let i = 0; i < limit; i++) {
-    workers.push((async () => { while (queue.length && !deadlineHit) { await one(queue.shift()); } })());
+    // Drained unconditionally. Both stop flags used to be conditions here, which abandoned
+    // the queue and made the guards inside one() unreachable: the remaining items were never
+    // reported at all and the host filled them in as requests that never came back. That is
+    // the one outcome the contract cannot tell apart from a run that genuinely lost items.
+    // A guard returns synchronously, so draining a stopped run costs a push per item.
+    workers.push((async () => { while (queue.length) { await one(queue.shift()); } })());
   }
   await Promise.all(workers);
 }

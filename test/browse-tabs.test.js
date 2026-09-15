@@ -3,7 +3,24 @@
 // and counted at INTENT or four workers all read owned() === 0 and all four open.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, summarizeTree } from '../src/host/browse/script.js';
+import { compile, summarizeTree, WIRE_LIMIT, WIRE_LIMIT_PORTABLE, stripFragment, stripForWire as stripForWireOnly } from '../src/host/browse/script.js';
+import { ACTION_STEP_SRC } from '../src/host/browse/actions-run.js';
+import { readFileSync } from 'node:fs';
+
+// Read back out of the file, so a fragment added later is swept without anyone remembering
+// to add it here.
+function fragmentSources() {
+  const BACKTICK = String.fromCharCode(96);
+  const src = readFileSync(new URL('../src/host/browse/script.js', import.meta.url), 'utf8');
+  const re = new RegExp('const ([A-Z_]+_SRC) = String\\.raw' + BACKTICK + '([\\s\\S]*?)' + BACKTICK + ';', 'g');
+  const out = [];
+  let m;
+  while ((m = re.exec(src)) !== null) out.push([m[1], m[2]]);
+  out.push(['ACTION_STEP_SRC', ACTION_STEP_SRC]);
+  return out;
+}
+import { buildRunSource } from '../src/host/browse/session.js';
+import { createBreaker } from '../src/host/browse/policy.js';
 import { validateJob, SLACK_MS } from '../src/host/browse/schema.js';
 
 const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
@@ -164,49 +181,121 @@ test('the cleanup budget is derived from the host deadline, not the script clock
 });
 
 test('the provably dead guard branch is gone from the shipped script', () => {
-  const src = compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }));
+  const src = compile(validateJob({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }));
   assert.equal(src.includes('verifiedClean'), false, 'a comment is a weaker guard than absence');
 });
 
-test('the generated script fits the Windows command line, which is how it travels', () => {
+// The bytes the CLI receives, through the same function run() uses. An earlier version of
+// this file measured compile(validateJob(job)) directly, which leaves out the issued runId
+// and the per-row jobId — 338 characters on a twenty-url batch — so the job it called the
+// fullest legal one was in fact 189 over the limit and refused. Rebuilding that shape here
+// would just move the drift, so the plan comes from the real breaker and the source comes
+// from the real builder.
+function hostSource(raw) {
+  const job = validateJob(raw);
+  const plan = createBreaker({ failures: 3, cooldownMs: 30000 })
+    .plan(job.urls, { defaultTimeoutMs: job.timeoutMs, innerCapMs: job.timeoutMs, waitSelector: job.waitSelector });
+  const requested = job.urls.map((url, i) => ({ jobId: 'j' + String(i).padStart(3, '0'), url, index: i }));
+  return buildRunSource(job, { plan, requested, runId: 'run-0199c3a1-4f6e-7bb2-9c3d-5a7e1f2b8d40' });
+}
+
+const ACTING = {
+  urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', snapshotAfter: true,
+  refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }],
+};
+const READING = {
+  urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', extract: { a: { ref: 'e1' } },
+};
+
+test('the portable envelope fits the tightest command line any host has', () => {
   // Found live, not in a unit test: with both helpers always injected the script reached
   // 34,881 characters and every browse job on the Windows host died with spawn
-  // ENAMETOOLONG. Windows caps a command line at 32,767.
-  const LIMIT = 32767;
+  // ENAMETOOLONG. Windows caps a whole command line at 32,767, which is where the 30,000
+  // portable budget comes from; no other platform is close to it.
+  //
+  // These jobs are the envelope this tool promises everywhere, not the largest ones the
+  // schema accepts. A ref read cannot share a call with actions, so no single job carries
+  // both helpers.
   const cases = {
-    plain: compile(validateJob({ urls: urls(1) })),
-    twenty: compile(validateJob({ urls: urls(20) })),
-    snapshot: compile(validateJob({ urls: urls(1), snapshot: 'interactive' })),
-    actions: compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] })),
-    both: compile(validateJob({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })),
-    // The host refuses its own source over 30000 (session.js), which bites before the
-    // Windows ceiling does. These two are the fullest jobs that can legally exist: a ref
-    // read cannot share a call with actions, so no single job carries both helpers.
-    acting: compile(validateJob({
-      urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', snapshotAfter: true,
-      actions: [{ ref: 'e1', click: true }],
-    })),
-    reading: compile(validateJob({
-      urls: urls(20), snapshot: 'interactive', refsFingerprint: 'f', extract: { a: { ref: 'e1' } },
-    })),
+    plain: hostSource({ urls: urls(1) }),
+    twenty: hostSource({ urls: urls(20) }),
+    snapshot: hostSource({ urls: urls(1), snapshot: 'interactive' }),
+    actions: hostSource({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
+    both: hostSource({ urls: urls(1), snapshot: 'interactive', refsFingerprint: 'f', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }),
+    acting: hostSource(ACTING),
+    reading: hostSource(READING),
   };
-  for (const name of ['acting', 'reading']) {
-    assert.ok(cases[name].length < 30000,
-      name + ' is ' + cases[name].length + ' chars and the host refuses its own source over 30000');
-  }
   for (const [name, src] of Object.entries(cases)) {
-    assert.ok(src.length < LIMIT - 2000, name + ' is ' + src.length + ' chars, too close to the ' + LIMIT + ' ceiling');
+    assert.ok(src.length <= WIRE_LIMIT_PORTABLE,
+      name + ' is ' + src.length + ' characters, ' + (src.length - WIRE_LIMIT_PORTABLE)
+      + ' over the ' + WIRE_LIMIT_PORTABLE + ' portable budget');
     assert.doesNotThrow(() => new AsyncFn('openTab,snapshot,closeTab,sleep,pwd,console', src), name + ' must still parse');
   }
+  // Said in characters on purpose. Twice in one branch a change crossed the limit by a
+  // single character and the failure named a length without naming what was left.
+  const headroom = WIRE_LIMIT_PORTABLE - cases.acting.length;
+  assert.ok(headroom >= 1000,
+    'the fullest portable job has ' + headroom + ' characters of headroom, under the 1000 this'
+    + ' budget keeps for the next in-script change');
+});
+
+test('the combinations outside the envelope depend on the platform, and say so when refused', () => {
+  // The schema accepts these and they do not fit 30,000 by thousands of characters. On a
+  // host whose command line is measured in hundreds of kilobytes that ceiling was borrowed
+  // grief: helper:true simply could not be used with a full batch. The cap is the
+  // platform's now, and what falls outside it is refused by name rather than by the OS.
+  const beyond = {
+    twentyActions: hostSource({ ...ACTING, actions: Array.from({ length: 20 }, () => ({ ref: 'e1', click: true })) }),
+    helper: hostSource({ ...ACTING, helper: true }),
+    treeNodes: hostSource({ ...ACTING, treeNodes: true }),
+  };
+  const names = Object.keys(beyond);
+  assert.ok(names.length > 0, 'the sweep needs cases before it can mean anything');
+  for (const name of names) {
+    assert.ok(beyond[name].length > WIRE_LIMIT_PORTABLE,
+      name + ' is ' + beyond[name].length + ' characters and no longer belongs in this sweep');
+    assert.ok(beyond[name].length <= 50000,
+      name + ' is ' + beyond[name].length + ' characters, past the 50000 a roomy command line allows');
+  }
+  assert.equal(WIRE_LIMIT, process.platform === 'win32' ? 30000 : 50000);
+});
+
+test('the injected fragments ship without their indentation, and can safely', () => {
+  // stripForWire deliberately keeps indentation, because the template it runs over may hold
+  // a multi-line string whose leading spaces are part of the value. The injected fragments
+  // hold none - they contain no backtick at all - which is what makes dedenting them safe
+  // and worth over a kilobyte. The day someone adds a template literal to one of them that
+  // reasoning stops holding, so this is an assertion rather than a comment.
+  const BACKTICK = String.fromCharCode(96);
+  const fragments = fragmentSources();
+  assert.ok(fragments.length >= 7, 'only ' + fragments.length + ' fragments were found; the sweep would be proving almost nothing');
+  // The sweep finds fragments by how they are declared, and compile() injects them by name.
+  // If those two ever disagree, a fragment ships dedented without anyone having checked it,
+  // so the names are compared rather than trusted.
+  const src = readFileSync(new URL('../src/host/browse/script.js', import.meta.url), 'utf8');
+  // Uppercase only, so the function's own declaration is not counted as a call site.
+  const injected = [...src.matchAll(/stripFragment\(([A-Z][A-Z_]*_SRC)\)/g)].map((m) => m[1]);
+  assert.ok(injected.length >= 7, 'only ' + injected.length + ' stripFragment call sites; the comparison would prove nothing');
+  const swept = new Set(fragments.map(([name]) => name));
+  const missing = injected.filter((name) => !swept.has(name));
+  assert.deepEqual(missing, [], 'these fragments are dedented on the way out but never checked for a backtick');
+  for (const [name, body] of fragments) {
+    assert.equal(body.includes(BACKTICK), false,
+      name + ' contains a backtick; stripFragment would eat the leading spaces inside it');
+  }
+  // And the dedent is actually applied, not merely safe to apply.
+  assert.equal(/^ /m.test(stripFragment(ACTION_STEP_SRC)), false, 'no shipped line starts with a space');
+  assert.ok(stripFragment(ACTION_STEP_SRC).length < stripForWireOnly(ACTION_STEP_SRC).length,
+    'dedenting has to change something or it is not doing anything');
 });
 
 test('only the helpers the job can reach are shipped', () => {
   const plain = compile(validateJob({ urls: urls(1) }));
   assert.equal(plain.includes('function summarizeTree'), false, 'no snapshot asked, no tree code');
   assert.equal(plain.includes('async function runActions'), false, 'no actions asked, no action code');
-  const acting = compile(validateJob({ urls: urls(1), actions: [{ ref: 'e1', click: true }] }));
+  const acting = compile(validateJob({ urls: urls(1), refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] }));
   assert.ok(acting.includes('async function runActions'));
-  assert.ok(compile(validateJob({ urls: urls(1), refsFingerprint: 'f', actions: [{ ref: 'e1', click: true }] })).includes('function summarizeTree'),
+  assert.ok(compile(validateJob({ urls: urls(1), refsFingerprint: 'f', refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] })).includes('function summarizeTree'),
     'a fingerprint guard needs the summariser even without a snapshot option');
 });
 

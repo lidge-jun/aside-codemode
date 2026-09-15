@@ -27,7 +27,10 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
-import { TREE_SUMMARY_SRC, TREE_NODES_SRC, jsonForScript, stripForWire } from './script.js';
+import { settleEffects, parseEffects } from './session.js';
+import { randomUUID } from 'node:crypto';
+import { gatedVerbs } from './schema.js';
+import { TREE_SUMMARY_SRC, TREE_NODES_SRC, jsonForScript, stripForWire, stripFragment } from './script.js';
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { REF_READ_SRC } from './script.js';
@@ -73,8 +76,14 @@ try {
     let page = null;
     let attachedVia = null;
     if (picked) {
-      page = await attachBrowserTab(picked.targetId);
-      attachedVia = "attachBrowserTab(targetId)";
+      try {
+        page = await attachBrowserTab(picked.targetId);
+        attachedVia = "attachBrowserTab(targetId)";
+      } catch (e) {
+        // It was in the list a moment ago. Between the list and the attach it went, which
+        // is the same story as never having been there and must read as the same code.
+        out.rows.push({ kind: "error", code: "ETABGONE", targetId: picked.targetId, message: "the tab was listed and then gone before it could be attached: " + String((e && e.message) || e), tabs: tabs });
+      }
     } else if (via === "active") {
       try {
         page = await attachActiveBrowserTab();
@@ -83,7 +92,7 @@ try {
         out.rows.push({ kind: "error", code: "ENOACTIVE", message: String((e && e.message) || e), tabs: tabs });
       }
     } else {
-      out.rows.push({ kind: "error", code: "ENOTAB", message: "no open tab matched " + via + "=" + String(REQ.targetId || REQ.urlIncludes || REQ.titleIncludes), tabs: tabs });
+      out.rows.push({ kind: "error", code: via === "targetId" ? "ETABGONE" : "ENOTAB", targetId: REQ.targetId || null, message: "no open tab matched " + via + "=" + String(REQ.targetId || REQ.urlIncludes || REQ.titleIncludes), tabs: tabs });
     }
     if (page) {
       const row = { kind: "page", tab: picked, attachedVia: attachedVia, selectedBy: via };
@@ -142,6 +151,14 @@ try {
           urlAtSnapshot: row.href || null,
           refsFingerprint: REQ.refsFingerprint || null,
           guardTimeoutMs: 5000,
+          runId: REQ.runId || null,
+          jobId: "attach",
+          onEffect: function (rec, state) {
+            // Printed immediately, exactly as the batch does it. A click on the tab the
+            // person is signed into has to leave a record before the process that made it
+            // can take the record with it.
+            try { console.log(JSON.stringify({ type: "effect", effect: { operationId: rec.operationId, runId: REQ.runId || null, jobId: "attach", i: rec.i, verb: rec.verb, state: state, at: Date.now() } })); } catch (e) {}
+          },
           fingerprintOf: function (p) {
             return snapshot(p).then(function (s) {
               var sum = summarizeTree((s && s.tree) || "", "interactive", 200000);
@@ -216,11 +233,35 @@ export function compileAttach(req) {
   // Same Windows command-line ceiling as compile(): ship only what the request reaches.
   const hasRefExtract = Boolean(req.extract) && Object.keys(req.extract)
     .some((k) => req.extract[k] && typeof req.extract[k] === 'object' && 'ref' in req.extract[k]);
-  const head = (req.snapshot || req.refsFingerprint || req.snapshotAfter || hasRefExtract ? TREE_SUMMARY_SRC + '\n' : '')
-    + (req.snapshot && req.treeNodes === true ? TREE_NODES_SRC + '\n' : '')
-    + (hasRefExtract ? REF_READ_SRC + '\n' : '')
-    + (req.actions && req.actions.length ? ACTION_STEP_SRC + '\n' : '');
+  // The fragments are dedented individually; the template around them is not, because
+  // stripForWire's rule about leading spaces inside a string applies to it and not to them.
+  const head = (req.snapshot || req.refsFingerprint || req.snapshotAfter || hasRefExtract ? stripFragment(TREE_SUMMARY_SRC) + '\n' : '')
+    + (req.snapshot && req.treeNodes === true ? stripFragment(TREE_NODES_SRC) + '\n' : '')
+    + (hasRefExtract ? stripFragment(REF_READ_SRC) + '\n' : '')
+    + (req.actions && req.actions.length ? stripFragment(ACTION_STEP_SRC) + '\n' : '');
   return stripForWire(head + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req)));
+}
+
+// The last thing this tool saw at that id, if this tool is what opened it.
+//
+// Ambiguity answers null. An id that appears in two records with two different urls has
+// been reused, and picking the newer one would report a page that has nothing to do with
+// the tab the caller lost — which is the failure mode this whole return exists to avoid.
+// Nothing is a worse answer than the wrong page confidently given.
+function lastKnown(journal, targetId) {
+  if (!targetId) return null;
+  const want = String(targetId).replace(/^tab:/, '');
+  const seen = [];
+  for (const rec of journal.all()) {
+    for (const tab of rec.tabs || []) {
+      if (String(tab.targetId).replace(/^tab:/, '') !== want) continue;
+      seen.push({ url: tab.url ?? null, at: rec.writtenAt ?? null });
+    }
+  }
+  if (!seen.length) return null;
+  const urls = new Set(seen.map((s) => String(s.url)));
+  if (urls.size > 1) return null;
+  return seen.reduce((a, b) => ((b.at || 0) > (a.at || 0) ? b : a));
 }
 
 function disabled(name) {
@@ -229,7 +270,7 @@ function disabled(name) {
   return e;
 }
 
-export function createAttach({ config = {}, session }) {
+export function createAttach({ config = {}, session, tabJournal = null }) {
   const caps = config.browseCaps || {};
   // The host deadline has to outlast whatever the step list is allowed to take. A 20s
   // action budget under a fixed 26.5s host deadline left ~6.5s for a snapshot and seven
@@ -246,16 +287,27 @@ export function createAttach({ config = {}, session }) {
     if (res && res.error) {
       const e = new Error(res.error);
       e.code = 'EREPL';
+      // The transcript is what the run printed before it stopped, and an effect line is
+      // printed the moment a step is requested. Throwing it away is how a click that went
+      // out on a live tab disappears when the process afterwards did not survive.
+      e.effects = settleEffects(parseEffects((res.raw && res.raw.stdout) || ''), { killed: true });
+      // And the run it belonged to. settleEffects keeps the operation id and not the run,
+      // so without this the surviving record of a click could not be tied back to the call
+      // that sent it - which is most of what a record is for.
+      e.runId = req.runId || null;
       throw e;
     }
-    return (res && res.rows) || [];
+    // The rows and the transcript together. The rows say what the run found; the transcript
+    // is where the effect lines are, and an effect that only exists in the final payload is
+    // an effect that vanishes when the final payload does.
+    return { rows: (res && res.rows) || [], stdout: (res && res.raw && res.raw.stdout) || '' };
   }
 
   return {
     /** Every tab the user currently has open. Read-only; opens and closes nothing. */
     async tabs() {
       if (caps.enabled !== true) throw disabled('browse.tabs');
-      const rows = await callRepl({ mode: 'list' });
+      const { rows } = await callRepl({ mode: 'list' });
       const row = rows.find((r) => r && r.kind === 'tabs');
       if (!row) {
         const err = rows.find((r) => r && r.kind === 'error');
@@ -271,16 +323,68 @@ export function createAttach({ config = {}, session }) {
     async attach(opts = {}) {
       if (caps.enabled !== true) throw disabled('browse.attach');
       const req = validateAttach(opts);
-      const rows = await callRepl(req);
+      // Before compileAttach, before session.raw, before anything exists. The batch gate
+      // guards a tab this tool opened; this one guards the tab the person is signed into
+      // and looking at, which is the more dangerous of the two, and it was the path that
+      // had no gate at all.
+      //
+      // The refusal is attach's own flat shape rather than the batch envelope. The two
+      // surfaces answer differently and a caller reading this one should not have to learn
+      // the other to understand being turned down.
+      const wants = req.approveWrites ? [] : gatedVerbs(req.actions);
+      if (wants.length) {
+        return {
+          ok: false,
+          code: 'EWRITEAPPROVAL',
+          error: 'this call would ' + wants.join(', ') + " on the tab you are signed into; set approveWrites: true to say you mean it",
+          wants,
+          tabs: [],
+          tab: null,
+          contentVerified: null,
+          targetId: req.targetId ?? null,
+          lastUrl: null,
+          boundAt: null,
+          effectsUnknown: false,
+          effects: [],
+        };
+      }
+      // attach is not a batch and the host issues no run id for it, so one is made here:
+      // an effect without a run to belong to cannot be traced back to anything.
+      const runId = 'attach-' + randomUUID();
+      const replied = await callRepl({ ...req, runId });
+      const rows = replied.rows;
+      // Settled the same way the batch settles them: a step that was requested and never
+      // confirmed is indeterminate, not absent.
+      const effects = settleEffects(parseEffects(replied.stdout), { killed: false });
       const page = rows.find((r) => r && r.kind === 'page');
       if (!page) {
         const err = rows.find((r) => r && r.kind === 'error') || {};
+        const gone = err.code === 'ETABGONE';
+        // A caller who named a tab is never handed a different one, and the failure says
+        // which kind it was. playwright-mcp #1588 is the case for the distinction: an
+        // undifferentiated "target closed" makes a model retry a navigation that cannot
+        // work, because the state it would have branched on was never reported.
+        //
+        // Recovery metadata where we have it, null where we do not. The journal knows the
+        // last url only for a tab this tool opened; a tab the user opened and handed us by
+        // id leaves lastUrl null rather than a guess, and a guess is what would send the
+        // caller to the wrong page.
+        const known = gone && tabJournal ? lastKnown(tabJournal, err.targetId) : null;
         return {
           ok: false,
           code: err.code || 'ENOROWS',
           error: err.message || 'the attach script returned no page row',
           tabs: err.tabs || [],
           contentVerified: null,
+          targetId: gone ? (err.targetId ?? null) : null,
+          lastUrl: known ? known.url : null,
+          boundAt: known ? known.at : null,
+          runId,
+          effects,
+          // Said out loud because it is the thing a caller is about to get wrong. Nothing
+          // here is a verdict on an action: if a write was sent before the tab vanished, its
+          // outcome is unknown, and the tab being gone is an observation about the tab.
+          effectsUnknown: gone,
         };
       }
       return {
@@ -288,6 +392,10 @@ export function createAttach({ config = {}, session }) {
         code: page.contentVerified === false
           ? 'EUNRENDERED'
           : (page.actionsOk === false ? 'EACTION' : null),
+        runId,
+        // Requested and confirmed, the same vocabulary the batch answers in. A step whose
+        // confirmation never arrived is indeterminate here too.
+        effects,
         tab: page.tab,
         selectedBy: page.selectedBy,
         attachedVia: page.attachedVia,

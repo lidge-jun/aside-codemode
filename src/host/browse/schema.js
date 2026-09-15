@@ -9,6 +9,55 @@
 //   pdf.format:'A4'       silently produced US Letter (MediaBox 0 0 612 792)
 //   waitUntil/waitForLoadState  Aside accepts ANY string, including garbage, so an
 //                         unsupported value can never be detected at runtime
+import { isLocalOrigin } from './policy.js';
+import { NO_EFFECT_VERBS } from './actions-run.js';
+
+// The verbs a caller has to declare before the run will send them. It is the effect ledger
+// exactly — every verb the run issues an operationId for — and not a second, hand-kept list
+// beside it. An earlier draft gated eleven and exempted four on the grounds that the four
+// could not commit anything; focus can blur an edited field into an autosave, so that was
+// simply untrue, and the draft's two lists between them had also lost goForward.
+export function gatedVerbs(actions) {
+  if (!actions || !actions.length) return [];
+  const seen = [];
+  for (const step of actions) {
+    if (NO_EFFECT_VERBS.includes(step.verb)) continue;
+    if (!seen.includes(step.verb)) seen.push(step.verb);
+  }
+  return seen;
+}
+
+// A step that could change something, aimed by ref, has to prove the page has not moved
+// under it. The tool's own measurement is the argument: one click grew a tree from 3,126
+// characters to 23,530 and renumbered it, so a ref minted before that click names a
+// different element after it. The guard already existed and was never required.
+//
+// Shared by the batch schema and the attach schema, because attach reaches the same verbs
+// on a tab the person is signed into, and a rule that holds on one path and not the other
+// is not a rule.
+export function requireWriteFingerprint(actions, refsFingerprint, allowStaleRefs, ErrorClass) {
+  // Only ref steps. A selector does not use the numbering this protects, so asking for a
+  // fingerprint there would be a ritual.
+  const steps = (actions || []).filter((s) => s.targetKind === 'ref' && !NO_EFFECT_VERBS.includes(s.verb));
+  if (!steps.length) return;
+  const verbs = [...new Set(steps.map((s) => s.verb))].join(', ');
+  const refuse = (message) => { throw new ErrorClass(message, 'EBADVAL'); };
+  if (!refsFingerprint) {
+    refuse(`refsFingerprint is required for ${verbs} by ref: pass snapshot.fingerprint from the read that produced the refs, so the step can prove the page has not been renumbered since. Aim by selector instead if you do not have one`);
+  }
+  // The structure fingerprint compares ref and role only, which is why a reordered list is
+  // invisible to it — and clicking the item next to the one you meant is exactly the shape
+  // of accident this refuses. The tool's own note says not to use it to click anything
+  // destructive; this stops that being advice.
+  if (/^s\d+-/.test(refsFingerprint)) {
+    refuse(`snapshot.fingerprintStructure cannot authorise ${verbs} by ref: it compares ref and role only, so a reordered list looks unchanged to it. Use snapshot.fingerprint`);
+  }
+  // Without this the two rules above are satisfiable by any string at all: allowStaleRefs
+  // skips the comparison and stamps refGuard 'disabled'. It stays available for reads.
+  if (allowStaleRefs === true) {
+    refuse(`allowStaleRefs turns off the check that ${verbs} by ref depends on, so the two cannot be asked for together. Drop it, or aim those steps by selector`);
+  }
+}
 
 export const ASIDE_REPL_CAP_MS = 120000;
 export const DEFAULT_INNER_CAP_MS = 25000;
@@ -62,7 +111,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'loggedInMarker', 'stopWhenLoggedOut', 'actions', 'approveWrites', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -290,6 +339,17 @@ export function validateJob(raw, browseCaps = {}) {
     : requirePositiveInt('concurrency', raw.concurrency);
 
   const actions = validateActions(raw.actions);
+  // Strictly a boolean. A truthy string would read as consent here, and consent is the one
+  // thing this option exists to make explicit.
+  if (raw.approveWrites !== undefined && typeof raw.approveWrites !== 'boolean') {
+    throw new BrowseOptionError('approveWrites must be a boolean: it is a statement that this job may change things, not a value to coerce', 'EBADVAL');
+  }
+  const approveWrites = raw.approveWrites === true;
+  // Turning it on for a job that cannot write is how it ends up on by habit, at which point
+  // it stops meaning anything on the job that can.
+  if (approveWrites && gatedVerbs(actions).length === 0) {
+    throw new BrowseOptionError('approveWrites is set on a job with no step that could change anything; drop it, or add the step you meant', 'EBADVAL');
+  }
   // A reserve is held back so the item still gets reported after the steps run. Below this
   // the action window is empty and every step would report EDEADLINE before anything moved,
   // which reads as a runtime failure when it is really an impossible configuration.
@@ -309,6 +369,16 @@ export function validateJob(raw, browseCaps = {}) {
     throw new BrowseOptionError("snapshotAfter must be true, false or 'diff'", 'EBADVAL');
   }
   const snapshotAfter = raw.snapshotAfter === 'diff' ? 'diff' : raw.snapshotAfter === true;
+
+  // A step that could change something, aimed by ref, has to prove the page has not moved
+  // under it. The tool's own measurement is the argument: one click grew a tree from 3,126
+  // characters to 23,530 and renumbered it, so a ref minted before that click names a
+  // different element after it. The guard exists and was never required.
+  //
+  // Only ref steps. A selector does not use the numbering this protects, so requiring a
+  // fingerprint there would be a ritual.
+  requireWriteFingerprint(actions, refsFingerprint, raw.allowStaleRefs === true, BrowseOptionError);
+
   // The rendered body, asked for by name. Without it the only text a batch returns is the
   // 160-character sample the render check keeps, and a summary is not an article.
   if (raw.fullText !== undefined && typeof raw.fullText !== 'boolean') {
@@ -334,6 +404,65 @@ export function validateJob(raw, browseCaps = {}) {
   // the steps that would invalidate it.
   const extract = validateExtract(raw.extract, { actions, refsFingerprint });
 
+  // requireContent carries two shapes, and the difference is whether it brings its own
+  // check. A PATTERN is the check: this text has to be on the page, and an item without it
+  // is a failure. `true` is only a modifier on the checks declared beside it, so it needs
+  // one — enforcing a check nobody described would leave contentVerified asserting that
+  // content was verified when nothing verified it, which is the false success this whole
+  // layer exists to stop, moved one field over.
+  const requireSelector = raw.requireSelector === undefined
+    ? []
+    : (Array.isArray(raw.requireSelector) ? raw.requireSelector : [raw.requireSelector]);
+  const minTextChars = Number.isSafeInteger(raw.minTextChars) ? raw.minTextChars : null;
+  let requireContentPattern = null;
+  if (typeof raw.requireContent === 'string') {
+    if (!raw.requireContent.length) {
+      throw new BrowseOptionError('requireContent cannot be an empty pattern; pass the text the page must contain', 'EBADVAL');
+    }
+    // Compiled here so a bad pattern is a refusal rather than a check that silently never
+    // matches. The source travels to the script as data and is rebuilt there, the same way
+    // the block-detection patterns do.
+    try { new RegExp(raw.requireContent); }
+    catch (e) {
+      throw new BrowseOptionError('requireContent is not a valid regular expression: ' + String(e && e.message || e), 'EBADVAL');
+    }
+    requireContentPattern = raw.requireContent;
+  } else if (raw.requireContent !== undefined && typeof raw.requireContent !== 'boolean') {
+    throw new BrowseOptionError('requireContent must be true, or a regular expression source naming the text the page must contain', 'EBADVAL');
+  }
+  // There is deliberately no refusal for a bare `true` with no check beside it. An earlier
+  // revision added one, on the grounds that enforcing a check nobody described would report
+  // verified with nothing verified. That was wrong twice over. It could not close the hole,
+  // because minTextChars: 1 satisfies the refusal and then a single character reads as
+  // verified. And the hole was never open: `asked` in the script counts requireSelector,
+  // minTextChars and the pattern, never the bare boolean, so `true` alone already left
+  // contentVerified null. What the refusal did instead was break a caller who wants the
+  // skeleton heuristic to fail an item without describing a check of their own.
+
+  // Separate from requireContent on purpose, because the two failures ask different things
+  // of the caller. Content that is missing is a failure: the page did not hold what was
+  // wanted. A session that is gone is needs_input: a person can sign in again, and telling
+  // those apart is the difference between a caller who retries forever and one who opens a
+  // tab. Nothing here tries to infer the state — a signed-out portal page need not contain
+  // the word for signing in, and a JSON api answering with your own account data contains
+  // no sign-out wording at all, so the heuristic fails in both directions and the caller
+  // holds the knowledge instead.
+  let loggedInMarker = null;
+  if (raw.loggedInMarker !== undefined) {
+    if (typeof raw.loggedInMarker !== 'string' || !raw.loggedInMarker.length) {
+      throw new BrowseOptionError('loggedInMarker must be a non-empty regular expression source naming text that only appears when signed in', 'EBADVAL');
+    }
+    try { new RegExp(raw.loggedInMarker); }
+    catch (e) {
+      throw new BrowseOptionError('loggedInMarker is not a valid regular expression: ' + String(e && e.message || e), 'EBADVAL');
+    }
+    loggedInMarker = raw.loggedInMarker;
+  }
+  if (raw.stopWhenLoggedOut !== undefined) {
+    if (typeof raw.stopWhenLoggedOut !== 'boolean') throw new BrowseOptionError('stopWhenLoggedOut must be a boolean', 'EBADVAL');
+    if (loggedInMarker === null) throw new BrowseOptionError('stopWhenLoggedOut only means something beside loggedInMarker; without a marker nothing can detect the logout', 'EBADVAL');
+  }
+
   return Object.freeze({
     urls,
     timeoutMs,
@@ -346,6 +475,7 @@ export function validateJob(raw, browseCaps = {}) {
     treeNodes: raw.treeNodes === true,
     actions,
     stopOnError: raw.stopOnError !== false,
+    approveWrites,
     allowStaleRefs: raw.allowStaleRefs === true,
     refsFingerprint,
     // Ask for the observation the actions left behind. Its fingerprint is what makes a
@@ -367,12 +497,23 @@ export function validateJob(raw, browseCaps = {}) {
     // trips it: a report listing an EBLOCKED item rendered the word "blocked" and the
     // detector flagged the report itself. Content we generated is not a remote origin,
     // so the caller can turn detection off for it. Defaults on.
-    detect: raw.detect !== false,
+    // Defaults on, except for a page this machine generated and served to itself. Opening
+    // our own document used to answer EBLOCKED while reading its title perfectly well,
+    // because the detector reads the rendered page and a document that TALKS about being
+    // blocked trips it. A caller can still ask for detection on a local url by name; what
+    // changes is only what happens when nobody said.
+    detect: raw.detect === undefined ? !urls.every(isLocalOrigin) : raw.detect !== false,
     // Rendering checks. requireSelector/minTextChars say what "the content is there" MEANS
     // for this page; requireContent turns a failed check into a failed item instead of a
     // warning, for callers who would rather get nothing than get a bootstrap page.
-    requireSelector: raw.requireSelector === undefined ? [] : (Array.isArray(raw.requireSelector) ? raw.requireSelector : [raw.requireSelector]),
-    minTextChars: Number.isSafeInteger(raw.minTextChars) ? raw.minTextChars : null,
-    requireContent: raw.requireContent === true,
+    requireSelector,
+    minTextChars,
+    // Either shape enforces; the pattern additionally says what to look for.
+    requireContent: raw.requireContent === true || requireContentPattern !== null,
+    requireContentPattern,
+    loggedInMarker,
+    // Every item shares the session that just proved gone, so the rest can only open tabs
+    // that cannot succeed. Defaults on, and only exists at all when a marker was supplied.
+    stopWhenLoggedOut: loggedInMarker === null ? false : raw.stopWhenLoggedOut !== false,
   });
 }

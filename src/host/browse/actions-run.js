@@ -198,6 +198,18 @@ async function runActions(page, steps, ctx) {
       results.push(rec);
       continue;
     }
+    // Asked before every step, not once at the top. The session can die while this item is
+    // halfway through its list, and the steps after that point would be typing into a page
+    // that cannot accept them. A step refused here never ran, which is a different thing
+    // from a step whose result we did not hear.
+    if (cfg.stopped && cfg.stopped()) {
+      rec.code = 'ESESSIONGONE';
+      rec.error = 'the session proved gone while this item was acting';
+      results.push(rec);
+      halt = 'ESESSIONGONE';
+      haltMessage = rec.error;
+      continue;
+    }
     var remaining = budgetLeft();
     if (remaining <= 0) {
       rec.code = 'EDEADLINE';
@@ -290,3 +302,14 @@ async function runActions(page, steps, ctx) {
 }`;
 
 export const runActions = new Function(ACTION_STEP_SRC + '; return runActions;')();
+
+// The host's copy of the set the shipped fragment calls __NOEFFECT. It cannot import that
+// one: it lives inside the source string, which is the point of the string. So the two are
+// kept in step by a test that reads the names back out of the fragment and compares them,
+// rather than by whoever edits one of them remembering the other.
+//
+// Everything outside this set is an effect verb: the run issues an operationId for it and
+// reports it as started and then confirmed. That is already this tool's judgement about
+// what might have changed something, and the write gate uses the same line rather than
+// drawing a second one beside it.
+export const NO_EFFECT_VERBS = Object.freeze(['sleepMs', 'waitFor', 'waitForLoadState']);

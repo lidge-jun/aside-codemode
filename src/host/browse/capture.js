@@ -8,6 +8,8 @@ import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { verifyCapture } from './image.js';
+import { verifyPageBox } from './pagebox.js';
+import { A4_INCHES } from './schema.js';
 
 export class ArtifactError extends Error {
   constructor(message, code) {
@@ -21,6 +23,12 @@ export function artifactNameFor(index, screenshot = {}) {
   const ext = screenshot && screenshot.type === 'jpeg' ? 'jpg' : 'png';
   // Host-generated: index plus a uuid, so nothing from the payload reaches a path.
   return `shot-${String(index).padStart(3, '0')}-${randomUUID()}.${ext}`;
+}
+
+// Same rule as a screenshot name: the host issues it, so nothing from the payload ever
+// reaches a path.
+export function pdfNameFor(index) {
+  return `page-${String(index).padStart(3, '0')}-${randomUUID()}.pdf`;
 }
 
 export async function containedRead(sessionPwd, name, { realpathImpl = realpath, readFileImpl = readFile } = {}) {
@@ -40,11 +48,37 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     if (!Array.isArray(urls) || urls.length === 0) {
       throw new ArtifactError('captureMany requires a non-empty array of urls', 'EBADVAL');
     }
-    const screenshot = opts.screenshot === undefined ? {} : opts.screenshot;
-    const names = urls.map((_, i) => artifactNameFor(i, screenshot));
+    // A pdf had no way out of here. browse.exec produced the bytes and counted them and
+    // then dropped them, because the branch that writes a file runs only when the host
+    // issued a name for it, and report.build was the only caller that ever issued one. The
+    // machinery that brings a screenshot back is the same machinery a printed page needs:
+    // a host-issued name, a read jailed under the session, verification against what was
+    // asked for, and one write. So it serves both now.
+    let paper = null;
+    if (opts.pdf !== undefined) {
+      if (!opts.pdf || typeof opts.pdf !== 'object' || Array.isArray(opts.pdf)) {
+        throw new ArtifactError('pdf must be an object of paper dimensions in inches', 'EBADVAL');
+      }
+      // Same refusal report.build makes: the format shortcut was measured to produce US
+      // Letter while claiming A4, so the only accepted spelling is inches.
+      if ('format' in opts.pdf) {
+        throw new ArtifactError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches', 'ENOTSUP');
+      }
+      paper = { ...A4_INCHES, ...opts.pdf };
+    }
+    // Asking for a pdf and saying nothing about a screenshot means a pdf, not both. Saying
+    // screenshot: false with nothing to bring back instead is a call that cannot answer.
+    const wantShot = opts.screenshot === false ? false : !(paper !== null && opts.screenshot === undefined);
+    if (!wantShot && paper === null) {
+      throw new ArtifactError('captureMany with screenshot: false has nothing to bring back; add a pdf', 'EBADVAL');
+    }
+    const screenshot = wantShot ? (opts.screenshot === undefined ? {} : opts.screenshot) : null;
+    const names = wantShot ? urls.map((_, i) => artifactNameFor(i, screenshot)) : null;
+    const pdfNames = paper === null ? null : urls.map((_, i) => pdfNameFor(i));
     const job = {
       urls,
-      screenshot,
+      screenshot: wantShot ? screenshot : undefined,
+      pdf: paper === null ? undefined : paper,
       snapshot: opts.snapshot === true,
       timeoutMs: opts.timeoutMs,
       waitUntil: opts.waitUntil,
@@ -53,7 +87,11 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     };
     for (const k of Object.keys(job)) if (job[k] === undefined) delete job[k];
 
-    const res = await session.run(job, { browseCaps: opts.browseCaps || {}, artifactNames: names });
+    const res = await session.run(job, {
+      browseCaps: opts.browseCaps || {},
+      artifactNames: names === null ? undefined : names,
+      pdfNames: pdfNames === null ? undefined : pdfNames,
+    });
 
     if (!opts.outDir) return res;
 
@@ -69,9 +107,9 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     // silently drops one. Both keep the run looking completed, which is the failure this
     // whole phase exists to stop.
     const ledgerBroken = !Array.isArray(res.ledger)
-      || res.ledger.length !== names.length
+      || res.ledger.length !== urls.length
       || res.ledger.some((r) => !r || typeof r.jobId !== 'string'
-        || !Number.isInteger(r.index) || r.index < 0 || r.index >= names.length)
+        || !Number.isInteger(r.index) || r.index < 0 || r.index >= urls.length)
       || new Set(res.ledger.map((r) => r.jobId)).size !== res.ledger.length
       || new Set(res.ledger.map((r) => r.index)).size !== res.ledger.length;
     if (ledgerBroken) {
@@ -84,18 +122,23 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
         partial: res.partial.concat(['no-ledger']),
       };
     }
-    const nameByJob = new Map(res.ledger.map((r) => [r.jobId, names[r.index]]));
+    const nameByJob = new Map(res.ledger.map((r) => [r.jobId, names === null ? null : names[r.index]]));
+    const pdfByJob = new Map(res.ledger.map((r) => [r.jobId, pdfNames === null ? null : pdfNames[r.index]]));
 
     const items = [];
     for (const source of res.items) {
       const item = { ...source };
+      // Held before the screenshot block can lower it. The two artifacts are independent
+      // requests and neither answers for the other: a screenshot that failed verification
+      // used to withhold a pdf sitting in the session directory that verified perfectly.
+      const arrived = item.status === 'completed';
       const name = nameByJob.get(item.jobId);
       // A request nobody answered, or a run we lost track of, has no file to fetch. Reading
       // one anyway would turn a known unknown into an artifact error and hide the cause.
       if (item.status === 'unreturned' || item.status === 'indeterminate') { items.push(item); continue; }
       // The script echoes the name the host issued. If it echoes a different one, the
       // result and the file disagree about whose page this is; say so instead of repairing it.
-      if (item.status === 'completed' && !name) {
+      if (wantShot && item.status === 'completed' && !name) {
         // A result that claims success under an id we never issued has no file of its own.
         item.ok = false;
         item.status = 'failed';
@@ -104,7 +147,7 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
         items.push(item);
         continue;
       }
-      if (item.status === 'completed' && item.artifactName !== name) {
+      if (wantShot && item.status === 'completed' && item.artifactName !== name) {
         item.ok = false;
         item.status = 'failed';
         item.code = 'EPROVENANCE';
@@ -112,7 +155,7 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
         items.push(item);
         continue;
       }
-      if (item.status === 'completed') {
+      if (wantShot && item.status === 'completed') {
         try {
           const buf = await containedRead(res.pwd, name, deps);
           const dest = assertInside ? assertInside(path.join(outDir, name)) : path.join(outDir, name);
@@ -132,6 +175,39 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
           item.error = String(e.message || e);
         }
       }
+      // The printed page follows the same path: the name the host issued, a read jailed
+      // under the session, one write, and a check that the page is the size that was asked
+      // for. A file that exists is not a page of the requested size — the format shortcut
+      // was measured producing US Letter while reporting A4, which is why paper is only
+      // ever expressed in inches here.
+      if (paper !== null && arrived) {
+        const pdfName = pdfByJob.get(item.jobId);
+        if (!pdfName || item.pdfName !== pdfName) {
+          item.ok = false;
+          item.status = 'failed';
+          item.code = 'EPROVENANCE';
+          item.error = 'pdf ' + String(item.pdfName) + ' does not match the name issued for ' + item.jobId;
+        } else {
+          try {
+            const buf = await containedRead(res.pwd, pdfName, deps);
+            const dest = assertInside ? assertInside(path.join(outDir, pdfName)) : path.join(outDir, pdfName);
+            await (deps.writeFileImpl || writeFile)(dest, buf);
+            const box = verifyPageBox(buf, paper);
+            item.pdf = { path: dest, bytes: buf.length, pageBox: box };
+            if (!box.matched) {
+              item.ok = false;
+              item.status = 'failed';
+              item.code = 'EPAGEBOX';
+              item.error = box.reason;
+            }
+          } catch (e) {
+            item.ok = false;
+            item.status = 'failed';
+            item.code = e.code || 'EARTIFACT';
+            item.error = String(e.message || e);
+          }
+        }
+      }
       items.push(item);
     }
     const partial = res.partial.slice();
@@ -140,8 +216,14 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     // item.ok left a batch reporting status:'completed' next to an item that did not.
     // wp3 replaces this index join with a jobId join; the status arithmetic stays.
     const done = items.filter((i) => i.status === 'completed').length;
-    const status = res.status === 'indeterminate'
-      ? 'indeterminate'
+    // This arithmetic only knows how to count completions, so every run with none of them
+    // used to land on 'failed'. That erased a run which stopped because someone has to sign
+    // in: a request became a failure on the way back through the artifact join. Statuses
+    // that describe the RUN rather than its artifacts pass through untouched, and there is
+    // nothing this step could learn that would improve on them.
+    const PRESERVED = new Set(['indeterminate', 'needs_input']);
+    const status = PRESERVED.has(res.status)
+      ? res.status
       : (done === items.length && items.length > 0 ? res.status : (done > 0 ? 'partial' : 'failed'));
     return {
       ...res, items, partial, status,

@@ -8,9 +8,25 @@
 // State lives on the host across calls; enforcement happens inside the compiled script,
 // which is why plan() emits plain data and record() takes the outcomes back.
 
-const CAPTCHA = /captcha|are you a robot|verify you are human|cf-challenge|cloudflare/i;
-const HARD_BLOCK = /access denied|403 forbidden|rate limit|too many requests|blocked|forbidden/i;
-const LOGIN_PATH = /(login|signin|sign-in|auth|account|sso)/i;
+// The bare word `cloudflare` used to be an alternative here, which matched a footer saying
+// Protected by Cloudflare and every page of Cloudflare's own documentation. That was merely
+// noisy while a detected block produced a status the contract rejected; now it produces
+// needs_input, which a reader is taught to hand to a person without retrying, so a false
+// positive looks like a correct answer. Every alternative is wording a challenge page
+// actually shows. cf-challenge stays a literal because it is a token, not prose.
+const CAPTCHA = /captcha|are you a robot|you are human|cf-challenge|checking (?:if )?your browser|attention required[^a-z]{0,4}cloudflare/i;
+// The bare words `blocked` and `forbidden` used to be alternatives here, and they matched
+// any page that merely TALKED about being blocked — including a report this tool generated
+// listing an item that was. A detector that flags our own output is worse than no detector,
+// because the caller cannot tell the two apart. Every alternative below is a phrase an
+// origin uses to refuse you, not a word a document might contain.
+const HARD_BLOCK = /access denied|403 forbidden|too many requests|rate limit(?:ed|ing)?\b|(?:you|your ip|your access|temporarily)[^.]{0,24}blocked|blocked by (?:a |the )?(?:administrator|security|firewall|network)/i;
+// Path SEGMENTS, not substrings. `account` is gone: a signed-in settings page at
+// /account/settings with a change-password field satisfied this and the password hint
+// together and was read as a sign-in wall. The segment boundaries also stop `auth` from
+// matching inside `author` and `sso` inside `lesson`, which were false positives nobody
+// noticed while the verdict they produced was being thrown away anyway.
+const LOGIN_PATH = /(?:^|[/?#&=._-])(?:login|signin|sign-in|sso|oauth|authorize|auth)(?:[/?#&=._-]|$)/i;
 // A string match on the snapshot tree, NOT an accessibility role query: no role API was ever
 // measured on this surface, and assuming one is how unmeasured behaviour gets baked in.
 const PASSWORD_HINT = /password|비밀번호|passphrase/i;
@@ -19,9 +35,31 @@ export function hostOf(url) {
   try { return new URL(url).host.toLowerCase(); } catch (_) { return null; }
 }
 
+// Chrome's error page is a real rendered document. It has a body with text, a title, and
+// opening it resolves, so every check downstream answers confidently about a page that was
+// never loaded: the session marker finds nothing and reports a logout, a content pattern
+// does not match and reports an unrendered page. Arriving nowhere has to be decided before
+// any of them, which means it has to be decided inside the script — by the time the host
+// sees the item, a wrong code is already on it and the batch may already have stopped.
+//
+// The source lives here beside the other detection patterns, and travels to the script as
+// data the same way they do. One pattern, two readers.
+export const DEAD_END = /^chrome-error:/i;
+
 // The compiled REPL script cannot import this module, so the patterns travel as DATA and
 // the script rebuilds them. That keeps one source of truth for the signals while still
 // letting detection happen inside the script, BEFORE a screenshot is paid for.
+// localhost, the loopback address and the v6 spelling of it. A page this machine generated
+// and served to itself is not a remote origin refusing us, so block detection has nothing
+// to find there and everything to misread.
+const LOCAL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1|0\.0\.0\.0)$/i;
+
+export function isLocalOrigin(url) {
+  const host = hostOf(url);
+  if (host === null) return false;
+  return LOCAL_HOST.test(host.replace(/:\d+$/, ''));
+}
+
 export function detectionPatterns() {
   return {
     captcha: CAPTCHA.source,

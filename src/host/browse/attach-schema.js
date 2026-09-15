@@ -16,7 +16,7 @@ export function validateAttach(input = {}) {
   const known = new Set([
     'targetId', 'urlIncludes', 'titleIncludes',
     'requireSelector', 'minTextChars', 'includeText', 'maxTextChars', 'sampleChars',
-    'snapshot', 'maxTreeChars',
+    'snapshot', 'maxTreeChars', 'treeNodes',
     'actions', 'stopOnError', 'allowStaleRefs', 'actionBudgetMs',
     'refsFingerprint', 'extract', 'snapshotAfter',
   ]);
@@ -66,6 +66,7 @@ export function validateAttach(input = {}) {
     sampleChars: num('sampleChars', 1, 20000, 400),
     snapshot,
     maxTreeChars: num('maxTreeChars', 1, 5000000, 20000),
+    treeNodes: input.treeNodes === true,
     actions: validateActions(input.actions),
     stopOnError: input.stopOnError !== false,
     allowStaleRefs: input.allowStaleRefs === true,

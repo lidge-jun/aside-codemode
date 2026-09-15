@@ -85,6 +85,11 @@ When you need the host file tree, many files at once, or a structured result to 
 use the CLI. Details, including why `--code-file` is the safe form, are in
 [references/execution-paths.md](references/execution-paths.md). Windows quoting and ssh
 are in [references/windows-invocation.md](references/windows-invocation.md).
+The calls that cost a first attempt - the guest's missing module loader, `pattern` versus
+`query`, the shape `browse.readText` wants and the field it answers with, asking for a
+parsed accessibility tree, turning browse on - are in
+[references/call-shapes.md](references/call-shapes.md). Read it before your first batch
+rather than after the refusal.
 
 ## Two different browsers
 

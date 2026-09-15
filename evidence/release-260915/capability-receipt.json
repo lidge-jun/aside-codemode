@@ -1,7 +1,7 @@
 {
   "schema": "codemode-capability-receipt/1",
-  "generatedAt": "2026-09-15T01:34:26.101Z",
-  "commit": "2ca0217d41573c1e156cf6c05c0618d26ecf8e01",
+  "generatedAt": "2026-09-15T01:52:05.023Z",
+  "commit": "df736bee14cf544fdb9fce37b3d16ed604caed42",
   "helperVersion": "1.1.0",
   "surfaces": {
     "mac": {

@@ -44,6 +44,26 @@ were seen in real runs. `--code-file` and stdin do not have to survive quoting.
 Use the absolute node/CLI pair the AGENTS block gives you. Do not resolve `node` or
 `codemode` on PATH, and do not run `src/cli.js`; the entry point is `bin/codemode.mjs`.
 
+## What the guest is allowed to reach
+
+`--code` evaluates inside a vm context, not inside Node. There is no module loader, and the
+two ways of asking for one fail differently: `await import('node:fs')` is translated to
+`EGUESTIMPORT` and answered with the list of names you actually have, while `require` was
+never defined and throws a plain `require is not defined`. The translation happens at the
+edge, so a guest that catches its own rejection sees Node's words instead.
+
+Also absent, and worth knowing before the first call: `process`, `fetch`, `setTimeout`,
+`URL`, `Buffer`, and building code from a string. These are injected before your code runs:
+
+    search  fs  actions  browse  report  api  recipes
+    read_file  write_file  edit_file  apply_patch  console
+
+Read a file with `read_file`, not with a module. Reach the network through `browse`,
+not through `fetch` - and note that `browse` is injected whether or not it is allowed to run:
+until `--enable-browse` has been run once, every call on it refuses with `EDISABLED`.
+The sandbox is a shape, not a security boundary: it exists so a batch cannot quietly
+depend on something the host never promised.
+
 ## Discovering a call shape
 
 Ask the sandbox rather than guessing or grepping:

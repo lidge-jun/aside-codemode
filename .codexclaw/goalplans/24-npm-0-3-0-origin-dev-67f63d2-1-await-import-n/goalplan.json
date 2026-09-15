@@ -1,0 +1,324 @@
+{
+  "objective": "목표: 에이전트가 실제로 부딪힌 마찰 다섯 가지와 이슈 #24를 고치고, 가이드와 샌드박스 안내를 정리한 뒤, npm 배포 가능 여부를 판정해 다음 릴리즈(0.3.0)까지 낸다. 기준은 origin/dev 67f63d2다.\n\n달성할 결과:\n1) 게스트에서 await import(\"node:fs\") 같은 동적 임포트가 ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING으로 죽는 대신, 무엇이 막혀 있고 무엇을 써야 하는지 말하는 오류가 되게 한다.\n2) search.files와 search.content의 인자 이름 불일치(query vs pattern, path 필수 여부)를 없애거나, 틀린 이름을 줬을 때 맞는 이름을 알려주게 한다.\n3) browse.readText가 문자열과 {url} 양쪽을 받고, 결과에 text가 비어 있는 채로 markdown만 들어 있는 혼란을 없앤다.\n4) browse.attach의 접근성 트리를 계층 구조로도 돌려줘서, 과목-과제-마감일 같은 묶음을 정규식 상태 머신 없이 뽑을 수 있게 한다.\n5) 설치 직후 browse가 꺼져 있어 사용자가 손으로 config를 고쳐야 했던 경로를 없앤다. 켜는 방법이 한 번의 명령이거나, 거절 메시지가 정확한 명령을 알려준다.\n6) 이슈 #24: followSymlinks 거부로 건너뛴 링크 디렉터리가 결과에 보이게 한다. complete:true로 조용히 끝나지 않는다.\n7) 설치되는 안내(AGENTS 블록, 스킬, references)에 게스트 샌드박스 규칙과 이 API들의 호출 모양을 정확히 적는다.\n8) npm 배포 가능 여부를 실제로 판정한다 — 이름 가용성, files/bin/engines, pack 결과, 배포하면 안 되는 것이 들어가는지. 판정과 근거를 기록한다.\n9) 0.3.0을 정확한 head의 hosted CI 5조합 success 뒤 dev와 main에 반영하고 태그와 release를 만든다.\n\n파일 범위 IN: src/**, scripts/**, templates/**, test/**, devlog/_plan/260915_agent-friction/**, evidence/**, README*.\n범위 OUT: npm publish 실행 자체(가능 여부 판정과 준비까지), 캡차·금고, G5 수동 세션.\n\n검증: 각 마찰에 먼저 실패하는 반례, 정확한 head의 hosted CI 5조합, 세 기기 재검증. 돌리지 않은 것을 통과로 적지 않는다.\n\n완료 판정: DONE은 등록된 criteria 전부가 fresh 증거를 갖고, main에 0.3.0 태그와 release가 있으며, npm 판정이 기록된 상태다.\n\n첫 work-phase: wp1 - 마찰 여섯 건의 원인을 소스에서 확인하고 diff-level 로드맵을 쓴다 (코드 변경 없음).",
+  "slug": "24-npm-0-3-0-origin-dev-67f63d2-1-await-import-n",
+  "createdAt": "2026-09-15T02:11:38.714Z",
+  "updatedAt": "2026-09-15T03:46:38.178Z",
+  "activeWorkPhaseId": "w6",
+  "workPhases": [
+    {
+      "id": "w1",
+      "title": "마찰 원인 확인과 diff-level 로드맵 (코드 변경 없음)",
+      "status": "done",
+      "tasks": [],
+      "criteriaIds": []
+    },
+    {
+      "id": "w2",
+      "title": "게스트 샌드박스: 동적 임포트 거절을 설명이 있는 오류로",
+      "status": "done",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w3",
+      "title": "호출 모양 정리: search 인자 이름, readText 인자와 결과 필드",
+      "status": "done",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w4",
+      "title": "이슈 #24: 건너뛴 심볼릭 링크를 결과에 드러내기",
+      "status": "done",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w5",
+      "title": "접근성 트리를 계층 구조로도 돌려주기",
+      "status": "done",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w6",
+      "title": "browse 활성화 경로: 손으로 config를 고치지 않게",
+      "status": "in_progress",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w7",
+      "title": "설치되는 안내 갱신: AGENTS 블록, 스킬, references",
+      "status": "pending",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w2",
+        "w3",
+        "w4",
+        "w5",
+        "w6"
+      ]
+    },
+    {
+      "id": "w8",
+      "title": "npm 배포 가능 여부 판정과 준비",
+      "status": "pending",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w1"
+      ]
+    },
+    {
+      "id": "w9",
+      "title": "0.3.0 릴리즈: CI, dev, main, 태그, release, 기록",
+      "status": "pending",
+      "tasks": [],
+      "criteriaIds": [],
+      "dependsOn": [
+        "w7",
+        "w8"
+      ]
+    }
+  ],
+  "criteria": [
+    {
+      "id": "c-1",
+      "scenario": "devlog/_plan/260915_agent-friction/에 000_plan.md와 각 work-phase의 diff-level 문서가 존재하고, 각 마찰의 원인이 소스 인용으로 확인된다",
+      "expectedEvidence": "",
+      "capturedEvidence": "devlog/_plan/260915_agent-friction/에 000_plan.md, 001_audit_findings.md와 각 work-phase의 diff-level 문서 8편(306줄)이 있다. 여섯 마찰의 원인을 전부 소스 인용으로 확인했다 — execution-worker.js:79의 vm.Script가 importModuleDynamically 없이 만들어지는 것, search-schema.js의 엔트리별 allowed 필터와 files/content/count의 옵션 집합, read-text.js:82가 문자열 인자만 받고 반환이 markdown/chars뿐인 것, script.js의 TREE_SUMMARY_SRC가 트리를 문자열로만 요약하는 것, browseCaps가 기계 단위 사용자 설정에 사는 것, rg가 링크를 stdout·stderr 어디에도 알리지 않는 것. 감사 2회가 계획의 수정안 자체를 두 번 깨뜨렸고(F2의 vm 콜백, F4의 필드 추가, #24의 partial 객체) 그 결과를 반영해 8편을 다시 썼다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-2",
+      "scenario": "게스트에서 동적 임포트를 쓰면 ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING 대신 무엇이 막혀 있고 무엇을 써야 하는지 말하는 오류가 나온다",
+      "expectedEvidence": "",
+      "capturedEvidence": "게스트에서 await import('node:fs')를 쓰면 code EGUESTIMPORT와 함께 'dynamic import() is not available inside --code. The guest runs as a script in a vm context with no module loader. Use the injected globals instead: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.'가 나온다. 그 이름 목록은 하드코딩이 아니라 주입 테이블(Object.keys(injected))에서 만들고, 테스트가 게스트의 실제 전역과 대조한다. 정적 import의 SyntaxError와 문자열 코드 생성의 EvalError, wasm 거절도 같은 힌트를 갖는다. 번역은 Node의 오류 코드와 이름으로만 판정해 같은 문구를 담은 사용자 오류를 가로채지 않는다(반례 있음). 게스트가 스스로 잡은 거절은 번역되지 않는다는 한계도 테스트로 기록했다. 감사자가 Node 18.20.8/20.19.5/22.19.0/24.17.0에서 재현해 확인했고, 로더를 여는 방식(실험 플래그 또는 main-context loader)은 쓰지 않았다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-3",
+      "scenario": "search.files와 search.content가 틀린 인자 이름에 대해 맞는 이름을 알려주고, 두 메서드의 계약이 문서와 일치한다",
+      "expectedEvidence": "",
+      "capturedEvidence": "search.content나 search.count에 pattern을 주면 오류가 기존 valid: 목록을 유지한 채 'In search.content, use query; \"pattern\" belongs to search.files.'를 덧붙인다. 반대로 search.files에 query를 주면 pattern/glob과 search.content/count를 가리킨다. 값이 glob 모양(*.pdf)이면 query가 아니라 glob을 권한다 — 감사가 짚은 더 나쁜 함정을 피한다. path 누락은 '설정된 root 안의 디렉터리나 파일, 절대 경로도 루트 안이어야 하고 상대 경로는 --cwd 기준'을 말한다. MISDIRECTED 표는 OPT_SETS와 일치하고 actions.check의 구조화된 답과 같은 방향을 가리킨다. 반례 6건이 수정 전에 실패했다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-4",
+      "scenario": "browse.readText가 문자열과 {url} 양쪽을 받고, 결과의 본문 필드가 비어 있는 채로 다른 키에만 들어 있는 일이 없다",
+      "expectedEvidence": "",
+      "capturedEvidence": "browse.readText가 문자열과 { url, ...opts } 양쪽을 받고 두 호출이 같은 결과를 낸다. 본문은 text 한 필드로 오고 format이 무엇인지 말한다 — fetch 경로는 markdown, 브라우저 경로는 rendered innerText라 'text'다(감사가 거짓 주장을 짚어 고쳤다). markdown 키는 없앴다: 두 벌로 두면 JSON이 본문을 두 번 써서 10k 본문이 10029→20039 바이트가 되고 예산이 뒤 키를 잘라 res.text가 다시 비기 때문이다. 0.2.x가 남긴 캐시 엔트리는 읽을 때 text로 복원하고 chars가 본문 길이와 맞는지 테스트가 본다. watch와 prefetch, actions-schema 시그니처, README도 같이 맞췄다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-5",
+      "scenario": "browse.attach의 결과에서 계층 구조를 정규식 상태 머신 없이 읽을 수 있고, 그 구조가 실제 페이지로 검증된다",
+      "expectedEvidence": "",
+      "capturedEvidence": "browse.exec와 browse.attach가 treeNodes:true를 받으면 snapshot.nodes[{depth, role, name, ref, attrs, line}]를 함께 돌려준다. 계층은 depth 비교로 읽히고(반례: iframe 아래 두 행을 depth로만 모은다) 정규식 상태 머신이 필요 없다. 파서는 잘리기 전 트리에서 돌고, 이름은 첫 대괄호 앞에서만 읽어 placeholder가 이름을 훔치지 않으며, 대괄호 밖 value도 파싱해 password/secret이면 [redacted]로 바꾼다. 못 읽은 줄은 가짜 role 대신 nodesUnparsed로 센다. 감사가 실측한 회귀(모든 snapshot에 nodes를 실으면 ~280행 페이지가 봉투에서 통째로 탈락)를 opt-in으로 막았고, 파서 자체도 요청했을 때만 와이어에 실린다(Windows 명령줄 테스트가 지킨다). 한계는 카탈로그와 테스트에 적었다 — 들여쓰기 없이 오는 자식 프레임은 depth로 묶을 수 없고, interactive 모드에는 text/heading 행이 없어 묶음이 성립하지 않는다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-6",
+      "scenario": "설치 직후 browse를 켜는 길이 한 번의 명령이거나 거절 메시지가 그 명령을 알려주며, 기본값을 바꿨다면 그 판단 근거가 기록된다",
+      "expectedEvidence": "",
+      "capturedEvidence": null,
+      "status": "open",
+      "surface": "logic"
+    },
+    {
+      "id": "c-7",
+      "scenario": "followSymlinks 거부로 건너뛴 링크가 결과에 드러나고 complete가 조용히 true로 남지 않는다 (이슈 #24)",
+      "expectedEvidence": "",
+      "capturedEvidence": "search.files와 search.content가 이제 scope.skippedSymlinks{dirs, files, examples, capped, scanned}를 싣고, 건너뛴 디렉터리가 있으면 complete가 false가 된다. 이슈 #24의 재현(깊이 1에 디렉터리 링크 다수)에서 신호가 살아난다. 파일 링크는 세기만 하고 completeness를 낮추지 않는다 — 감사가 실측으로 보인 대로, bin 스텁 세 개가 있는 흔한 저장소를 매번 incomplete로 만들면 신호가 죽기 때문이다. 열거는 rg에 넘기는 -g !glob과 같은 의미로 excludeGlobs를 적용하고(*.log 반례 있음), hidden 정책을 따르며, 취소된 검색 뒤에는 돌지 않고, 엔트리 상한에 걸리면 capped로 말한다(반례 있음). partial에는 객체를 넣지 않았다 — normalizePartial이 문자열만 남기고 RPC 왕복에서 사라지기 때문이고, JSON 왕복 후 restoreSearchResult가 신호를 유지하는 것을 테스트가 본다. 안내(tools.js)와 README에 noIgnore/hidden로는 복구되지 않으니 링크 대상을 path로 주라는 것과, 이 집계가 .gitignore를 읽지 않는다는 한계를 적었다.",
+      "status": "met",
+      "surface": "logic"
+    },
+    {
+      "id": "c-8",
+      "scenario": "설치되는 AGENTS 블록과 스킬이 게스트 샌드박스 규칙과 이 API들의 호출 모양을 정확히 적고, 그것이 테스트로 고정된다",
+      "expectedEvidence": "",
+      "capturedEvidence": null,
+      "status": "open",
+      "surface": "logic"
+    },
+    {
+      "id": "c-9",
+      "scenario": "npm 배포 가능 여부가 실제 근거(이름 가용성, pack 내용, files/bin/engines)로 판정되고 기록된다",
+      "expectedEvidence": "",
+      "capturedEvidence": null,
+      "status": "open",
+      "surface": "logic"
+    },
+    {
+      "id": "c-10",
+      "scenario": "0.3.0이 정확한 head의 CI 5조합 success 뒤 main에 있고 태그와 release가 존재한다",
+      "expectedEvidence": "",
+      "capturedEvidence": null,
+      "status": "open",
+      "surface": "logic"
+    }
+  ],
+  "host": {
+    "armed": false,
+    "armedAt": null,
+    "source": "none"
+  },
+  "schemaVersion": 1,
+  "steeringLog": [
+    {
+      "idempotencyKey": "add-work-phase-71e47e355495",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w1: 마찰 원인 확인과 diff-level 로드맵 (코드 변경 없음)",
+      "appliedAt": "2026-09-15T02:11:39.097Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-70a96d2c978b",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w2: 게스트 샌드박스: 동적 임포트 거절을 설명이 있는 오류로",
+      "appliedAt": "2026-09-15T02:11:39.588Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-6b0152d23df9",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w3: 호출 모양 정리: search 인자 이름, readText 인자와 결과 필드",
+      "appliedAt": "2026-09-15T02:11:39.811Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-e6f37ff3c4f0",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w4: 이슈 #24: 건너뛴 심볼릭 링크를 결과에 드러내기",
+      "appliedAt": "2026-09-15T02:11:40.046Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-1c0a0d72cb8c",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w5: 접근성 트리를 계층 구조로도 돌려주기",
+      "appliedAt": "2026-09-15T02:11:40.270Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-4b4d6aeb48d2",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w6: browse 활성화 경로: 손으로 config를 고치지 않게",
+      "appliedAt": "2026-09-15T02:11:40.682Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-24232021e52f",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w7: 설치되는 안내 갱신: AGENTS 블록, 스킬, references",
+      "appliedAt": "2026-09-15T02:11:41.194Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-cc3142f604eb",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w8: npm 배포 가능 여부 판정과 준비",
+      "appliedAt": "2026-09-15T02:11:41.415Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-work-phase-b80c8308a92e",
+      "rationale": "cxc loop add-work-phase",
+      "evidence": "w9: 0.3.0 릴리즈: CI, dev, main, 태그, release, 기록",
+      "appliedAt": "2026-09-15T02:11:41.630Z",
+      "summary": "1 op(s): add-work-phase"
+    },
+    {
+      "idempotencyKey": "add-criterion-4fb6235e47c2",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "devlog/_plan/260915_agent-friction/에 000_plan.md와 각 work-phase의 diff-level 문서가 존재하고, 각 마찰의 원인이 소스 인용으로 확인된다",
+      "appliedAt": "2026-09-15T02:11:41.895Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-3c83fb8a96e9",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "게스트에서 동적 임포트를 쓰면 ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING 대신 무엇이 막혀 있고 무엇을 써야 하는지 말하는 오류가 나온다",
+      "appliedAt": "2026-09-15T02:11:42.113Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-b61e2ccb22ed",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "search.files와 search.content가 틀린 인자 이름에 대해 맞는 이름을 알려주고, 두 메서드의 계약이 문서와 일치한다",
+      "appliedAt": "2026-09-15T02:11:42.323Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-7ad660470ff1",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "browse.readText가 문자열과 {url} 양쪽을 받고, 결과의 본문 필드가 비어 있는 채로 다른 키에만 들어 있는 일이 없다",
+      "appliedAt": "2026-09-15T02:11:42.596Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-7dbb6a78b9cc",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "browse.attach의 결과에서 계층 구조를 정규식 상태 머신 없이 읽을 수 있고, 그 구조가 실제 페이지로 검증된다",
+      "appliedAt": "2026-09-15T02:11:42.823Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-6498e55cce57",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "설치 직후 browse를 켜는 길이 한 번의 명령이거나 거절 메시지가 그 명령을 알려주며, 기본값을 바꿨다면 그 판단 근거가 기록된다",
+      "appliedAt": "2026-09-15T02:11:43.099Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-758424b3b024",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "followSymlinks 거부로 건너뛴 링크가 결과에 드러나고 complete가 조용히 true로 남지 않는다 (이슈 #24)",
+      "appliedAt": "2026-09-15T02:11:43.322Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-f829e5246b71",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "설치되는 AGENTS 블록과 스킬이 게스트 샌드박스 규칙과 이 API들의 호출 모양을 정확히 적고, 그것이 테스트로 고정된다",
+      "appliedAt": "2026-09-15T02:11:43.574Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-5cc1b2cec193",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "npm 배포 가능 여부가 실제 근거(이름 가용성, pack 내용, files/bin/engines)로 판정되고 기록된다",
+      "appliedAt": "2026-09-15T02:11:43.791Z",
+      "summary": "1 op(s): add-criterion"
+    },
+    {
+      "idempotencyKey": "add-criterion-93099c9b0f26",
+      "rationale": "cxc loop add-criterion",
+      "evidence": "0.3.0이 정확한 head의 CI 5조합 success 뒤 main에 있고 태그와 release가 존재한다",
+      "appliedAt": "2026-09-15T02:11:44.010Z",
+      "summary": "1 op(s): add-criterion"
+    }
+  ]
+}

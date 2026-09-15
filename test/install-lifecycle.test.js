@@ -161,3 +161,58 @@ test('a rollback writes hashes for what it restored, not what the snapshot claim
   assert.equal(recorded.sha256, sha256('// bytes that are really here\n'),
     'the rolled manifest repeated a hash for bytes it did not write');
 });
+
+// rmSync without recursive throws EISDIR on a directory, and the catch around it swallowed
+// that, so every uninstalled account kept an empty skills/user/aside-codemode/references.
+// Nothing broke; it just left litter under a path we had promised to give back.
+test('uninstall does not leave its own empty directories behind', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  runInstaller({ verb: 'uninstall', asideHome: f.home, account: '0' });
+  for (const dir of ['skills/user/aside-codemode/references', 'skills/user/aside-codemode', 'codemode']) {
+    assert.equal(existsSync(path.join(f.root, dir)), false, dir + ' survived an uninstall that emptied it');
+  }
+});
+
+// A generation that ADDED a file has to lose it again on the way back. 0.3.0 added
+// references/call-shapes.md and a 0.2.0 snapshot has no record of it, so restoring only what
+// the snapshot holds left the newer file on disk under a manifest that did not know it - and
+// doctor then called a file the installer itself had written 'new'.
+test('rollback removes a file the generation it restores never had', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  const added = 'skills/user/aside-codemode/references/call-shapes.md';
+  runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  assert.equal(existsSync(path.join(f.root, added)), true, 'the upgrade did not write the file this test is about');
+
+  // Make the snapshot look like one taken before that file existed.
+  const m = manifestOf(f);
+  m.previous.files = m.previous.files.filter((x) => x.path !== added);
+  writeFileSync(f.manifestPath, JSON.stringify(m, null, 2) + '\n', 'utf8');
+
+  const out = runInstaller({ verb: 'rollback', asideHome: f.home, account: '0' });
+  assert.ok(out.dropped.includes(added), 'rollback kept a file the generation it restored never had');
+  assert.equal(existsSync(path.join(f.root, added)), false);
+});
+
+// The same rule as everywhere else in this installer: bytes the user changed are theirs. An
+// added file they have edited stays, even though the generation being restored never had it.
+test('rollback leaves an added file the user edited', (t) => {
+  const f = installedByAnOlderRelease();
+  t.after(() => rmSync(f.base, { recursive: true, force: true }));
+
+  const added = 'skills/user/aside-codemode/references/call-shapes.md';
+  runInstaller({ verb: 'upgrade', asideHome: f.home, account: '0' });
+  const mine = read(f.root, added) + '\n<!-- mine -->\n';
+  writeFileSync(path.join(f.root, added), mine, 'utf8');
+
+  const m = manifestOf(f);
+  m.previous.files = m.previous.files.filter((x) => x.path !== added);
+  writeFileSync(f.manifestPath, JSON.stringify(m, null, 2) + '\n', 'utf8');
+
+  const out = runInstaller({ verb: 'rollback', asideHome: f.home, account: '0' });
+  assert.equal(out.dropped.includes(added), false);
+  assert.equal(read(f.root, added), mine, 'rollback deleted a file the user had edited');
+});

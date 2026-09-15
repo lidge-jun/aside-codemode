@@ -1,5 +1,6 @@
 // aside-codemode MCP server entry (A-D1/A-D3).
 // stdio NDJSON: one JSON-RPC message per line. stdout carries MCP only; logs go to stderr.
+import { readFileSync } from 'node:fs';
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { RgNotFoundError } from './rg.js';
@@ -8,7 +9,11 @@ import { createToolHandler, TOOL_DEF, TOOL_NAME } from './tools.js';
 import { parseMessage, result, error, PROTOCOL_VERSION, ERR_METHOD_NOT_FOUND, ERR_INVALID_PARAMS } from './mcp.js';
 
 const SERVER_NAME = 'aside-codemode';
-const SERVER_VERSION = '0.1.0';
+// Read the package rather than restate it. This string was still 0.1.0 two releases in,
+// which told every MCP client a version that had not existed for months.
+const SERVER_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 
 function log(...args) {
   console.error('[aside-codemode]', ...args);

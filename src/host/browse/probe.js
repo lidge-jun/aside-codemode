@@ -3,6 +3,7 @@
 // 003_locked_contracts.md E7. Each row records the observation, not an assumption, so
 // `--doctor --browse` can tell an operator why a request is refused before they debug it.
 import { UNSUPPORTED, WAIT_STATES, DEFAULT_INNER_CAP_MS, ASIDE_REPL_CAP_MS } from './schema.js';
+import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
 
 export const CAPABILITY_MATRIX = Object.freeze({
   measuredOn: '2026-09-14',
@@ -39,6 +40,9 @@ export function doctorPayload(config = {}, resolved = null, error = null) {
   const caps = config.browseCaps || {};
   return {
     enabled: caps.enabled === true,
+    // A report that says "off" and stops is the reason someone went looking for the file by
+    // hand. When it is off, the next step goes in the report.
+    ...(caps.enabled === true ? {} : { enableWith: ENABLE_BROWSE_COMMAND }),
     asidePath: config.asidePath ?? null,
     asideResolved: resolved,
     asideError: error,

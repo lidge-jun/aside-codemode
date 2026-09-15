@@ -42,6 +42,24 @@ function fail(error, extra = {}) {
   process.exit(1);
 }
 
+// Before the config is loaded, on purpose. The file this command exists to fix is one of the
+// files loadConfig reads, so a broken one would block the only easy way to repair it.
+if (has('--enable-browse')) {
+  const { enableBrowse } = await import('./enable-browse.js');
+  try {
+    const result = enableBrowse({ env: process.env });
+    if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.alreadyEnabled
+        ? 'browsing was already on (' + result.path + ')'
+        : 'browsing is on; wrote browseCaps.enabled to ' + result.path);
+    }
+    process.exit(0);
+  } catch (e) {
+    fail(e.message, { code: e.code ?? null });
+  }
+}
+
 let config;
 try {
   config = loadConfig(argv);
@@ -56,6 +74,7 @@ try {
   fail(e.message);
 }
 
+
 let assertInside;
 try {
   assertInside = makeRootGuard(config.roots, { cwd: workCwd });
@@ -65,6 +84,7 @@ try {
 
 const rgResolver = createRgResolver(config);
 const globals = signal => createHostGlobals(config, assertInside, signal);
+
 
 // `--doctor` answers "why is this not working" without making the caller
 // reverse-engineer it from a failed search.
@@ -155,7 +175,8 @@ if (!code || !code.trim()) {
   console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
   console.error('       node src/cli.js --code-file <path>   # safest: no shell quoting');
   console.error('       node src/cli.js --code - < script.js  # same, via stdin');
-  console.error('       node src/cli.js --doctor [--browse] [--config <file>] [--cwd <dir>]');
+    console.error('       node src/cli.js --doctor [--browse] [--config <file>] [--cwd <dir>]');
+  console.error('       node src/cli.js --enable-browse      # turns browse on in your user config');
   process.exit(2);
 }
 

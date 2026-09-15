@@ -18,6 +18,59 @@ export function errorFields(error) {
   return out;
 }
 
+// The guest runs as a script in a vm context with no module loader and no code generation
+// from strings. Both refusals are correct and neither is going to change; what was wrong is
+// that Node answered in its own vocabulary. ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING tells a
+// caller nothing about what to do next, and an agent that hits it usually writes the same
+// line again.
+//
+// This translates at the boundary rather than installing an import callback: that callback is
+// ignored without --experimental-vm-modules, and the one loader constant that works without
+// the flag hands back the real module namespace, which is the sandbox gone.
+export function translateGuestError(error, globals = []) {
+  const names = globals.length ? globals.join(', ') : 'the injected globals';
+  const message = String(error?.message ?? error);
+  const code = error?.code;
+
+  const alternative = 'The guest runs as a script in a vm context with no module loader. '
+    + 'Use the injected globals instead: ' + names + '.';
+
+  // Match on Node's error code, not on prose. A guest that throws its own Error mentioning a
+  // dynamic import callback is reporting something else, and rewriting it would hide that.
+  if (code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'
+    || code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG') {
+    const e = new Error('dynamic import() is not available inside --code. ' + alternative);
+    e.code = 'EGUESTIMPORT';
+    return e;
+  }
+
+  // A static import never reaches the loader: it fails to compile, because the guest body is
+  // wrapped in an async function rather than a module.
+  if (error?.name === 'SyntaxError' && /import statement outside a module/i.test(message)) {
+    const e = new SyntaxError(message + ' — ' + alternative);
+    e.code = 'EGUESTIMPORT';
+    return e;
+  }
+
+  // EvalError is the engine refusing; the same words inside some other error are not ours to
+  // relabel. Wasm is refused by the same context option and gets the same treatment.
+  if (error?.name === 'EvalError' && /code generation from strings/i.test(message)) {
+    const e = new Error(message
+      + ' — building code from a string is not available inside --code. ' + alternative);
+    e.code = 'EGUESTCODEGEN';
+    return e;
+  }
+
+  if (/wasm code generation disallowed/i.test(message)) {
+    const e = new Error(message
+      + ' — compiling WebAssembly is not available inside --code. ' + alternative);
+    e.code = 'EGUESTCODEGEN';
+    return e;
+  }
+
+  return error;
+}
+
 export function stringifyResult(value) {
   const ancestors = [];
   return JSON.stringify(value, function (key, v) {

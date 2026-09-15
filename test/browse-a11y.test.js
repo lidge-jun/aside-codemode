@@ -101,4 +101,3 @@ test('browse.attach can ask for the same tree from the live tab', () => {
   assert.equal(validateAttach({ urlIncludes: 'x', snapshot: true }).snapshot, 'tree');
   assert.throws(() => validateAttach({ urlIncludes: 'x', snapshot: 'all' }), /snapshot must be/);
 });
-

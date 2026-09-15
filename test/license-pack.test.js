@@ -44,3 +44,48 @@ test('workflow matrix covers Node 18/20/22 and installs rg', () => {
   assert.match(yml, /npm test/);
   assert.equal(/npm ci/.test(yml), false);
 });
+
+// A tarball is a redistribution. ripgrep's MIT text and PCRE2's notice have to travel with
+// the binary we vendored, and the repository LICENSE does not cover someone else's work.
+test('the vendored ripgrep ships its own notices', () => {
+  const notices = readFileSync(path.join(repoRoot, 'bin', 'THIRD-PARTY-NOTICES.md'), 'utf8');
+  assert.match(notices, /The MIT License \(MIT\)/);
+  assert.match(notices, /Copyright \(c\) 2015 Andrew Gallant/);
+  assert.match(notices, /PCRE2/);
+  assert.match(notices, /Philip Hazel/);
+  assert.match(notices, /THE SOFTWARE IS PROVIDED "AS IS"/);
+});
+
+// files[] used to take scripts/ whole, which shipped probes that default to a live
+// ~/.aside account and a release-records script that reads evidence/ from a git checkout.
+// None of them are imported by src/ or bin/, so a consumer got tooling they cannot use.
+test('the tarball carries the notices and none of the maintainer-only scripts', () => {
+  const pack = spawnSync(process.execPath, [npmCliJs(), 'pack', '--dry-run', '--json'], {
+    encoding: 'utf8',
+    cwd: repoRoot,
+  });
+  assert.equal(pack.status, 0, pack.stderr);
+  const listed = JSON.parse(pack.stdout)[0].files.map((f) => f.path);
+
+  assert.ok(listed.includes('bin/THIRD-PARTY-NOTICES.md'), 'the notices did not travel with the binary');
+  assert.ok(listed.includes('bin/rg.exe'));
+  assert.ok(listed.includes('scripts/install-codemode.mjs'));
+  assert.ok(listed.includes('templates/skill/references/call-shapes.md'));
+
+  for (const maintainerOnly of [
+    'scripts/probe-g3.mjs', 'scripts/probe-native-helper.mjs', 'scripts/rehearse-install.mjs',
+    'scripts/release-records.mjs', 'scripts/backup-accounts.mjs', 'scripts/verify-loader.mjs',
+  ]) {
+    assert.equal(listed.includes(maintainerOnly), false, maintainerOnly + ' does not belong in a published package');
+  }
+});
+
+test('the package says where it came from and who to tell', () => {
+  const pkg = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.repository.url, /github\.com\/lidge-jun\/aside-codemode/);
+  assert.match(pkg.bugs.url, /\/issues$/);
+  assert.ok(pkg.keywords.length >= 3);
+  assert.equal(pkg.bin.codemode, 'bin/codemode.mjs');
+  // scripts.test has to point at something the package actually contains.
+  assert.ok(pkg.files.includes('scripts/run-tests.mjs'));
+});

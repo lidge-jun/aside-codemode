@@ -80,8 +80,16 @@ export function needsBrowser(html, extracted) {
 export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, cache = null, accountRoot = '' } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   return async function readText(url, opts = {}) {
+    // Every neighbouring call takes an options object, so { url } is what a caller writes
+    // first. Refusing it taught nothing; accepting it costs one branch. The catalog has
+    // always advertised an object input, which made the old refusal a contradiction.
+    if (url && typeof url === 'object' && !Array.isArray(url)) {
+      const { url: inner, ...rest } = url;
+      url = inner;
+      opts = { ...rest, ...opts };
+    }
     if (typeof url !== 'string' || !url) {
-      const e = new Error('readText requires a url string');
+      const e = new Error("readText needs a url: readText('https://example.com') or readText({ url: 'https://example.com' })");
       e.code = 'EBADVAL';
       throw e;
     }
@@ -110,7 +118,12 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       // that accepted anything must not become the answer for one that did not.
       const warm = hit.hit ? hit.value : null;
       if (warm && warm.ok === true && (warm.chars || 0) >= (opts.minChars || 0)) {
-        return { ...warm, url, cached: true };
+        // An entry written before the body moved from 'markdown' to 'text' would come back
+        // with the content under a key nobody reads any more. Rename on the way out rather
+        // than invalidating a cache that is otherwise still an answer.
+        const { markdown, ...rest } = warm;
+        const carried = rest.text !== undefined ? rest : { ...rest, text: markdown ?? '', format: rest.format || 'markdown' };
+        return { ...carried, url, cached: true };
       }
     }
     const ac = new AbortController();
@@ -125,13 +138,21 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       clearTimeout(timer);
     }
 
+    // The body is markdown-shaped text. It used to be returned under 'markdown' alone, and a
+    // caller reading res.text - which is what everyone reaches for - got nothing. One field,
+    // named for what it is, with the shape stated separately. Two fields would double the
+    // payload and the budget would drop whichever came second.
     const markdown = fetchError ? '' : toMarkdown(html);
+    // format describes what the body actually is. The fetch path converts html to markdown;
+    // the browser path returns the rendered innerText, which has no markup at all. Saying
+    // 'markdown' for both would be the old key name pretending to be a description.
+    const body0 = (text, format = 'markdown') => ({ text, format, chars: text.length });
     // An http status that says "not today" is not a page. Storing it as one is how a 503
     // became a page's new content and a 403 became an empty article.
     const httpBad = status === 401 || status === 403 || status === 429 || (status !== null && status >= 500);
     if (httpBad) {
       return {
-        url, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
+        url, source: 'fetch', status, ...body0(markdown), ok: false,
         blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : 'auth'),
         fallbackReason: 'http-' + status,
       };
@@ -142,7 +163,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const wall = fetchError ? null : detect({ requestedUrl: url, finalUrl, tree: markdown });
     if (wall && wall.kind === 'login-wall') {
       return {
-        url, finalUrl, source: 'fetch', status, markdown, chars: markdown.length, ok: false,
+        url, finalUrl, source: 'fetch', status, ...body0(markdown), ok: false,
         blockKind: 'login-wall', fallbackReason: 'login-wall',
       };
     }
@@ -151,12 +172,12 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       : needsBrowser(html, markdown);
 
     if (!verdict.needed) {
-      const out = { url, source: 'fetch', status, markdown, chars: markdown.length, ok: true, fallbackReason: null };
+      const out = { url, source: 'fetch', status, ...body0(markdown), ok: true, fallbackReason: null };
       if (cache) await cache.put(cacheKeyParts, out);
       return out;
     }
     if (!browse) {
-      return { url, source: 'fetch', status, markdown, chars: markdown.length, ok: false, fallbackReason: verdict.reason, degraded: true };
+      return { url, source: 'fetch', status, ...body0(markdown), ok: false, fallbackReason: verdict.reason, degraded: true };
     }
     // fullText asks the page for its rendered body. Without it the only text the batch
     // returns is a 160-character sample, and promoting a summary to "the article" is the
@@ -166,9 +187,9 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const body = item.ok ? String(item.text || '') : '';
     const enough = body.length >= Math.max(1, opts.minChars || 1);
     const out = enough
-      ? { url, source: 'browser', status, markdown: body, chars: body.length,
+      ? { url, source: 'browser', status, ...body0(body, 'text'),
           fallbackReason: verdict.reason, browserOk: true, ok: true, blockKind: item.blockKind || null }
-      : { url, source: 'browser', status, markdown, chars: markdown.length,
+      : { url, source: 'browser', status, ...body0(markdown),
           fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, degraded: true,
           degradedReason: item.ok ? 'the browser returned no text' : 'the browser could not read the page',
           blockKind: item.blockKind || null };

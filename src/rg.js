@@ -11,6 +11,7 @@ import { execFileRg } from './child-opts.js';
 import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
 import { decorateSearchResult } from './search-result.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
+import { scanSkippedSymlinks, symlinkSkipLowersCompleteness } from './symlink-scan.js';
 import { includesText } from './unicode.js';
 
 const execFileP = promisify(execFile);
@@ -89,6 +90,10 @@ export function createRgResolver(config, env = process.env, { signal } = {}) {
       '/usr/local/bin/rg',
       '/home/linuxbrew/.linuxbrew/bin/rg',
       await whereRg(signal),
+      // Last, and only where it can run: the copy we ship. register writes rgPath on a
+      // Windows checkout, but a package installed from npm has no register step, and
+      // without this the binary we just shipped is the one thing PATH cannot find.
+      isWindows ? path.join(repoRoot, 'bin', 'rg.exe') : null,
     ].filter(Boolean);
     const failures = [];
     for (const cand of candidates) {
@@ -164,8 +169,11 @@ function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeG
 
 // A search is only complete when nothing was cut short, nothing was unreadable
 // and nothing killed the process from outside.
-function completeness({ truncated, partial, killedBySignal }) {
-  return !truncated && partial.length === 0 && !killedBySignal;
+function completeness({ truncated, partial, killedBySignal, skippedSymlinks = null }) {
+  return !truncated
+    && partial.length === 0
+    && !killedBySignal
+    && !symlinkSkipLowersCompleteness(skippedSymlinks);
 }
 
 export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
@@ -216,10 +224,11 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         onOverflow: () => { out.pop(); },
       });
       const partial = partialLines(stderr);
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(out, {
         truncated,
         partial,
-        complete: completeness({ truncated, partial, killedBySignal }),
+        complete: completeness({ truncated, partial, killedBySignal, skippedSymlinks }),
         scope: buildScope({
           kind: 'files',
           maxFilesize, timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
@@ -232,6 +241,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           followSymlinks,
           includeExcluded,
           excludeGlobs,
+          skippedSymlinks,
         }),
       });
     },
@@ -329,10 +339,11 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         },
       });
       const partial = partialLines(stderr);
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(hits, {
         truncated,
         partial,
-        complete: completeness({ truncated, partial, killedBySignal }),
+        complete: completeness({ truncated, partial, killedBySignal, skippedSymlinks }),
         scope: buildScope({
           kind: 'content',
           query, ignoreCase, fixedStrings, wordRegexp, multiline,
@@ -346,6 +357,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           followSymlinks,
           includeExcluded,
           excludeGlobs,
+          skippedSymlinks,
         }),
       });
     },
@@ -397,10 +409,11 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         },
       });
       const partial = partialLines(stderr);
+      const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult({ matches, files: files.size }, {
         truncated: false,
         partial,
-        complete: completeness({ truncated: false, partial, killedBySignal }),
+        complete: completeness({ truncated: false, partial, killedBySignal, skippedSymlinks }),
         scope: buildScope({
           kind: 'count',
           query, ignoreCase, fixedStrings,
@@ -412,6 +425,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           followSymlinks,
           includeExcluded,
           excludeGlobs,
+          skippedSymlinks,
         }),
       });
     },

@@ -54,7 +54,7 @@ npm install -g --prefix=/opt/homebrew .
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | 묶음 헬퍼. `fs.read` / `fs.write`는 바이트/덮어쓰기용 구형 별칭입니다 |
 | `actions.list` / `find` / `describe` / `check` | 샌드박스 안 탐색 |
 | `browse.probe()` | 설치된 Aside 빌드를 실제로 재서 만든 기능표. 어떤 page 메서드가 있는지, 어떤 옵션이 조용히 무시되는지, 왜 거절되는지를 돌려줍니다 |
-| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. `browseCaps.enabled`로 켜야 동작하고, `{ items, partial, leakedUrls }`를 돌려줍니다. 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
+| `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. 옵트인이라 `codemode --enable-browse`를 한 번 돌려야 켜집니다. 이 명령은 사용자 설정의 `browseCaps.enabled`만 바꾸고 다른 키는 건드리지 않습니다(계정 스킬을 지워도 다시 꺼지지 않습니다). `{ items, partial, leakedUrls }`를 돌려주고, 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
 
 **브라우징은 옵트인이고, Aside가 못 하는 일은 못 한다고 말합니다.** `page.route`, 스크린샷
 `maxWidth`, `pdf({format:'A4'})`, `file://` 주소, `networkidle`은 프로세스를 띄우기 전에
@@ -76,6 +76,18 @@ Aside CLI는 실패해도 종료코드가 `0`이라, 성공 판정은 끝줄 `[o
 
 `context`는 검색 행의 앞뒤 문맥을 반환합니다. 모르는 옵션과 잘못된 값은 거절합니다. `includeExcluded: true`는 설정된 제외 목록을 해제하며, `noIgnore`·`hidden`과는 별도입니다. **`followSymlinks: true`는 거절합니다.** 허용 루트 밖을 읽은 뒤 결과만 감추는 대신, 안전한 링크 탐색을 구현하기 전까지 사용을 막습니다.
 
+거절한 탐색을 말없이 넘기던 것도 이번에 고쳤습니다. 항목 37개 중 35개가 링크인 디렉터리가 행 2개와
+`complete: true`로 답했고, 어떤 옵션으로도 그 차이를 볼 수 없었습니다. 이제 `scope.skippedSymlinks`가
+`{ dirs, files, examples, capped, scanned }`를 보고하고, 건너뛴 것이 **디렉터리**면 `complete: false`가
+됩니다. 그 아래 트리가 통째로 가려질 수 있고 `noIgnore`·`hidden`으로도 되돌아오지 않으니, `path`를 링크
+대상으로 직접 겨누세요. 건너뛴 **파일** 링크는 세기만 하고 완전성을 낮추지 않습니다. 하위 트리를 감출 수
+없는 데다, 심링크된 bin 스텁 세 개 때문에 검색이 불완전하다고 말하면 신호가 쓸모없어지는 것을 재서
+확인했습니다. 이 집계는 `.gitignore`를 읽지 않고, 정해진 항목 수에서 멈춥니다(`capped: true`가 그렇게 말합니다).
+
+`browse.readText`는 문자열 URL과 `{ url }` 객체를 모두 받습니다. 본문은 `text` 한 필드로 오고, `format`이
+그것이 무엇인지 말합니다 — fetch 경로가 html을 변환했으면 `markdown`, 브라우저가 렌더한 본문이면 `text`.
+`browse.exec`와 `browse.attach`에 `treeNodes: true`를 주면 접근성 트리가 문자열뿐 아니라
+`snapshot.nodes`의 `{ depth, role, name, ref, attrs, line }` 배열로도 옵니다. 기본값은 꺼짐입니다.
 ```sh
 codemode --cwd /abs/project --code '
 const hits = await search.content({ path: ".", query: "TODO", max: 50 });
@@ -186,7 +198,7 @@ node eval/compare.mjs baseline.jsonl after.jsonl summary.md BASELINE-MARK AFTER-
 안정화 검증(2026-09-13): [196개 테스트 통과, 소스 해시와 남은 한계](evidence/review-hardening-20260913.json).
 
 ```sh
-npm test   # node --test "test/*.test.js" — 의존성 없음
+npm test   # node scripts/run-tests.mjs — 의존성 없음
 ```
 
 `test/regressions.test.js`는 실제로 나갔던 결함을 고정합니다. gitignore 맹점, `max` 과다 반환, stdout 버퍼 폭발, 조용히 무시되던 옵션, 다른 OS 루트 크래시, 상속된 `rgPath`를 못 지우는 `null`, Windows 드라이브 문자가 `:`로 쪼개지던 일.

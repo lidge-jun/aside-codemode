@@ -54,7 +54,7 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `fs.readMany` / `grepFile` / `mkdir` / `stat` / `exists` / `list` | Compound helpers. `fs.read` / `fs.write` are deprecated byte / overwrite aliases |
 | `actions.list` / `find` / `describe` / `check` | In-sandbox discovery |
 | `browse.probe()` | Capability matrix measured against the installed Aside build: which page methods exist, which options are accepted-and-ignored, and why a request is refused |
-| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in via `browseCaps.enabled`. Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
+| `browse.exec(job)` | Runs a batch of URLs through ONE Aside REPL session. Opt-in: turn it on with `codemode --enable-browse`, which writes `browseCaps.enabled` into your user config and changes nothing else (uninstalling the account skill does not turn it back off). Returns `{ items, partial, leakedUrls }`; one failed URL never empties the others |
 
 **`ok` is not "I read the page".** `ok` means the run completed; `contentVerified` means the
 content actually rendered. Threads returned `ok: true` with the correct title while the body
@@ -64,8 +64,9 @@ the item. Without them `contentVerified` is `null` — nobody asked, so nothing 
 `scriptRatio` is reported but never decides the verdict: every bundled SPA ships large inline
 scripts, so judging on it would trade a false success for a false failure.
 | `browse.captureMany(urls, { outDir, screenshot, ... })` | Batch capture. Screenshots come back as real files under `outDir`, each verified against the request — `clip` geometry is checked against the actual pixels rather than trusted |
-| `browse.readText(url)` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. Reports `source` and `fallbackReason` so you know which path answered |
+| `browse.readText(url)` or `browse.readText({ url })` | Fetch-first read: HTML to markdown with no browser, falling back only when the fetched page measurably rendered no text. The body comes back as `text`, with `format` saying what it is (`markdown` from the fetch path, `text` from the browser's rendered body). Reports `source` and `fallbackReason` so you know which path answered |
 | `browse.exec({ extract })` | Schema extraction in one `page.evaluate`: `{ field: 'css' }` or `{ selector, attr?, all? }`. Returns typed JSON plus a `missing[]` list, so absent is distinguishable from empty, and no snapshot tree is shipped |
+| `browse.exec({ treeNodes })` / `browse.attach({ treeNodes })` | Off by default. With `treeNodes: true` the accessibility tree also arrives parsed as `snapshot.nodes`, one `{ depth, role, name, ref, attrs, line }` row per node, so hierarchical data is grouped by depth rather than by a regex over the string form |
 | `api.batch(requests)` | Parallel API-first lookups. `youtube` and `itunes` are public no-key endpoints; `play` and `slack` refuse with `ENOTSUP` and the reason, because neither has an honest public path |
 | `report.build({ items, outFile })` | Assembles a paged HTML report, prints it over an ephemeral loopback origin (`file://` is refused by Aside), and **verifies the real MediaBox**. `pdf({format:'A4'})` was measured to yield US Letter, so the size is proven rather than requested |
 | `browse.searchMany(queries, { engine })` | N queries in parallel, URL-deduped, date-filtered. `youtube` works; `google` is callable but answers with a bot challenge, so it returns `EBLOCKED` with the URL to open rather than an empty result set; `duckduckgo` is the no-key default and gets the same challenge detection |
@@ -93,6 +94,15 @@ Inclusive `glob` values (for example `**/*.js`) are ripgrep `-g` / `--glob` glob
 Search arrays still support `.map`, `.filter` and `.length` inside guest code. Returning a search result directly (including nested results) serializes a **search envelope**: `{ rows, complete, truncated, partial, scope }`. Counts retain `{ matches, files }` and serialize the same metadata. `complete` means the selected scope was traversed without truncation or reported read errors, not that ignored or excluded files were searched. `scope` records the effective options. Explicitly returning `.length` or a mapped array is a projection: preserve metadata yourself when completeness matters.
 
 `context` returns surrounding text on content hits. Unknown or invalid options are rejected. `includeExcluded: true` overrides configured exclusions; `noIgnore` and `hidden` are separate controls. **`followSymlinks: true` is rejected** until guarded link traversal is implemented, rather than allowing ripgrep to read outside the configured roots.
+
+A rejected traversal used to be a silent one. A directory of 37 entries where 35 were links
+answered with 2 rows and `complete: true`, and no option could reveal the difference. Now
+`scope.skippedSymlinks` reports `{ dirs, files, examples, capped }`, and a skipped **directory**
+sets `complete: false` — `noIgnore`/`hidden` will not recover those results, so point `path` at
+the link target instead. A skipped **file** link is counted without lowering completeness: it
+cannot hide a subtree, and treating three symlinked bin stubs as an incomplete search was
+measured to make the signal useless. The census does not read `.gitignore`, and it stops after
+a bounded number of entries (`capped: true` says so).
 
 ```sh
 codemode --cwd /abs/project --code '
@@ -234,7 +244,7 @@ The comparator uses recorded timestamps and completion timestamps, counts failed
 Hardening verification (2026-09-13): [196 passing tests, source hashes and remaining limits](evidence/review-hardening-20260913.json).
 
 ```sh
-npm test   # node --test "test/*.test.js" — zero dependencies
+npm test   # node scripts/run-tests.mjs — zero dependencies
 ```
 
 `test/regressions.test.js` pins defects that actually shipped: the gitignore blind spot, `max` over-returning, the stdout buffer blowup, silently-ignored options, a cross-OS root crash, `rgPath: null` being unable to clear an inherited value, and a Windows drive letter being split on `:`.

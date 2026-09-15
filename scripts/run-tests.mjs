@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 // Enumerate explicitly: Node 18/20 do not expand quoted test globs, and shell
 // expansion is not portable to Windows. Keep every *.test.js in the suite.
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = new URL('../', import.meta.url);
+// The suite ships with the git checkout, not with the package: test/ is not in files[].
+// Saying so beats an ENOENT from a directory the consumer was never given.
+if (!existsSync(new URL('test/', root))) {
+  console.log('no test/ directory here: the suite ships with the git checkout, not with the npm package');
+  process.exit(0);
+}
 const files = readdirSync(new URL('test/', root))
   .filter((name) => name.endsWith('.test.js'))
   .sort()

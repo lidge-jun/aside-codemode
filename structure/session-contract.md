@@ -58,10 +58,15 @@ It is deliberately not `requireContent`. Content that is missing is a failure: t
 hold what was wanted. A session that is gone is a request. Two failures that ask different things
 of the caller need two options, or the answer collapses into the less useful one.
 
-Once one item reports the marker missing, the rest of the run is skipped with `logged-out` as the
-reason. Every remaining item shares the session that just proved gone, so continuing only opens
-tabs that cannot succeed and spends the deadline doing it. `stopWhenLoggedOut: false` turns that
-off for a caller who would rather see every item fail on its own.
+Once one item reports the marker missing, the run stops taking new work. Every remaining item
+shares the session that just proved gone, so continuing only opens tabs that cannot succeed and
+spends the deadline doing it. `stopWhenLoggedOut: false` turns that off for a caller who would
+rather see every item fail on its own.
+
+What a caller sees for the items that never ran is `unreturned`, not a skip naming the session.
+The generated script stops draining its queue, so those items are never reported at all and the
+host fills them in as requests that never came back. That is the same answer it gives when a run
+genuinely lost items, so a deliberate stop and a broken run are currently indistinguishable.
 
 The marker is tested against the document's own text with script, style and template content
 removed, the same text `requireContent` reads. A bootstrap payload that mentions the marker is not

@@ -24,6 +24,17 @@ export function hostOf(url) {
   try { return new URL(url).host.toLowerCase(); } catch (_) { return null; }
 }
 
+// Chrome's error page is a real rendered document. It has a body with text, a title, and
+// opening it resolves, so every check downstream answers confidently about a page that was
+// never loaded: the session marker finds nothing and reports a logout, a content pattern
+// does not match and reports an unrendered page. Arriving nowhere has to be decided before
+// any of them, which means it has to be decided inside the script — by the time the host
+// sees the item, a wrong code is already on it and the batch may already have stopped.
+//
+// The source lives here beside the other detection patterns, and travels to the script as
+// data the same way they do. One pattern, two readers.
+export const DEAD_END = /^chrome-error:/i;
+
 // The compiled REPL script cannot import this module, so the patterns travel as DATA and
 // the script rebuilds them. That keeps one source of truth for the signals while still
 // letting detection happen inside the script, BEFORE a screenshot is paid for.

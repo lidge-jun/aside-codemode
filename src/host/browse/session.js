@@ -12,6 +12,7 @@ import { validateJob } from './schema.js';
 import { compile, deadlineMath } from './script.js';
 import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
+import { DEAD_END } from './policy.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -141,8 +142,8 @@ const HUMAN_CLEARABLE = new Set(['login-wall', 'captcha']);
 // to the content check instead of being guessed at — a page that loaded and says Not Found
 // is a page the caller has to describe, and inventing a rule for it would trade this false
 // success for a false failure.
-const DEAD_END = /^chrome-error:/i;
-
+// The script decides this first, so an item usually arrives already stamped. This stays as
+// the net for the one case the script has nothing to look at: a page it could not evaluate.
 export function deadEndReason(item) {
   if (!item || typeof item.finalUrl !== 'string') return null;
   if (!DEAD_END.test(item.finalUrl)) return null;

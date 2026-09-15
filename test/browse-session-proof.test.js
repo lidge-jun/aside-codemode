@@ -31,6 +31,7 @@ function fakeDocument(text, scripts = []) {
 function makePage(url, doc) {
   const page = {
     targetId: url, closed: false,
+    href: url,
     async url() { return url; },
     async title() { return 'Example'; },
     async evaluate(fn, arg) { return typeof fn === 'function' ? fn(arg) : undefined; },
@@ -53,6 +54,7 @@ function runScript(source, pages) {
     pwd: '/fake/session', Buffer, setTimeout, Promise, JSON,
     // The compiled probe reads these as bare globals inside page.evaluate.
     get document() { return current && current.doc; },
+    get location() { return { href: current && current.href }; },
   });
   const done = vm.runInContext('(async () => {' + source + '})()', ctx);
   return { done, payload: () => JSON.parse(lines[lines.length - 1]) };
@@ -141,3 +143,41 @@ test('the marker is checked before a process is spawned', () => {
   assert.equal(validateJob(base).stopWhenLoggedOut, false);
 });
 
+// The regression the earlier version of this file could not see. A url that never loaded
+// lands on a real rendered document with a body, so the marker finds nothing and answers
+// logout. With the default stop that killed the whole batch, and the caller was told to
+// sign in about a network failure.
+const ERROR_PAGE = 'chrome-error://chromewebdata/';
+
+test('a url that never loaded is not mistaken for a lost session', async () => {
+  const urls = ['https://nope.invalid/a', 'https://portal.test/b'];
+  const job = validateJob({ urls, timeoutMs: 5000, concurrency: 1, loggedInMarker: 'Signed in as' });
+  const opened = [];
+  const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), (u) => {
+    const bad = u.indexOf('nope') > -1;
+    const page = makePage(u, fakeDocument(bad ? 'This site can not be reached' : IN));
+    if (bad) page.href = ERROR_PAGE;
+    opened.push(u);
+    return page;
+  });
+  await done;
+  const out = payload();
+  assert.equal(out.items.length, 2, 'the batch must not have stopped');
+  assert.equal(opened.length, 2, 'the second url must still have been opened');
+  const dead = out.items.find((i) => i.url === urls[0]);
+  assert.equal(dead.code, 'EDEADEND', 'a network failure was reported as a logout');
+  assert.equal(itemStatus(dead), 'failed');
+  assert.equal(out.items.find((i) => i.url === urls[1]).ok, true, 'a good url was punished for a bad one');
+});
+
+// The destination is decided before the content check too, for the same reason.
+test('a url that never loaded is not mistaken for an unrendered page', async () => {
+  const job = validateJob({ urls: ['https://nope.invalid/a'], timeoutMs: 5000, concurrency: 1, requireContent: 'Quarterly report' });
+  const { done, payload } = runScript(compile({ ...job, runId: 'run-x' }), (u) => {
+    const page = makePage(u, fakeDocument('This site can not be reached'));
+    page.href = ERROR_PAGE;
+    return page;
+  });
+  await done;
+  assert.equal(payload().items[0].code, 'EDEADEND');
+});

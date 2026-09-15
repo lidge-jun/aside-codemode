@@ -92,11 +92,20 @@ code never emitted it, so the document described a status the tool could not rea
 ## Arriving nowhere
 
 Chrome's own error page is a page: it loads, it has a title, and opening it resolves. A DNS failure
-and a refused connection therefore used to arrive looking exactly like a success. An item whose
-final url carries the browser's error scheme is stamped `EDEADEND` and fails, and the run reports
-`dead-end` among its reasons. The stamp is applied only where the item still looked successful, so
-an item that already named its own failure keeps that reason rather than having the symptom written
-over the cause.
+and a refused connection therefore used to arrive looking exactly like a success.
+
+**Arriving nowhere is decided before every other verdict, inside the script.** It has to be. An
+error page is a real rendered document with a body, so the session marker finds nothing and answers
+that you are logged out, a required content pattern does not match and answers that the page never
+rendered, and block detection reads a title and a tree this page also has. Each would answer with
+confidence about a page that was never loaded, and the session answer would additionally stop the
+rest of the batch. A host-side repair cannot undo a decision the script made three steps earlier,
+so the destination is checked first and the item is stamped `EDEADEND` there.
+
+The host keeps the same check as a net for the one case the script has nothing to look at: a page
+it could not evaluate at all. That stamp lands only where the item still looked successful, so an
+item that already named its own failure keeps that reason rather than having a symptom written over
+the cause.
 
 The scheme is the only signal available here. HTTP status is not: `waitForResponse` is absent from
 this surface, so the batch never sees one, and `read-text.js` is the only place a status is read at

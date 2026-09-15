@@ -4,7 +4,7 @@
 // tabs permanently and no later session can close them (001 E5). So the script must always
 // finish under its OWN timer: inner deadline first, host deadline second.
 import { A4_INCHES, ASIDE_REPL_CAP_MS, DEFAULT_INNER_CAP_MS, SLACK_MS } from './schema.js';
-import { detectionPatterns } from './policy.js';
+import { detectionPatterns, DEAD_END } from './policy.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { helperSource } from './helper-bundle.js';
 
@@ -379,6 +379,9 @@ export function compile(job, plan = null) {
     // Only when asked. Every key here is bytes on a command line the host caps at 30000.
     ...(job.fullText === true ? { fullText: true, maxTextChars: job.maxTextChars || 200000 } : {}),
     detect: job.detect === false ? null : detectionPatterns(),
+    // Travels as data like the block patterns. The script rebuilds it and consults it
+    // before every other verdict.
+    deadEnd: DEAD_END.source,
   };
   // Function replacers, not string ones. String.prototype.replace interprets $&, $` and
   // $' in the REPLACEMENT, so a selector or a fill value carrying $& was substituted after
@@ -486,6 +489,7 @@ const RX = JOB.detect ? {
   password: new RegExp(JOB.detect.password, 'i'),
 } : null;
 function hostOf(u) { try { return new URL(u).host.toLowerCase(); } catch (_) { return null; } }
+var RX_DEAD = JOB.deadEnd ? new RegExp(JOB.deadEnd, 'i') : null;
 function detectBlock(requestedUrl, finalUrl, title, tree) {
   if (!RX) return null;
   const hay = String(title) + '\\n' + String(tree);
@@ -572,6 +576,14 @@ async function one(item) {
     try { if (typeof page.title === 'function') title = await page.title(); } catch (_) {}
     try { if (typeof snapshot === 'function') { const snap = await snapshot(page); tree = (snap && snap.tree) || ''; } } catch (_) {}
     t.detect = lap();
+    // Arriving nowhere outranks every verdict below; see structure/batch-contract.md. The
+    // wording is terse because this text travels on a 30000 character command line.
+    if (RX_DEAD && RX_DEAD.test(finalUrl)) {
+      items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EDEADEND',
+        error: 'no page was loaded; the navigation ended at ' + finalUrl,
+        finalUrl, title, timings: t });
+      return;
+    }
     const blocked = detectBlock(item.url, finalUrl, title, tree);
     if (blocked) {
       items.push({ jobId: item.jobId, url: item.url, ok: false, code: 'EBLOCKED', blockKind: blocked.kind, alternate: blocked.alternate, finalUrl, title, timings: t });

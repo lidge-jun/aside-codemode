@@ -78,6 +78,7 @@ export const BROWSE_ACTIONS = [
       waitSelector: { type: 'string', required: false, description: 'Wait for this css selector instead of a load state' },
       snapshot: { type: 'boolean|string', required: false, description: "false | true ('bytes', length only) | 'tree' (the whole a11y tree, child frames included) | 'interactive' (only actionable rows plus their refs)" },
       maxTreeChars: { type: 'number', required: false, description: 'Cap on the returned tree, default 20000; truncation is reported, not hidden' },
+      treeNodes: { type: 'boolean', required: false, description: 'Also return snapshot.nodes: [{depth, role, name, ref, attrs, line}] parsed from the same tree, so a grouped read is a depth comparison instead of a regex. Off by default because it costs payload; depth follows indentation, so a child frame whose rows are not indented cannot be grouped this way.' },
       actions: { type: 'array', required: false, description: "Ordered steps run after navigation and before extract. Each step: one verb plus one of { ref } or { selector }. Verbs: click, dblclick, fill, type, press, hover, focus, check, uncheck, selectOption, scrollIntoView, waitFor, waitForLoadState, goBack, goForward, reload, scroll, sleepMs. Max 20." },
       stopOnError: { type: 'boolean', required: false, description: 'Default true. False keeps going and still reports every failure.' },
       allowStaleRefs: { type: 'boolean', required: false, description: 'Default false. Lets a ref step run without validation, at the cost of possibly hitting a renumbered element.' },
@@ -120,6 +121,7 @@ export const BROWSE_ACTIONS = [
       sampleChars: { type: 'number', required: false, description: 'Length of render.sample, default 400' },
       snapshot: { type: 'boolean|string', required: false, description: "'tree' or 'interactive' to get the a11y tree and refs from the live tab" },
       maxTreeChars: { type: 'number', required: false, description: 'Cap on the returned tree, default 20000' },
+      treeNodes: { type: 'boolean', required: false, description: 'Also return snapshot.nodes parsed from the same tree (depth, role, name, ref, attrs). Off by default; see browse.exec for the shape and its limits.' },
       actions: { type: 'array', required: false, description: 'Same step shape as browse.exec, run against the live tab. The tab is still never closed.' },
       stopOnError: { type: 'boolean', required: false, description: 'Default true' },
       allowStaleRefs: { type: 'boolean', required: false, description: 'Default false' },
@@ -142,6 +144,7 @@ export const BROWSE_ACTIONS = [
     path: 'browse.readText',
     description: 'Fetch-first page read: html to markdown-shaped text, with no browser unless the page rendered nothing. Takes a url string or { url, ...options }.',
     signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>",
+    // treeNodes is documented on the job that carries it, below.
     inputs: {
       url: { type: 'string', required: true, description: 'http(s) url' },
       timeoutMs: { type: 'number', required: false, description: 'Deadline for the fetch and, if one is needed, the browser read' },

@@ -62,7 +62,7 @@ export class BrowseOptionError extends Error {
   }
 }
 
-const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
+const JOB_KEYS = Object.freeze(['urls', 'timeoutMs', 'waitUntil', 'waitSelector', 'snapshot', 'maxTreeChars', 'treeNodes', 'screenshot', 'pdf', 'concurrency', 'extract', 'detect', 'requireSelector', 'minTextChars', 'requireContent', 'actions', 'stopOnError', 'allowStaleRefs', 'refsFingerprint', 'snapshotAfter', 'fullText', 'maxTextChars', 'helper', 'actionBudgetMs']);
 
 // A ref names a row in one specific observation. Reading by ref is therefore only meaningful
 // against the fingerprint of that observation, and only in a call that does not also mutate
@@ -341,6 +341,9 @@ export function validateJob(raw, browseCaps = {}) {
     waitSelector: raw.waitSelector ?? null,
     snapshot: normalizeSnapshot(raw.snapshot),
     maxTreeChars: raw.maxTreeChars === undefined ? 20000 : requirePositiveInt('maxTreeChars', raw.maxTreeChars),
+    // Off by default: a structured view is worth its bytes only to a caller that walks it,
+    // and paying for it on every snapshot cost middle-sized pages their whole envelope.
+    treeNodes: raw.treeNodes === true,
     actions,
     stopOnError: raw.stopOnError !== false,
     allowStaleRefs: raw.allowStaleRefs === true,

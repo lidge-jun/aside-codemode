@@ -27,7 +27,7 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
-import { TREE_SUMMARY_SRC, jsonForScript, stripForWire } from './script.js';
+import { TREE_SUMMARY_SRC, TREE_NODES_SRC, jsonForScript, stripForWire } from './script.js';
 import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { REF_READ_SRC } from './script.js';
@@ -124,6 +124,12 @@ try {
           row.snapshotBytes = tree.length;
           if (REQ.snapshot !== "bytes") {
             row.snapshot = summarizeTree(tree, REQ.snapshot, REQ.maxTreeChars || 20000);
+            if (REQ.treeNodes === true && typeof summarizeNodes === "function") {
+              var __n = summarizeNodes(tree, REQ.snapshot, { maxNodeChars: 8000 });
+              row.snapshot.nodes = __n.nodes;
+              row.snapshot.nodesTruncated = __n.nodesTruncated;
+              row.snapshot.nodesUnparsed = __n.nodesUnparsed;
+            }
           }
         } catch (e) { row.snapshotError = String((e && e.message) || e); }
       }
@@ -210,6 +216,7 @@ export function compileAttach(req) {
   const hasRefExtract = Boolean(req.extract) && Object.keys(req.extract)
     .some((k) => req.extract[k] && typeof req.extract[k] === 'object' && 'ref' in req.extract[k]);
   const head = (req.snapshot || req.refsFingerprint || req.snapshotAfter || hasRefExtract ? TREE_SUMMARY_SRC + '\n' : '')
+    + (req.snapshot && req.treeNodes === true ? TREE_NODES_SRC + '\n' : '')
     + (hasRefExtract ? REF_READ_SRC + '\n' : '')
     + (req.actions && req.actions.length ? ACTION_STEP_SRC + '\n' : '');
   return stripForWire(head + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req)));

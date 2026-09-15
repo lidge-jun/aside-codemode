@@ -30,26 +30,18 @@ export function deadlineMath(requestedMs, browseCaps = {}) {
 export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, capChars, opts) {
   var ROW_REF = /\[ref=([^\]]+)\]/;
   var ROW_ROLE = /^[\s-]*([a-zA-Z][a-zA-Z0-9_-]*)/;
-  var ROW_NAME = /"([^"]*)"/;
-  // A row names itself either in quotes (link "x") or after a colon (text: x). Reading only
-  // the first left every text and heading row nameless, which is exactly the content a
-  // grouped read needs.
-  var ROW_COLON_NAME = /^[\s-]*[a-zA-Z][a-zA-Z0-9_-]*:\s*(.+)$/;
-  var ROW_PASSWORD = /\[type=password\]/;
-  var ROW_ATTR = /\[([a-zA-Z][a-zA-Z0-9_-]*)=([^\]]*)\]/g;
+  // The name is what sits before the first bracketed attribute. Reading the first quoted run
+  // anywhere on the line let a placeholder become the name of a nameless textbox, which is a
+  // mistake diff.js already avoids the same way.
+  var ROW_NAME = /^[\s-]*[a-zA-Z][a-zA-Z0-9_-]*\s+"([^"]*)"/;
   var ACTIONABLE = /^[\s-]*(link|button|textbox|searchbox|checkbox|radio|combobox|listbox|option|menuitem|menuitemcheckbox|menuitemradio|tab|switch|slider|spinbutton|treeitem|iframe)\b/;
   var lines = String(tree == null ? '' : tree).split('\n');
-  var maxNodes = opts && opts.maxNodes > 0 ? opts.maxNodes : 2000;
-  // Nodes share the tree's character budget rather than adding a second unbounded payload.
-  // Measured before this line existed: a 1200-row page produced a 238KB result against a
-  // 65536-byte envelope, so the shrinker dropped whole keys and the caller lost the tree it
-  // had asked for.
-  var nodeBudget = (capChars > 0 ? capChars : 20000);
-  var nodeChars = 0;
+  // Opt-in. Measured: attaching a structured view to every snapshot pushed a middle-sized
+  // page (~280 rows) from 49KB to 78KB against a 65536-byte envelope, and the shrinker
+  // answered by dropping the whole snapshot - so a caller who never asked for nodes lost the
+  // tree too. A caller who does ask takes that trade knowingly, inside its own budget.
   var kept = [];
   var refs = [];
-  var nodes = [];
-  var nodesTruncated = false;
   for (var li = 0; li < lines.length; li++) {
     var line = lines[li];
     var m = ROW_REF.exec(line);
@@ -61,38 +53,6 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     if (mode === 'tree') { kept.push(line); }
     else if (m && ACTIONABLE.test(line)) { kept.push(line.replace(/^\s+/, '')); }
 
-    // Parsed here, from the untruncated line, because a tree cut to fit a byte budget loses
-    // the indentation of whatever row the cut landed in.
-    if (!nodesTruncated && (mode === 'tree' || (m && ACTIONABLE.test(line)))) {
-      if (nodes.length >= maxNodes) { nodesTruncated = true; }
-      else if (line.trim()) {
-        var indent = /^(\s*)/.exec(line)[1].length;
-        var role2 = ROW_ROLE.exec(line);
-        var quoted = ROW_NAME.exec(line);
-        var colon = quoted ? null : ROW_COLON_NAME.exec(line);
-        var isPw = ROW_PASSWORD.test(line);
-        var attrs = {};
-        var am;
-        ROW_ATTR.lastIndex = 0;
-        while ((am = ROW_ATTR.exec(line)) !== null) {
-          if (am[1] === 'ref') continue;
-          // A password field's value is the one thing in a tree nobody should carry around.
-          if (isPw && am[1] === 'value') continue;
-          attrs[am[1]] = am[2];
-        }
-        var node = {
-          depth: Math.floor(indent / 2),
-          role: role2 ? role2[1] : null,
-          name: quoted ? quoted[1] : (colon ? colon[1].trim() : null),
-          ref: m ? m[1] : null,
-          attrs: attrs,
-          line: li
-        };
-        var cost = (node.role ? node.role.length : 0) + (node.name ? node.name.length : 0) + 40;
-        if (nodeChars + cost > nodeBudget) { nodesTruncated = true; }
-        else { nodeChars += cost; nodes.push(node); }
-      }
-    }
   }
   var body = kept.join('\n');
   var cap = capChars > 0 ? capChars : 20000;
@@ -125,14 +85,84 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
     refCount: refs.length,
     refs: refs.slice(0, 500),
     refsTruncated: refs.length > 500,
-    nodes: nodes,
-    nodesTruncated: nodesTruncated,
     fingerprint: 'r' + refs.length + '-' + __fp(refs, true),
     fingerprintStructure: 's' + refs.length + '-' + __fp(refs, false)
   };
 }`;
 
-export const summarizeTree = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
+const summarizeTreeRaw = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
+
+// The structured view, kept OUT of the always-injected summariser. The generated script
+// travels as a command-line argument the host caps at 30000 characters, and the acting job
+// was measured at 29,429 of them: a parser nobody asked for cost the case its headroom.
+// Injected only when a job sets treeNodes.
+export const TREE_NODES_SRC = String.raw`function summarizeNodes(tree, mode, opts) {
+  var ROW_REF = /\[ref=([^\]]+)\]/;
+  var ROW_ROLE = /^[\s-]*([a-zA-Z][a-zA-Z0-9_-]*)/;
+  var ROW_NAME = /^[\s-]*[a-zA-Z][a-zA-Z0-9_-]*\s+"([^"]*)"/;
+  var ROW_COLON_NAME = /^[\s-]*[a-zA-Z][a-zA-Z0-9_-]*:\s*(.+)$/;
+  var ROW_SHAPE = /^\s*-\s+[a-zA-Z][a-zA-Z0-9_-]*(\s|:|\[|$)/;
+  var ROW_BARE_VALUE = /\bvalue="([^"]*)"/;
+  var ROW_PASSWORD = /\[type=password\]/;
+  var ROW_ATTR = /\[([a-zA-Z][a-zA-Z0-9_-]*)=([^\]]*)\]/g;
+  var ACTIONABLE = /^[\s-]*(link|button|textbox|searchbox|checkbox|radio|combobox|listbox|option|menuitem|menuitemcheckbox|menuitemradio|tab|switch|slider|spinbutton|treeitem|iframe)\b/;
+  var SECRETISH = /password|passwd|secret|otp|token/i;
+  var maxNodes = opts && opts.maxNodes > 0 ? opts.maxNodes : 2000;
+  var budget = opts && opts.maxNodeChars > 0 ? opts.maxNodeChars : 8000;
+  var lines = String(tree == null ? '' : tree).split('\n');
+  var nodes = [];
+  var truncated = false;
+  var unparsed = 0;
+  var spent = 0;
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    var m = ROW_REF.exec(line);
+    if (mode !== 'tree' && !(m && ACTIONABLE.test(line))) continue;
+    if (truncated) break;
+    if (nodes.length >= maxNodes) { truncated = true; break; }
+    if (!line.trim()) continue;
+    if (!ROW_SHAPE.test(line)) { unparsed += 1; continue; }
+    var indent = /^(\s*)/.exec(line)[1].length;
+    var role = ROW_ROLE.exec(line);
+    var quoted = ROW_NAME.exec(line);
+    var colon = quoted ? null : ROW_COLON_NAME.exec(line);
+    var bare = ROW_BARE_VALUE.exec(line);
+    var secret = ROW_PASSWORD.test(line) || SECRETISH.test(line);
+    var attrs = {};
+    var am;
+    ROW_ATTR.lastIndex = 0;
+    while ((am = ROW_ATTR.exec(line)) !== null) {
+      if (am[1] === 'ref') continue;
+      if (secret && am[1] === 'value') continue;
+      attrs[am[1]] = am[2];
+    }
+    if (bare) attrs.value = secret ? '[redacted]' : bare[1];
+    var node = {
+      depth: Math.floor(indent / 2),
+      role: role ? role[1] : null,
+      name: quoted ? quoted[1] : (colon ? colon[1].trim() : null),
+      ref: m ? m[1] : null,
+      attrs: attrs,
+      line: li
+    };
+    var cost = (node.role ? node.role.length : 0) + (node.name ? node.name.length : 0) + 40;
+    if (spent + cost > budget) { truncated = true; break; }
+    spent += cost;
+    nodes.push(node);
+  }
+  return { nodes: nodes, nodesTruncated: truncated, nodesUnparsed: unparsed };
+}`;
+
+export const summarizeNodes = new Function(TREE_NODES_SRC + '; return summarizeNodes;')();
+
+// Host-side convenience with the same shape the generated script produces: the structured
+// view is merged in only when it was asked for, so the default result is byte-for-byte what
+// it was before nodes existed.
+export function summarizeTree(tree, mode, capChars, opts) {
+  const out = summarizeTreeRaw(tree, mode, capChars, opts);
+  if (opts && opts.nodes) return { ...out, ...summarizeNodes(tree, mode, opts) };
+  return { ...out, nodes: [], nodesTruncated: false, nodesUnparsed: 0 };
+}
 
 // Reading by ref is role-aware. innerText on a textbox returns "" whether or not it holds a
 // value, and a checkbox's value attribute is the string it would submit, never whether it is
@@ -320,6 +350,8 @@ export function compile(job, plan = null) {
     waitUntil: job.waitUntil,
     snapshot: job.snapshot,
     maxTreeChars: job.maxTreeChars || 20000,
+    // Carried into the payload so the generated script and its size both depend on it.
+    treeNodes: job.treeNodes === true,
     actions: job.actions || null,
     stopOnError: job.stopOnError !== false,
     allowStaleRefs: job.allowStaleRefs === true,
@@ -367,6 +399,10 @@ export function compile(job, plan = null) {
     // mean anything.
     .replace('/*__HELPER__*/', () => (job.helper === true ? stripForWire(helperSource().src) : ''))
     .replace('/*__TREE_SUMMARY__*/', () => (needsTree ? stripForWire(TREE_SUMMARY_SRC) : ''))
+    .replace('/*__TREE_NODES__*/', () => (needsTree && payload.treeNodes === true ? stripForWire(TREE_NODES_SRC) : ''))
+    .replace('/*__TREE_NODES_CALL__*/', () => (needsTree && payload.treeNodes === true
+      ? 'if (out.snapshot) { var __n = summarizeNodes(tree, JOB.snapshot, { maxNodeChars: 8000 }); out.snapshot.nodes = __n.nodes; out.snapshot.nodesTruncated = __n.nodesTruncated; out.snapshot.nodesUnparsed = __n.nodesUnparsed; }'
+      : ''))
     .replace('/*__EXTRACT__*/', () => (payload.extract ? stripForWire(EXTRACT_SRC) : ''))
     .replace('/*__REF_READ__*/', () => (hasRefExtract ? stripForWire(REF_READ_SRC) : ''))
     .replace('/*__REF_SPLIT__*/', () => (hasRefExtract ? stripForWire(REF_SPLIT_SRC) : ''))
@@ -381,6 +417,7 @@ const TEMPLATE = `"use strict";
 const JOB = __JOB__;
 /*__HELPER__*/
 /*__TREE_SUMMARY__*/
+/*__TREE_NODES__*/
 /*__ACTION_STEPS__*/
 const SCRIPT_STARTED_AT = Date.now();
 // The action loop must finish EARLY enough that the item still gets pushed. Sharing the
@@ -665,6 +702,7 @@ async function one(item) {
         // the child frames, which is why a frame arrives as its own [ref=fNN] row. Shipping
         // it was refused on token grounds; 'interactive' answers that instead of silence.
         out.snapshot = summarizeTree(tree, JOB.snapshot, JOB.maxTreeChars || 20000);
+        /*__TREE_NODES_CALL__*/
       }
       t.snapshot = lap();
     }

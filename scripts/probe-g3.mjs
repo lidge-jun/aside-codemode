@@ -22,6 +22,9 @@ function arg(name, fallback) {
 const accountRoot = arg('--account-root', path.join(os.homedir(), '.aside', 'u', '0'));
 const label = arg('--label', os.hostname());
 const asJson = process.argv.includes('--json');
+// Where the raw answer goes. The release records have to cite what the machine said, not a
+// number retyped from a terminal.
+const outPath = arg('--out', null);
 
 const script = (body) => '<scr' + 'ipt>' + body + '</scr' + 'ipt>';
 const CHILD = '<!doctype html><title>child</title><button id="b">press me</button><p id="out"></p>'
@@ -282,7 +285,14 @@ if (!data) {
 
 const ran = checks.filter((c) => c.pass !== null);
 const passed = ran.filter((c) => c.pass).length;
-const report = { label, accountRoot, passed, ran: ran.length, skipped: checks.length - ran.length, checks };
+const report = {
+  label, accountRoot, at: new Date().toISOString(), platform: process.platform,
+  passed, ran: ran.length, skipped: checks.length - ran.length, checks, raw: data,
+};
+if (outPath) {
+  await mkdir(path.dirname(outPath), { recursive: true });
+  await writeFile(outPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+}
 if (asJson) console.log(JSON.stringify(report, null, 2));
 else {
   for (const c of checks) console.log((c.pass === null ? '- SKIP' : c.pass ? '  ok  ' : '  FAIL') + ' ' + c.name + '  ' + c.detail.slice(0, 160));

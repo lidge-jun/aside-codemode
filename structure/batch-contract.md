@@ -144,13 +144,21 @@ that mentions the string would match while nobody could see it.
 A selector that matched nothing on one page is a page that does not have it. A selector that
 matched nothing on **every** page that answered is a selector that is wrong, and the run is the
 only place that sees more than one item at a time, so it is the only place that can tell. It
-reports `suspectEmpty` naming those fields, along with how many frames the pages carried, because
-a frame is the usual explanation: eight course pages once returned zero for the same selector with
-no error anywhere, and the content was inside an iframe.
+reports `suspectEmpty` naming those fields, along with how many of those pages carried frames,
+because a frame is the usual explanation: eight course pages once returned zero for the same
+selector with no error anywhere, and the content was inside an iframe. The count is pages rather
+than frames, since a total cannot tell two pages with two frames from one page with four.
 
 A search where every query came back with nothing carries the same field, for the same reason: in
 practice that is a challenge page or a parser that stopped matching rather than a subject with no
 results anywhere.
+
+Both need at least two answers before they say anything. One page without a selector, and one
+query without results, are ordinary.
+
+A ref-addressed extract field is never accused. A ref names a row in one observation, so an empty
+one is a stale fingerprint rather than a selector anybody wrote wrongly, and the run already
+reports staleness as what it is.
 
 Neither lowers the status. The call worked and the run is `completed`; what is in doubt is whether
 the answer means what it looks like it means, and saying so is different from failing.

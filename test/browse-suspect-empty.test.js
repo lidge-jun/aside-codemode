@@ -47,7 +47,9 @@ test('the run carries what was empty and the frames that usually explain it', as
   // The run still completed: this is a warning about the answer, not a failure of the call.
   assert.equal(res.status, 'completed');
   assert.deepEqual(res.suspectEmpty.selectors, ['rows']);
-  assert.equal(res.suspectEmpty.iframes, 4);
+  // How many pages had frames, not how many frames. A sum cannot tell two pages with two
+  // frames from one page with four, and a page that could not be evaluated counts as zero.
+  assert.equal(res.suspectEmpty.framedPages, 2);
   assert.match(res.suspectEmpty.why, /wrong selector/);
   assert.ok(res.partial.includes('suspect-empty'));
 });
@@ -85,9 +87,27 @@ test('every query answering nothing is a signal, not a subject with no results',
   assert.ok(res.partial.includes('suspect-empty'));
 });
 
+// The same minimum extraction uses. One query finding nothing is the most ordinary outcome
+// a search has, and a warning on the common case teaches a reader to skip the field.
+test('a single query finding nothing is not a signal', async () => {
+  const res = await searchWith([0])(['a subject with genuinely no results']);
+  assert.equal(res.ok, true);
+  assert.equal(res.suspectEmpty, undefined);
+  assert.equal(res.partial.includes('suspect-empty'), false);
+});
+
+// A ref names a row in one observation, so an empty ref field is a stale fingerprint, not a
+// selector anybody wrote wrongly.
+test('a stale ref is not accused of being a bad selector', () => {
+  const refSchema = { rows: { ref: 'e12' } };
+  assert.deepEqual(suspectSelectors([item('a', ['rows']), item('b', ['rows'])], refSchema), []);
+  // A css field beside it is still judged on its own terms.
+  const mixed = { rows: { ref: 'e12' }, title: 'h1' };
+  assert.deepEqual(suspectSelectors([item('a', ['rows', 'title']), item('b', ['rows', 'title'])], mixed), ['title']);
+});
+
 test('one query finding something means the search works', async () => {
   const res = await searchWith([0, 3])(['first thing', 'second thing']);
   assert.equal(res.suspectEmpty, undefined);
   assert.equal(res.partial.includes('suspect-empty'), false);
 });
-

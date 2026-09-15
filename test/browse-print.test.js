@@ -136,3 +136,32 @@ test('a document that talks about being blocked is not a blocked document', () =
   assert.equal(page('Too Many Requests').kind, 'blocked');
 });
 
+// Both artifacts are independent requests. A screenshot that failed verification used to
+// withhold a pdf that was sitting in the session directory and verified perfectly, because
+// the pdf branch asked whether the item was still completed after the screenshot had
+// already lowered it.
+test('a failed screenshot does not withhold a pdf that verified', async () => {
+  const written = new Map();
+  const capture = createCaptureMany({
+    session: { run: async (job, opts) => ({
+      schema: 'browse/2', runId: 'run-x', status: 'completed', ok: true, complete: true,
+      requested: 1, completed: 1, unreturned: 0, partial: [], effects: [], pwd: '/fake/session',
+      items: [{ jobId: 'j000', url: job.urls[0], ok: true, status: 'completed',
+        artifactName: opts.artifactNames[0], pdfName: opts.pdfNames[0] }],
+      ledger: [{ jobId: 'j000', index: 0 }],
+    }) },
+    assertInside: (p) => p,
+    deps: {
+      mkdirImpl: async () => {}, realpathImpl: async (p) => p,
+      // The screenshot comes back as bytes verifyCapture cannot read; the pdf is fine.
+      readFileImpl: async (p) => (p.endsWith('.pdf') ? a4() : Buffer.from('not a png')),
+      writeFileImpl: async (p, buf) => { written.set(p, buf); },
+    },
+  });
+  const res = await capture(['https://a.test/doc'], { screenshot: {}, pdf: {}, outDir: '/out' });
+  const item = res.items[0];
+  assert.equal(item.code, 'ECAPTURE', 'the screenshot failure is still reported');
+  assert.ok(item.pdf, 'the pdf was withheld because a different artifact failed');
+  assert.equal(item.pdf.pageBox.matched, true);
+  assert.ok([...written.keys()].some((p) => p.endsWith('.pdf')), 'the pdf never reached disk');
+});

@@ -128,6 +128,10 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     const items = [];
     for (const source of res.items) {
       const item = { ...source };
+      // Held before the screenshot block can lower it. The two artifacts are independent
+      // requests and neither answers for the other: a screenshot that failed verification
+      // used to withhold a pdf sitting in the session directory that verified perfectly.
+      const arrived = item.status === 'completed';
       const name = nameByJob.get(item.jobId);
       // A request nobody answered, or a run we lost track of, has no file to fetch. Reading
       // one anyway would turn a known unknown into an artifact error and hide the cause.
@@ -176,7 +180,7 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
       // for. A file that exists is not a page of the requested size — the format shortcut
       // was measured producing US Letter while reporting A4, which is why paper is only
       // ever expressed in inches here.
-      if (paper !== null && item.status === 'completed') {
+      if (paper !== null && arrived) {
         const pdfName = pdfByJob.get(item.jobId);
         if (!pdfName || item.pdfName !== pdfName) {
           item.ok = false;

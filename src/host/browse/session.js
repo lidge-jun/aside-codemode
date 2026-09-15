@@ -162,7 +162,14 @@ export function deadEndReason(item) {
 // worth a second look.
 export function suspectSelectors(items = [], extract = null) {
   if (!extract) return [];
-  const fields = Object.keys(extract);
+  // A ref names a row in one observation, so a ref field that came back empty is a stale
+  // fingerprint rather than a wrong selector, and the run already reports that as what it
+  // is. Telling the caller their selector is wrong would send them to rewrite a selector
+  // they never wrote.
+  const fields = Object.keys(extract).filter((f) => {
+    const spec = extract[f];
+    return !(spec && typeof spec === 'object' && !Array.isArray(spec) && 'ref' in spec);
+  });
   if (fields.length === 0) return [];
   const answered = items.filter((i) => i && i.status === 'completed' && i.data && Array.isArray(i.data.missing));
   // One page proves nothing either way, so this needs at least two to be an aggregate.
@@ -416,15 +423,22 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       actionLog,
       // Aggregate verdict across the batch: true only when every item proved its content,
       // false when any item failed a check, null when nothing was checkable.
-      contentVerified: items.length === 0 ? null
-        : (items.some((i) => i.contentVerified === false) ? false
-          : (items.every((i) => i.contentVerified === true) ? true : null)),
+      // Read off the reconciled items, like every status is. Reading the raw script items
+      // meant the two views disagreed the moment the host stamped a code the script did not
+      // write, and an item the run called failed could still be counted as verified here.
+      contentVerified: reconciled.length === 0 ? null
+        : (reconciled.some((i) => i.contentVerified === false) ? false
+          : (reconciled.every((i) => i.contentVerified === true) ? true : null)),
       // Named fields rather than a bare flag, because "something was empty" sends the
       // caller looking and "this selector was empty everywhere and the pages have frames"
       // answers the question they were about to ask.
       suspectEmpty: suspect.length ? {
         selectors: suspect,
-        iframes: reconciled.reduce((n, i) => n + ((i.render && i.render.iframes) || 0), 0),
+        // How many of the answering pages had frames at all, not how many frames there
+        // were. A sum cannot tell two pages with two frames from one page with four, and
+        // an item whose page could not be evaluated counts as zero and drags it down. The
+        // per-page number is already on each item as render.iframes.
+        framedPages: reconciled.filter((i) => i.render && i.render.iframes > 0).length,
         why: 'the same selector matched nothing on every page that answered, which is far more often a wrong selector than a set of pages that all lack it',
       } : undefined,
       timings: { byStep: steps.byStep, slowest: steps.slowest, totalMs, replMs: ms },

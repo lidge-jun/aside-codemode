@@ -133,8 +133,11 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
     // Every query answering zero is, in practice, a challenge page or a parse that stopped
     // matching — not a world with no results. One empty query is ordinary and says nothing,
     // so this needs all of them and at least one to have actually run.
+    // Two, the same minimum extraction uses. One query finding nothing is the most ordinary
+    // outcome a search has, and a warning on the common case teaches a reader to skip the
+    // field. The per-query count is on each item either way.
     const answered = items.filter((i) => i.ok);
-    const allEmpty = answered.length > 0 && answered.every((i) => i.count === 0);
+    const allEmpty = answered.length >= 2 && answered.every((i) => i.count === 0);
     if (allEmpty) partial.push('suspect-empty');
     return {
       engine, items, ok: items.every((i) => i.ok), partial,

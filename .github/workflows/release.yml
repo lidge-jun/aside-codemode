@@ -39,7 +39,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: write   # tag the release commit and create the GitHub release
       actions: read     # read the exact-SHA ci conclusion; naming one permission zeroes the rest
@@ -182,8 +182,12 @@ jobs:
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The publish is acknowledged before this reads the registry, which lags. Recover only
-      # observation failures here; never retry a publish that already succeeded.
+      # The publish is acknowledged before this reads the registry, which lags. npm answers a
+      # successful publish with "your package is being processed and may take a few minutes to
+      # become available", and it means minutes: 0.3.1 was still absent 30 seconds after a publish
+      # that had already signed its provenance. Wait long enough to tell a slow registry from a
+      # failed one, and recover only observation failures here - never retry a publish that
+      # already succeeded.
       - name: Post-publish registry smoke
         id: registry-smoke
         if: ${{ inputs.dry-run != true && steps.publication.outputs.published == 'true' }}
@@ -192,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
           pkg_name="$(node -p "require('./package.json').name")"
-          for attempt in $(seq 1 6); do
+          for attempt in $(seq 1 40); do
             if VERSION="$(npm view "${pkg_name}@${RELEASE_VERSION}" version --fetch-retries=0 --fetch-timeout=8000 2>/dev/null)"; then
               if [ "$VERSION" != "$RELEASE_VERSION" ]; then
                 echo "::error::registry returned ${VERSION}, not ${RELEASE_VERSION}; refusing to tag"
@@ -201,8 +205,8 @@ jobs:
               echo "registry verified ${pkg_name}@${VERSION}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "::notice::registry lookup not confirmed (attempt ${attempt}/6)"
-            [ "$attempt" -lt 6 ] && sleep 5 || true
+            echo "::notice::registry lookup not confirmed (attempt ${attempt}/40)"
+            [ "$attempt" -lt 40 ] && sleep 15 || true
           done
           echo "::warning::publish succeeded but the registry has not confirmed it yet; continuing without republishing"
           echo "Publication acknowledged; registry verification still pending. Do not republish this version." >> "$GITHUB_STEP_SUMMARY"
@@ -214,6 +218,11 @@ jobs:
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
+          # An annotated tag needs a committer, and a runner has none. This is the identity
+          # GitHub itself uses for tags it creates; without it git stops at "empty ident name"
+          # AFTER the publish has already gone out, which is the worst place to fail.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --force --tags origin
           existing_tag_sha="$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" || true)"
           if [ -n "$existing_tag_sha" ] && [ "$existing_tag_sha" != "$GITHUB_SHA" ]; then

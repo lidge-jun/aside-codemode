@@ -1,3 +1,4 @@
+<p align="center"><img src="https://raw.githubusercontent.com/lidge-jun/aside-codemode/main/assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
 <p align="center"><b>카드 50장이 한 장이 되는 지점</b><br>
 검색하고, 읽고, 브라우저까지 자바스크립트 한 블록 안에서 끝낸 다음, 더미가 아니라 답만 돌려줍니다.</p>

@@ -1,3 +1,4 @@
+<p align="center"><img src="https://raw.githubusercontent.com/lidge-jun/aside-codemode/main/assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">make aside 50x faster</h3>
 <p align="center"><b>One call where Aside used to spend fifty</b><br>
 Search, read, and drive the browser inside one sandboxed JavaScript block, then hand back the answer instead of the pile it came out of.</p>

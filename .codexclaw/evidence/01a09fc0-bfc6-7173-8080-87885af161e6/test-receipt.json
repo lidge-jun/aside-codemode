@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "e6318ac754883e1d6cebb2f3869027f1fe324d0e",
+    "commitSha": "c1287c67f26443ca1add4058fd12185d4c60a2d0",
     "dirty": false,
-    "capturedAt": "2026-09-15T00:53:54.217Z"
+    "capturedAt": "2026-09-15T01:10:12.992Z"
   },
-  "command": "node --test test/install-lifecycle.test.js test/install-manifest.test.js test/install-paths.test.js test/loader-path.test.js test/register.test.js test/register-accounts.test.js",
+  "command": "node --test test/install-lifecycle.test.js test/install-manifest.test.js test/install-paths.test.js test/loader-path.test.js",
   "exitCode": 0,
-  "createdAt": "2026-09-15T00:53:54.231Z",
+  "createdAt": "2026-09-15T01:10:13.006Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915005353-f7e690"
+  "checkEpoch": "c-20260915011012-b79903"
 }

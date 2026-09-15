@@ -17,7 +17,7 @@ G5 수동 세션도 돌리지 않는다.
     wp3b  라이브 변이           백업 뒤 네 루트 upgrade와 doctor만
     wp2   G3 fixture           iframe ref, native→배치→native, display 이미지, 공유 page 경쟁
     wp4   세 기기 카나리아       mac(u/0·u/1·u/2), ssh mini, macmini-cf
-    wp5   G5 구분              자동으로 되는 것과 사람 몫의 경계만 기록
+    wp5   G5 구분              미실행으로 남기고, 옆의 자료와 면제를 기록
     wp6   출시 기록 4종         초안을 실제 경로·해시로 완성
     wp7   main 승격            bump 커밋 → push → 그 SHA CI → dev → main → 새 run → 태그 → release
 
@@ -36,7 +36,7 @@ wp8이 앞인 이유는 바이트다. 로더 안내를 고치면 `cm.js`가 바�
 | wp3b | 코드 변경 없음 | 네 루트의 upgrade·doctor 출력과 sha256 |
 | wp2 | `scripts/probe-g3.mjs` 신규, 필요할 때만 `src/host/browse/**` | 산 fixture의 조작 전후 DOM, mac·mini 양쪽 출력 |
 | wp4 | 코드 변경 없음 | 계정별 sha256 표, 각 기기 doctor와 `browse.probe()` |
-| wp5 | `devlog` | 자동분의 출처와 사람 몫의 이름 |
+| wp5 | `devlog`, `test/docs-guidance.test.js` | 있는 자료의 출처와 사람 몫의 이름, 그리고 면제의 주체와 시점 |
 | wp6 | `evidence/release-260915/` | manifest, receipt, 운영 안내, 복구 기록 |
 | wp7 | `package.json` (0.1.0 → 0.2.0), `README` | bump SHA의 CI 5조합, main 병합 후 새 run, 태그와 release |
 
@@ -55,7 +55,7 @@ native mouse/keyboard 동등성 fixture. 마지막 넷은 "돌리지 않았다"�
 | c-3 | `display` 이미지 전달과 공유 page 경쟁이 산 결과로 판정된다. **축소 좌표·DPI·zoom·clip·mouse 동등성은 이 기준 밖이며 미실행으로 기록된다** |
 | c-4 | 임시 루트에서 여섯 동사가 **동사별 기대값**으로 판정된다 — install/upgrade/repair는 사용자 수정 보존, uninstall은 수정된 파일만 남김, rollback은 previous 바이트 복원과 후속 수정 덮어쓰기 위험을 명시적으로 판정. 라이브는 upgrade와 doctor만 |
 | c-5 | 세 기기의 계정 루트별 helper sha256이 wp8 이후 값으로 같다 |
-| c-6 | G5의 자동분과 사람 몫이 구분돼 기록되고, 기준 변경의 주체가 명시된다 |
+| c-6 | G5가 미실행으로 기록되고, 옆에 있는 자료(480실행, 고정 경로의 정답·왕복·복구, 설치 문서의 native-first 안내)가 G5를 대신하지 않는다고 명시되며, 면제의 주체와 시점이 남는다 |
 | c-7 | 출시 기록 4종이 존재하고 digest가 실제 설치 바이트와 같다 |
 | c-8 | 정확한 head의 CI 5조합 success, main이 그 SHA를 담고 태그와 release가 존재한다 |
 | c-9 | 로더 경로가 CLI 표면에서 실측되고, 앱 표면에서는 사용자 확인으로 기록된다 |

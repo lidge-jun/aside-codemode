@@ -1,0 +1,230 @@
+name: release
+
+# Tokenless publish to npm through Trusted Publishing (OIDC). There is no NPM_TOKEN here and
+# no --provenance flag: npm detects the OIDC environment that `id-token: write` creates, trades
+# that identity for a short-lived publish credential of its own, and attaches provenance because
+# the repository url in package.json agrees with the repository this runs in.
+#
+# Bump package.json on main BEFORE dispatching, and dispatch with dry-run first. The gate refuses
+# a version that does not match package.json, a commit that is not the one you audited, a SHA whose
+# ci run is not green, and any version whose tag, release or registry entry already exists.
+#
+# The npm side has to be configured once, and only after a version already exists: on the package
+# settings page, add a GitHub Actions trusted publisher for lidge-jun/aside-codemode with the
+# workflow filename release.yml and no environment. Renaming this file breaks the publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish — must equal package.json (e.g. 0.3.1)"
+        required: true
+        type: string
+      dry-run:
+        description: "Dry run: gate and pack, publish nothing, tag nothing"
+        required: false
+        type: boolean
+        default: true
+      expected-sha:
+        description: "Immutable release commit this dispatch must publish (fails if main moved)"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write   # tag the release commit and create the GitHub release
+      actions: read     # read the exact-SHA ci conclusion; naming one permission zeroes the rest
+      id-token: write   # the OIDC identity npm exchanges for a publish credential
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A dispatch publishes whatever the selected ref points at when the run starts, and main
+      # moves between the audit and the dispatch. Pin the audited commit before anything else.
+      - name: Guard the dispatch
+        env:
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::release must run from main, got $GITHUB_REF"
+            exit 1
+          fi
+          node -e '
+            const sha = process.argv[1];
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              console.error(`::error::expected-sha must be a full 40-character commit SHA; got ${sha || "(empty)"}`);
+              process.exit(1);
+            }
+          ' "$EXPECTED_SHA"
+          if [ "$EXPECTED_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::main moved after the release audit (expected $EXPECTED_SHA, got $GITHUB_SHA) — refusing to publish an unaudited commit"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm >= 11.5.1, which a Node 24 runner already ships. Do not
+      # `npm install -g npm` to get there: a global self-update has been seen to drop
+      # publish-time dependencies such as sigstore, and provenance then fails at the last step.
+      - name: Verify npm is new enough for trusted publishing
+        run: |
+          set -euo pipefail
+          npm_version="$(npm --version)"
+          echo "npm=${npm_version}"
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) {
+              console.error(`npm ${process.argv[1]} is too old for trusted publishing; need >= 11.5.1`);
+              process.exit(1);
+            }
+          ' "$npm_version"
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Verify the version matches package.json
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').version")"
+          echo "package.json=$PKG  input=${RELEASE_VERSION}"
+          test "$PKG" = "$RELEASE_VERSION" || {
+            echo "::error::package.json ($PKG) != requested (${RELEASE_VERSION}) — bump package.json on main first"
+            exit 1
+          }
+
+      # The five-combination matrix is what says this commit works on the platforms it claims.
+      # Deliberately narrower than "any green ci run for this SHA": a pull-request run tested a
+      # merge ref under a different trigger, so only main's own push run qualifies.
+      - name: Require green ci for this exact commit
+        run: |
+          set -euo pipefail
+          ci_url="$(
+            gh run list \
+              --workflow ci.yml \
+              --branch main \
+              --commit "$GITHUB_SHA" \
+              --event push \
+              --limit 10 \
+              --json conclusion,url \
+              --jq '[.[] | select(.conclusion == "success")][0].url // ""'
+          )"
+          if [ -z "$ci_url" ]; then
+            echo "::error::no successful ci run found for $GITHUB_SHA on main (push event). A pull-request run does not qualify."
+            gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 10 || true
+            exit 1
+          fi
+          echo "ci passed for $GITHUB_SHA: $ci_url"
+
+      # Fail closed on anything this version already has. Republishing would overwrite the
+      # payload someone already installed, and a repointed tag rewrites what a release means.
+      - name: Preflight release metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          pkg_name="$(node -p "require('./package.json').name")"
+          tag="v${RELEASE_VERSION}"
+          git fetch --force --tags origin
+
+          existing_tag_sha="$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" || true)"
+          if [ -n "$existing_tag_sha" ] && [ "$existing_tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::${tag} already points at ${existing_tag_sha}, not ${GITHUB_SHA}"
+            exit 1
+          fi
+          if [ -n "$existing_tag_sha" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::error::${tag} already exists. Pick the next unused version."
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1 && [ "$DRY_RUN" != "true" ]; then
+            echo "::error::GitHub release ${tag} already exists. Pick the next unused version."
+            exit 1
+          fi
+          if npm view "${pkg_name}@${RELEASE_VERSION}" version >/dev/null 2>&1 && [ "$DRY_RUN" != "true" ]; then
+            echo "::error::${pkg_name}@${RELEASE_VERSION} is already on the registry. A published version is immutable."
+            exit 1
+          fi
+
+      # This package has no dependencies and no lockfile, so there is nothing to install before
+      # the suite runs. Keep it that way: `npm ci` here would need a lockfile that does not exist.
+      - name: Run the suite
+        run: npm test
+
+      - name: Publish (or dry-run)
+        id: publication
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::dry run — packing, not publishing"
+            npm pack --dry-run
+          else
+            npm publish --access public
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The publish is acknowledged before this reads the registry, which lags. Recover only
+      # observation failures here; never retry a publish that already succeeded.
+      - name: Post-publish registry smoke
+        id: registry-smoke
+        if: ${{ inputs.dry-run != true && steps.publication.outputs.published == 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          pkg_name="$(node -p "require('./package.json').name")"
+          for attempt in $(seq 1 6); do
+            if VERSION="$(npm view "${pkg_name}@${RELEASE_VERSION}" version --fetch-retries=0 --fetch-timeout=8000 2>/dev/null)"; then
+              if [ "$VERSION" != "$RELEASE_VERSION" ]; then
+                echo "::error::registry returned ${VERSION}, not ${RELEASE_VERSION}; refusing to tag"
+                exit 1
+              fi
+              echo "registry verified ${pkg_name}@${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::notice::registry lookup not confirmed (attempt ${attempt}/6)"
+            [ "$attempt" -lt 6 ] && sleep 5 || true
+          done
+          echo "::warning::publish succeeded but the registry has not confirmed it yet; continuing without republishing"
+          echo "Publication acknowledged; registry verification still pending. Do not republish this version." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tag the release commit and publish the GitHub release
+        if: ${{ inputs.dry-run != true && steps.publication.outputs.published == 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          git fetch --force --tags origin
+          existing_tag_sha="$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" || true)"
+          if [ -n "$existing_tag_sha" ] && [ "$existing_tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::${tag} already points at ${existing_tag_sha}, not ${GITHUB_SHA}"
+            exit 1
+          fi
+          if [ -z "$existing_tag_sha" ]; then
+            git tag -a "$tag" -m "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/${tag}"
+          fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          fi
+          gh release view "$tag" --json tagName,url --jq '"\(.tagName) \(.url)"'

@@ -156,10 +156,19 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       installed: Boolean(manifest),
       installedVersion: manifest ? manifest.version : null,
       hasPrevious: Boolean(manifest && manifest.previous),
+      // A machine a release left behind is not healthy. The manifest agreeing with the disk
+      // only says nobody edited the files since they were written; it says nothing about
+      // whether those are the bytes this build ships.
+      upToDate: Boolean(manifest) && files.every((f) => inspectFile(accountRoot, f.path, manifest).actual === sha256(f.content)),
       files: files.map((f) => {
         const seen = inspectFile(accountRoot, f.path, manifest);
-        const ok = seen.state === 'same';
-        return { path: f.path, ok, reason: ok ? 'matches the manifest' : seen.state };
+        const agreesWithManifest = seen.state === 'same';
+        const isCurrentBuild = seen.actual === sha256(f.content);
+        const ok = agreesWithManifest && isCurrentBuild;
+        const reason = ok ? 'matches the manifest'
+          : agreesWithManifest ? 'stale'
+            : seen.state;
+        return { path: f.path, ok, reason };
       }),
       agentsBlock: agentsBlockState(accountRoot, body),
     };
@@ -224,6 +233,10 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
 
   // install | upgrade | repair
   const onlyMissing = verb === 'repair';
+  // Read the outgoing generation BEFORE anything is written. Snapshotting afterwards records
+  // the bytes we just wrote as the bytes to go back to, which makes rollback a no-op exactly
+  // when it matters: an upgrade that actually changed something.
+  const outgoing = manifest ? snapshotForRollback(accountRoot, manifest) : null;
   const { written, preserved, skipped, adopted } = applyWrites(accountRoot, files, manifest, { dryRun, onlyMissing });
 
   let agentsBlock = agentsBlockState(accountRoot, body);
@@ -237,14 +250,18 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     agentsBlock = 'current';
   }
 
+  // A file repair left alone keeps the hash of what is on disk. Recording the planned hash
+  // for a file we did not write tells the next upgrade that the user edited it, and that
+  // upgrade then preserves the old copy forever.
+  const untouched = new Map(skipped.filter((s) => s.actual).map((s) => [s.rel, s.actual]));
   const next = {
     schema: 'codemode-install/1',
     version: HELPER_VERSION,
     installedAt: new Date().toISOString(),
     accountRoot,
     agentsBody: body,
-    files: files.map((f) => ({ path: f.path, sha256: sha256(f.content) })),
-    previous: manifest ? snapshotForRollback(accountRoot, manifest) : null,
+    files: files.map((f) => ({ path: f.path, sha256: untouched.get(f.path) || sha256(f.content) })),
+    previous: outgoing,
   };
   if (!dryRun) writeFile(manifestPath, JSON.stringify(next, null, 2) + '\n', dryRun);
   return {

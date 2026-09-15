@@ -1,0 +1,93 @@
+{
+  "at": "2026-09-15T00:36:47.895Z",
+  "platform": "darwin",
+  "accountRoot": "/var/folders/2r/ysbqgzpd2b7g8ymwz91gnm7w0000gn/T/acm-rehearsal-fCEyd6/.aside/u/0",
+  "steps": [
+    {
+      "name": "1 installed, then aged to the previous release",
+      "helperIsOld": true,
+      "blocks": 1
+    },
+    {
+      "name": "2 doctor on a machine a release left behind",
+      "installedVersion": "0.9.0",
+      "upToDate": false,
+      "reasons": [
+        "codemode/cm.js=stale",
+        "codemode/catalog.json=matches the manifest",
+        "skills/user/aside-codemode/SKILL.md=matches the manifest",
+        "skills/user/aside-codemode/references/execution-paths.md=matches the manifest",
+        "skills/user/aside-codemode/references/windows-invocation.md=matches the manifest"
+      ]
+    },
+    {
+      "name": "4 upgrade",
+      "preserved": [
+        "skills/user/aside-codemode/SKILL.md"
+      ],
+      "written": [
+        "codemode/cm.js",
+        "codemode/catalog.json",
+        "skills/user/aside-codemode/references/execution-paths.md",
+        "skills/user/aside-codemode/references/windows-invocation.md"
+      ],
+      "userEditKept": true,
+      "helperReplaced": true,
+      "previousHoldsOldHelper": true,
+      "blocks": 1
+    },
+    {
+      "name": "5 rollback",
+      "helperBackToOld": true,
+      "userEditSurvived": true,
+      "note": "rollback writes the snapshot without inspecting the disk; a file the user changed after the upgrade is overwritten"
+    },
+    {
+      "name": "6 repair after a deletion",
+      "written": [
+        "skills/user/aside-codemode/SKILL.md"
+      ],
+      "skipped": [
+        "codemode/cm.js",
+        "codemode/catalog.json",
+        "skills/user/aside-codemode/references/execution-paths.md",
+        "skills/user/aside-codemode/references/windows-invocation.md"
+      ],
+      "skillIsBack": true,
+      "manifestKeepsDiskHashForSkipped": true
+    },
+    {
+      "name": "7 upgrade after repair",
+      "helperIsCurrent": true,
+      "preserved": []
+    },
+    {
+      "name": "8 uninstall",
+      "removed": [
+        "codemode/cm.js",
+        "codemode/catalog.json",
+        "skills/user/aside-codemode/SKILL.md",
+        "skills/user/aside-codemode/references/execution-paths.md",
+        "skills/user/aside-codemode/references/windows-invocation.md"
+      ],
+      "preserved": [],
+      "agentsBlock": "removed",
+      "manifestGone": true,
+      "blocks": 0
+    },
+    {
+      "name": "9 install again",
+      "written": [
+        "codemode/cm.js",
+        "codemode/catalog.json",
+        "skills/user/aside-codemode/SKILL.md",
+        "skills/user/aside-codemode/references/execution-paths.md",
+        "skills/user/aside-codemode/references/windows-invocation.md"
+      ],
+      "preserved": [],
+      "upToDate": true,
+      "blocks": 1,
+      "agentsBlock": "current"
+    }
+  ]
+}

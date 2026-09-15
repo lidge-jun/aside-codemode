@@ -29,10 +29,17 @@ host measures its limit in hundreds of kilobytes and gets 50,000. Holding all of
 tightest one had a cost that was invisible until it was measured: `helper: true` could not be used
 with a full batch anywhere, and neither could twenty actions or `treeNodes`.
 
-What the tool promises everywhere is narrower than what the schema accepts, and the suite pins
-both halves. The ordinary acting and reading jobs fit 30,000 on any host, with the headroom stated
+What the tool promises everywhere is narrower than what the schema accepts, and the suite pins both
+halves. The ordinary acting and reading jobs — twenty urls with an interactive snapshot, a
+fingerprint, a snapshot afterwards and one step — fit 30,000 on any host, with the headroom stated
 in characters so the next change knows what it has. The combinations past that envelope are
-asserted to be past it, and to fit 50,000, so nothing quietly drifts from one side to the other.
+asserted to be past it and to fit 50,000, so nothing quietly drifts from one side to the other.
+
+Past the ceiling the answer is a refusal, not a surprise. `ESOURCETOOLONG` names the size, the
+limit, the platform that set it and what to drop, and it is raised before a process exists. Both
+entry points check: the job path and `session.raw`, which browse's other surfaces compile their own
+source for and which used to skip the check, so a caller who injected a helper learned about it from
+the operating system instead.
 
 The budget applies to what the host actually compiles, which is not the job the caller handed in.
 `session.run()` puts the issued `runId` on the job and a `jobId` on every plan row before calling

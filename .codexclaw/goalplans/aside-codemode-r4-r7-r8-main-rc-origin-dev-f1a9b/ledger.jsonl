@@ -32,3 +32,4 @@
 {"ts":"2026-09-14T23:52:10.674Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"dependency_registered","detail":"wp9 dependsOn=wp1"}
 {"ts":"2026-09-14T23:52:24.500Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"workphase_done","detail":"closed wp1"}
 {"ts":"2026-09-14T23:52:24.500Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"workphase_started","detail":"started wp2"}
+{"ts":"2026-09-15T00:14:16.448Z","slug":"aside-codemode-r4-r7-r8-main-rc-origin-dev-f1a9b","event":"steered","detail":"wp8-landed-during-wp2-window-260915: 1 op(s): annotate — 실행 순서와 기록 순서가 갈린 것을 남긴다"}

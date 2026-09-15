@@ -85,7 +85,18 @@ try {
   if (inFrame.length) { await tab.locator(inFrame[0]).click(); clicked = inFrame[0]; }
   await sleep(250);
   const after = await read();
-  out.iframe = { refs: refs, inFrame: inFrame, clicked: clicked, before: before, after: after, lines: lines.slice(0, 4) };
+  // Positive control. 'the parent did not change' is worth nothing on its own: the parent
+  // starts empty. Click the parent's own ref afterwards and require it to change, which is
+  // what makes the earlier silence evidence that the two refs address two documents.
+  const parentRefs = refs.filter((r) => r.charAt(0) !== 'f');
+  let parentClicked = null;
+  if (parentRefs.length) { await tab.locator(parentRefs[0]).click(); parentClicked = parentRefs[0]; }
+  await sleep(250);
+  const afterParent = await read();
+  out.iframe = {
+    refs: refs, inFrame: inFrame, clicked: clicked, parentClicked: parentClicked,
+    before: before, after: after, afterParent: afterParent, lines: lines.slice(0, 4),
+  };
   await tab.close();
 } catch (e) { out.iframe = { error: String(e && e.message).slice(0, 300) }; }
 
@@ -105,10 +116,19 @@ try {
   });
   const afterBatch = await a.evaluate(() => document.querySelector('#out').textContent);
   const stillThere = String((await snapshot(a)).tree || '').indexOf('act') > -1;
+  // A tab that survived is not the same as a tab that still works. Drive it again.
+  let reusable = null;
+  try {
+    await a.evaluate(() => { document.querySelector('#b').setAttribute('data-second', '1'); });
+    await a.locator('#b').click();
+    await sleep(200);
+    reusable = await a.evaluate(() => document.querySelector('#out').textContent);
+  } catch (e2) { reusable = 'failed: ' + String(e2 && e2.message).slice(0, 120); }
   await a.close();
   out.mixed = {
     helperVersion: cm.version,
     beforeBatch: beforeBatch, afterBatch: afterBatch, stillThere: stillThere,
+    reusable: reusable,
     status: batch.status, values: batch.items.map((i) => i.value), leaked: batch.tabs.leaked,
   };
 } catch (e) { out.mixed = { error: String(e && e.message).slice(0, 300) }; }
@@ -203,6 +223,9 @@ if (!data) {
     f.after && f.after.child === 'child-clicked', JSON.stringify(f.after || f.error || null));
   check('1c and leaves the identically labelled parent button alone',
     f.after && (f.after.parent === '' || f.after.parent === null), JSON.stringify(f.after || null));
+  check('1d the parent ref does change the parent, so 1c is evidence and not an empty page',
+    f.afterParent && f.afterParent.parent === 'parent-clicked' && f.afterParent.child === 'child-clicked',
+    JSON.stringify(f.afterParent || null));
 
   const m = data.mixed || {};
   check('2a the native click landed before the batch', m.beforeBatch === 'native-1', String(m.beforeBatch || m.error));
@@ -210,7 +233,9 @@ if (!data) {
     m.status + ' ' + JSON.stringify(m.values || null));
   check('2c the batch did not disturb the tab the native work was using',
     m.afterBatch === 'native-1' && m.stillThere === true, JSON.stringify({ afterBatch: m.afterBatch, stillThere: m.stillThere }));
-  check('2d the batch left no tab of its own open', m.leaked === 0, String(m.leaked));
+  check('2d the tab is still drivable after the batch, not merely open',
+    m.reusable === 'native-1', String(m.reusable));
+  check('2e the batch left no tab of its own open', m.leaked === 0, String(m.leaked));
 
   const img = data.image || {};
   check('3a a screenshot came back with bytes', img.shot && (img.shot.bytes > 0), JSON.stringify(img.shot || img.error || null));
@@ -222,7 +247,7 @@ if (!data) {
   const r = data.race || {};
   check('4a the two calls on one page actually overlapped', r.overlapped === true,
     JSON.stringify({ a: r.a, b: r.b }) || String(r.error));
-  check('4b the page ended in one call\'s complete result, not a mixture',
+  check('4b the page ended in one call\'s complete result, not a half-finished one',
     r.final === 'one-done' || r.final === 'two-done', String(r.final || r.error));
   skip('4c native mouse/keyboard equivalence on an explicitly chosen page',
     'not run: needs a separate native fixture; cua is not in the capability matrix at all');

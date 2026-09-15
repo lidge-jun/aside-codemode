@@ -1,7 +1,10 @@
 // Guest CPU and serialization run off the host event loop. This is accident
 // containment for trusted agents, NOT a hostile-code security boundary.
 import { Worker, MessageChannel } from 'node:worker_threads';
-import { errorFields, fitEnvelope, requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
+import {
+  errorFields, fitEnvelope, requireInteger, translateGuestError,
+  MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES,
+} from './execution-output.js';
 
 const HOST_DRAIN_MS = 1000;
 const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
@@ -76,7 +79,10 @@ export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResult
       worker.stderr.resume();
     } catch (e) { void finish({ ok: false, ...errorFields(e) }); return; }
     timer = setTimeout(() => { void finish({ ok: false, error: `deadline exceeded (${timeoutMs}ms)`, code: 'ETIMEOUT' }); }, timeoutMs);
-    worker.on('error', e => { void finish({ ok: false, ...errorFields(e) }); });
+    // The same translation as the guest catch. Today a blocked import surfaces through the
+    // worker's own try/catch, but a refusal that arrives as a worker error would otherwise
+    // reach the caller in Node's vocabulary instead of ours.
+    worker.on('error', e => { void finish({ ok: false, ...errorFields(translateGuestError(e)) }); });
     worker.on('exit', code => {
       if (!settled) void finish({ ok: false, error: `guest worker exited before a result (${code})` });
     });

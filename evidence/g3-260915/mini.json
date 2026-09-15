@@ -1,0 +1,207 @@
+{
+  "label": "mini",
+  "accountRoot": "C:\\Users\\super\\.aside\\u\\0",
+  "at": "2026-09-15T00:34:02.438Z",
+  "platform": "win32",
+  "passed": 14,
+  "ran": 14,
+  "skipped": 4,
+  "checks": [
+    {
+      "name": "1a the snapshot offers a ref for the button inside the iframe",
+      "pass": true,
+      "detail": "[\"e1\",\"f1e1\"]"
+    },
+    {
+      "name": "1b clicking that ref changes the child document",
+      "pass": true,
+      "detail": "{\"parent\":\"\",\"child\":\"child-clicked\",\"childReachable\":true}"
+    },
+    {
+      "name": "1c and leaves the identically labelled parent button alone",
+      "pass": true,
+      "detail": "{\"parent\":\"\",\"child\":\"child-clicked\",\"childReachable\":true}"
+    },
+    {
+      "name": "1d the parent ref does change the parent, so 1c is evidence and not an empty page",
+      "pass": true,
+      "detail": "{\"parent\":\"parent-clicked\",\"child\":\"child-clicked\",\"childReachable\":true}"
+    },
+    {
+      "name": "2a the native click landed before the batch",
+      "pass": true,
+      "detail": "native-1"
+    },
+    {
+      "name": "2b each batch item came back under its own jobId, with its own page body",
+      "pass": true,
+      "detail": "completed [{\"jobId\":\"j000\",\"value\":\"page-0-body\"},{\"jobId\":\"j001\",\"value\":\"page-1-body\"},{\"jobId\":\"j002\",\"value\":\"page-2-body\"}]"
+    },
+    {
+      "name": "2c the batch left the native tab on its own page and result",
+      "pass": true,
+      "detail": "{\"afterBatch\":\"native-1\",\"stillThere\":true}"
+    },
+    {
+      "name": "2d the tab is still drivable after the batch, not merely open",
+      "pass": true,
+      "detail": "native-1"
+    },
+    {
+      "name": "2e the batch left no tab of its own open",
+      "pass": true,
+      "detail": "0"
+    },
+    {
+      "name": "3a a screenshot came back with bytes",
+      "pass": true,
+      "detail": "{\"shot\":{\"type\":\"object\",\"keys\":[\"0\",\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\"],\"bytes\":7613},\"bringToFront\":\"ok\",\"firstAttempt\":null}"
+    },
+    {
+      "name": "3b those bytes are a real PNG of a real viewport",
+      "pass": true,
+      "detail": "{\"signature\":true,\"chunk\":\"IHDR\",\"width\":1440,\"height\":900}"
+    },
+    {
+      "name": "3c display() accepted that image without throwing (acceptance is all it returns)",
+      "pass": true,
+      "detail": "{\"ok\":true,\"returned\":\"undefined\"}"
+    },
+    {
+      "name": "3d a downscaled image maps coordinates back",
+      "pass": null,
+      "detail": "not run: no API produces the stimulus - screenshot.maxWidth is accepted and ignored, host resize is ENOTSUP, page.setViewportSize is absent"
+    },
+    {
+      "name": "3e DPI 100/125/150/200%, zoom and clip",
+      "pass": null,
+      "detail": "not run: same reason as 3d"
+    },
+    {
+      "name": "3f that a model actually received the image",
+      "pass": null,
+      "detail": "not run: display() returns undefined; the model side is not observable from the REPL"
+    },
+    {
+      "name": "4a the two calls on one page actually overlapped",
+      "pass": true,
+      "detail": "{\"a\":{\"who\":\"one\",\"start\":1789432441856,\"end\":1789432442263},\"b\":{\"who\":\"two\",\"start\":1789432441857,\"end\":1789432442263}}"
+    },
+    {
+      "name": "4b both fields carry the same writer, so the two calls did not interleave",
+      "pass": true,
+      "detail": "{\"first\":\"two\",\"second\":\"two\"}"
+    },
+    {
+      "name": "4c native mouse/keyboard equivalence on an explicitly chosen page",
+      "pass": null,
+      "detail": "not run: needs a separate native fixture; cua is not in the capability matrix at all"
+    }
+  ],
+  "raw": {
+    "iframe": {
+      "refs": [
+        "e1",
+        "f1e1"
+      ],
+      "inFrame": [
+        "f1e1"
+      ],
+      "clicked": "f1e1",
+      "parentClicked": "e1",
+      "before": {
+        "parent": "",
+        "child": "",
+        "childReachable": true
+      },
+      "after": {
+        "parent": "",
+        "child": "child-clicked",
+        "childReachable": true
+      },
+      "afterParent": {
+        "parent": "parent-clicked",
+        "child": "child-clicked",
+        "childReachable": true
+      },
+      "lines": [
+        "- button \"press me\" [ref=e1]",
+        "  - button \"press me\" [ref=f1e1]"
+      ]
+    },
+    "mixed": {
+      "helperVersion": "1.1.0",
+      "beforeBatch": "native-1",
+      "afterBatch": "native-1",
+      "stillThere": true,
+      "reusable": "native-1",
+      "status": "completed",
+      "values": [
+        "page-0-body",
+        "page-1-body",
+        "page-2-body"
+      ],
+      "leaked": 0,
+      "items": [
+        {
+          "jobId": "j000",
+          "value": "page-0-body"
+        },
+        {
+          "jobId": "j001",
+          "value": "page-1-body"
+        },
+        {
+          "jobId": "j002",
+          "value": "page-2-body"
+        }
+      ]
+    },
+    "image": {
+      "shot": {
+        "type": "object",
+        "keys": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7"
+        ],
+        "bytes": 7613
+      },
+      "png": {
+        "signature": true,
+        "chunk": "IHDR",
+        "width": 1440,
+        "height": 900
+      },
+      "display": {
+        "ok": true,
+        "returned": "undefined"
+      },
+      "displayType": "function",
+      "bringToFront": "ok",
+      "firstError": null
+    },
+    "race": {
+      "a": {
+        "who": "one",
+        "start": 1789432441856,
+        "end": 1789432442263
+      },
+      "b": {
+        "who": "two",
+        "start": 1789432441857,
+        "end": 1789432442263
+      },
+      "overlapped": true,
+      "final": {
+        "first": "two",
+        "second": "two"
+      }
+    }
+  }
+}

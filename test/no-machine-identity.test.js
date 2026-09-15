@@ -55,19 +55,26 @@ test('no tracked file carries a real home directory', () => {
 
 // The regex has to keep catching what it was written for. A pattern that quietly stops matching
 // passes this suite forever while the rule it encodes is gone.
+//
+// The samples are assembled rather than written out, because this file is tracked too and the
+// scan above reads it. Spelling a violating path here would make the guard fail on its own
+// fixtures - which it did, on the first run in CI, which is the sort of thing a guard should do.
 test('the pattern still recognises the shapes it was written for', () => {
+  const NAME = 'somebody' + 'real';
+  const U = String.fromCharCode(92);
   const shapes = [
-    ['/Users/somebodyreal/.aside/u/0', 'somebodyreal'],
-    ['/home/somebodyreal/aside-codemode', 'somebodyreal'],
-    ['C:\\Users\\somebodyreal\\.aside', 'somebodyreal'],
-    ['C:/Users/somebodyreal/.aside', 'somebodyreal'],
+    ['/' + 'Users/' + NAME + '/.aside/u/0', NAME],
+    ['/' + 'home/' + NAME + '/aside-codemode', NAME],
+    ['C:' + U + 'Users' + U + NAME + U + '.aside', NAME],
+    ['C:/' + 'Users/' + NAME + '/.aside', NAME],
   ];
   for (const [sample, name] of shapes) {
     const hit = [...sample.matchAll(HOME_PATH)];
     assert.equal(hit.length, 1, 'stopped matching: ' + sample);
     assert.equal(hit[0][1], name);
   }
-  assert.equal([...'/Users/someone/.aside'.matchAll(HOME_PATH)].every((m) => PLACEHOLDERS.has(m[1])), true);
+  const ok = '/' + 'Users/someone/.aside';
+  assert.equal([...ok.matchAll(HOME_PATH)].every((m) => PLACEHOLDERS.has(m[1])), true);
 });
 
 // The three trees where a machine describes itself. Ignoring them is only half of it: a

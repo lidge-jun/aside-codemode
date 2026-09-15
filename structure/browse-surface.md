@@ -93,6 +93,24 @@ It reports and stops there. Closing is not promised: the same measurement that f
 that a known `targetId` could not be closed either, and tabs sitting in a person's own browser are
 theirs to decide about.
 
+A caller who names a tab is never handed a different one. `browse.attach` selects by `targetId`,
+else `urlIncludes`, else `titleIncludes`, else the active tab, and only that last branch is
+implicit — a named tab that is gone answers `ETABGONE` and stops, where a selector that matched
+nothing answers `ENOTAB`. The two are separate codes because an undifferentiated failure makes a
+model retry a navigation that cannot work.
+
+A tab that was in the list and gone by the time it was attached reads the same way. That race used
+to surface as a generic attach failure, which is the undifferentiated answer the split exists to
+stop producing.
+
+`ETABGONE` carries what a recovery needs: the `targetId` asked for, the tabs that are open, and
+`lastUrl` with `boundAt` when the journal knew that tab. A tab this tool never opened leaves those
+null rather than a guess, and so does an id the journal saw at two different pages — a reused id
+answers nothing rather than the newer page, because a wrong page given confidently is worse than no
+page. It also says `effectsUnknown`, since a tab vanishing is an observation about the tab: if a
+write was sent before it went, that write's outcome is not known, and `ok: false` must not be read
+as nothing happened.
+
 The journal is written once per run, when the run settles, including when it was killed — the
 spawner hands back the whole transcript at once, so there is no earlier seam to write from. That
 bounds what it can cover: a run whose host process dies before it writes leaves tabs this cannot

@@ -77,7 +77,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const prefetchImpl = createPrefetch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
-  const attachImpl = createAttach({ config, session });
+  const attachImpl = createAttach({ config, session, tabJournal });
 
   // Tabs this tool opened, whose run is gone, that are still sitting in the browser. The
   // live list is asked for first: a journal entry for a tab that is no longer open is a

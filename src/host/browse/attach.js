@@ -73,8 +73,14 @@ try {
     let page = null;
     let attachedVia = null;
     if (picked) {
-      page = await attachBrowserTab(picked.targetId);
-      attachedVia = "attachBrowserTab(targetId)";
+      try {
+        page = await attachBrowserTab(picked.targetId);
+        attachedVia = "attachBrowserTab(targetId)";
+      } catch (e) {
+        // It was in the list a moment ago. Between the list and the attach it went, which
+        // is the same story as never having been there and must read as the same code.
+        out.rows.push({ kind: "error", code: "ETABGONE", targetId: picked.targetId, message: "the tab was listed and then gone before it could be attached: " + String((e && e.message) || e), tabs: tabs });
+      }
     } else if (via === "active") {
       try {
         page = await attachActiveBrowserTab();
@@ -83,7 +89,7 @@ try {
         out.rows.push({ kind: "error", code: "ENOACTIVE", message: String((e && e.message) || e), tabs: tabs });
       }
     } else {
-      out.rows.push({ kind: "error", code: "ENOTAB", message: "no open tab matched " + via + "=" + String(REQ.targetId || REQ.urlIncludes || REQ.titleIncludes), tabs: tabs });
+      out.rows.push({ kind: "error", code: via === "targetId" ? "ETABGONE" : "ENOTAB", targetId: REQ.targetId || null, message: "no open tab matched " + via + "=" + String(REQ.targetId || REQ.urlIncludes || REQ.titleIncludes), tabs: tabs });
     }
     if (page) {
       const row = { kind: "page", tab: picked, attachedVia: attachedVia, selectedBy: via };
@@ -225,13 +231,35 @@ export function compileAttach(req) {
   return stripForWire(head + ATTACH_TEMPLATE.replace('__REQ__', () => jsonForScript(req)));
 }
 
+// The last thing this tool saw at that id, if this tool is what opened it.
+//
+// Ambiguity answers null. An id that appears in two records with two different urls has
+// been reused, and picking the newer one would report a page that has nothing to do with
+// the tab the caller lost — which is the failure mode this whole return exists to avoid.
+// Nothing is a worse answer than the wrong page confidently given.
+function lastKnown(journal, targetId) {
+  if (!targetId) return null;
+  const want = String(targetId).replace(/^tab:/, '');
+  const seen = [];
+  for (const rec of journal.all()) {
+    for (const tab of rec.tabs || []) {
+      if (String(tab.targetId).replace(/^tab:/, '') !== want) continue;
+      seen.push({ url: tab.url ?? null, at: rec.writtenAt ?? null });
+    }
+  }
+  if (!seen.length) return null;
+  const urls = new Set(seen.map((s) => String(s.url)));
+  if (urls.size > 1) return null;
+  return seen.reduce((a, b) => ((b.at || 0) > (a.at || 0) ? b : a));
+}
+
 function disabled(name) {
   const e = new Error(name + ' needs browsing, which is currently off. Turn it on with: ' + ENABLE_BROWSE_COMMAND);
   e.code = 'EDISABLED';
   return e;
 }
 
-export function createAttach({ config = {}, session }) {
+export function createAttach({ config = {}, session, tabJournal = null }) {
   const caps = config.browseCaps || {};
   // The host deadline has to outlast whatever the step list is allowed to take. A 20s
   // action budget under a fixed 26.5s host deadline left ~6.5s for a snapshot and seven
@@ -277,12 +305,30 @@ export function createAttach({ config = {}, session }) {
       const page = rows.find((r) => r && r.kind === 'page');
       if (!page) {
         const err = rows.find((r) => r && r.kind === 'error') || {};
+        const gone = err.code === 'ETABGONE';
+        // A caller who named a tab is never handed a different one, and the failure says
+        // which kind it was. playwright-mcp #1588 is the case for the distinction: an
+        // undifferentiated "target closed" makes a model retry a navigation that cannot
+        // work, because the state it would have branched on was never reported.
+        //
+        // Recovery metadata where we have it, null where we do not. The journal knows the
+        // last url only for a tab this tool opened; a tab the user opened and handed us by
+        // id leaves lastUrl null rather than a guess, and a guess is what would send the
+        // caller to the wrong page.
+        const known = gone && tabJournal ? lastKnown(tabJournal, err.targetId) : null;
         return {
           ok: false,
           code: err.code || 'ENOROWS',
           error: err.message || 'the attach script returned no page row',
           tabs: err.tabs || [],
           contentVerified: null,
+          targetId: gone ? (err.targetId ?? null) : null,
+          lastUrl: known ? known.url : null,
+          boundAt: known ? known.at : null,
+          // Said out loud because it is the thing a caller is about to get wrong. Nothing
+          // here is a verdict on an action: if a write was sent before the tab vanished, its
+          // outcome is unknown, and the tab being gone is an observation about the tab.
+          effectsUnknown: gone,
         };
       }
       return {

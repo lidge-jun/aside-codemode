@@ -1,11 +1,11 @@
 {
-  "phase": "B",
+  "phase": "IDLE",
   "sessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
   "slug": "24-npm-0-3-0-origin-dev-67f63d2-1-await-import-n",
-  "updatedAt": "2026-09-15T03:57:41.063Z",
+  "updatedAt": "2026-09-15T05:20:56.912Z",
   "flags": {
     "interview": false,
-    "auditPassed": true,
+    "auditPassed": false,
     "checkPassed": false
   },
   "supersededBy": null,
@@ -19,10 +19,11 @@
     "01a0a062-aa7c-70f2-bd01-df4da375c326",
     "01a0a14b-7f7a-7653-bf88-853ea44526a3",
     "01a0a232-078a-7b30-9253-f9febd199c09",
-    "01a0a2d4-4899-7ad1-b23b-4269b84bd6e8"
+    "01a0a2d4-4899-7ad1-b23b-4269b84bd6e8",
+    "01a0a37d-5765-7bd2-ab1e-1be037d0c2c7"
   ],
-  "lastInjectedPhase": "B",
-  "orchestrationActive": true,
+  "lastInjectedPhase": null,
+  "orchestrationActive": false,
   "interview": null,
   "stopBlockPhase": null,
   "stopBlockCount": 0,
@@ -36,12 +37,7 @@
   "memoryWriteGrant": false,
   "unverifiedSubagents": [],
   "unverifiedCorrupt": false,
-  "phaseEntrySource": {
-    "kind": "resolved",
-    "commitSha": "75c3df15791ea0eb1c29ee653f9c461f944ef810",
-    "dirty": false,
-    "capturedAt": "2026-09-15T03:57:41.048Z"
-  },
+  "phaseEntrySource": null,
   "planUnit": null,
   "planEpoch": null,
   "checkEpoch": null,

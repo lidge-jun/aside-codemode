@@ -2,13 +2,13 @@
   "kind": "test",
   "sourceIdentity": {
     "kind": "resolved",
-    "commitSha": "8693f11fd3af333db5b8a6013ee65b45788af6bd",
+    "commitSha": "89621b4b3f9b076e7d75c3fbfab3e4e62ba20e98",
     "dirty": false,
-    "capturedAt": "2026-09-15T03:46:37.720Z"
+    "capturedAt": "2026-09-15T05:20:37.042Z"
   },
-  "command": "node --test test/tree-nodes.test.js test/browse-a11y.test.js test/browse-tabs.test.js test/browse-discovery.test.js",
+  "command": "node scripts/run-tests.mjs",
   "exitCode": 0,
-  "createdAt": "2026-09-15T03:46:37.743Z",
+  "createdAt": "2026-09-15T05:20:37.060Z",
   "ownerSessionId": "01a09fc0-bfc6-7173-8080-87885af161e6",
-  "checkEpoch": "c-20260915034617-ee8374"
+  "checkEpoch": "c-20260915052005-d3f196"
 }

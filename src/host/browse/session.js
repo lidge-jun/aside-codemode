@@ -150,6 +150,25 @@ export function deadEndReason(item) {
     + '), so no page was loaded; the host, the scheme or the network is the place to look';
 }
 
+// A selector that matched nothing on ONE page is a page that does not have it. A selector
+// that matched nothing on EVERY page is a selector that is wrong, and the run is the only
+// place that sees more than one item at a time, so it is the only place that can tell.
+//
+// Measured: eight course pages returned zero for the same selector with no error anywhere,
+// because the content lived inside an iframe. Believing that answer turns "I could not read
+// this" into "there is nothing here", which is the same failure as reaching completed on an
+// error page — the call worked, the result is empty, and nothing says the combination is
+// worth a second look.
+export function suspectSelectors(items = [], extract = null) {
+  if (!extract) return [];
+  const fields = Object.keys(extract);
+  if (fields.length === 0) return [];
+  const answered = items.filter((i) => i && i.status === 'completed' && i.data && Array.isArray(i.data.missing));
+  // One page proves nothing either way, so this needs at least two to be an aggregate.
+  if (answered.length < 2) return [];
+  return fields.filter((f) => answered.every((i) => i.data.missing.includes(f)));
+}
+
 export function itemStatus(item) {
   if (!item) return 'unreturned';
   if (item.code === 'EHOSTKILL' || item.code === 'ENOMARKER') return 'indeterminate';
@@ -355,6 +374,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (reconciled.some((i) => i.code === 'EBLOCKED' && i.status !== 'needs_input')) partial.push('blocked');
     if (reconciled.some((i) => i.code === 'EDEADEND')) partial.push('dead-end');
     if (reconciled.some((i) => i.code === 'ENOTLOGGEDIN')) partial.push('logged-out');
+    // Aggregate, so it belongs here rather than in any one item.
+    const suspect = suspectSelectors(reconciled, job.extract);
+    if (suspect.length) partial.push('suspect-empty');
     if (unreconciled) partial.push('unreconciled');
     if (extra.length) partial.push('extra-items');
     if (duplicates.length) partial.push('duplicate-jobid');
@@ -393,6 +415,14 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       contentVerified: items.length === 0 ? null
         : (items.some((i) => i.contentVerified === false) ? false
           : (items.every((i) => i.contentVerified === true) ? true : null)),
+      // Named fields rather than a bare flag, because "something was empty" sends the
+      // caller looking and "this selector was empty everywhere and the pages have frames"
+      // answers the question they were about to ask.
+      suspectEmpty: suspect.length ? {
+        selectors: suspect,
+        iframes: reconciled.reduce((n, i) => n + ((i.render && i.render.iframes) || 0), 0),
+        why: 'the same selector matched nothing on every page that answered, which is far more often a wrong selector than a set of pages that all lack it',
+      } : undefined,
       timings: { byStep: steps.byStep, slowest: steps.slowest, totalMs, replMs: ms },
       partial,
       leakedUrls,

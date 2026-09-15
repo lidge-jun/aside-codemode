@@ -117,10 +117,22 @@ out — one page answered 2,024 characters that way and 271,303 the other — an
 present would read as absent. Script bodies are excluded for the mirror reason: a bootstrap payload
 that mentions the string would match while nobody could see it.
 
-## Where the implementation and this contract still disagree
+## An empty answer that should not be believed
 
-**An empty result is not suspicious to anything.** A search whose every query returned nothing, and
-a batch whose selector returned zero on every item, both end normally. This is the same disease as
-reaching `completed` on an error page — the call worked, the result is empty, and no part of the
-contract says that combination is worth a second look. It is not a browser problem; it belongs to
-the result contract as a whole.
+A selector that matched nothing on one page is a page that does not have it. A selector that
+matched nothing on **every** page that answered is a selector that is wrong, and the run is the
+only place that sees more than one item at a time, so it is the only place that can tell. It
+reports `suspectEmpty` naming those fields, along with how many frames the pages carried, because
+a frame is the usual explanation: eight course pages once returned zero for the same selector with
+no error anywhere, and the content was inside an iframe.
+
+A search where every query came back with nothing carries the same field, for the same reason: in
+practice that is a challenge page or a parser that stopped matching rather than a subject with no
+results anywhere.
+
+Neither lowers the status. The call worked and the run is `completed`; what is in doubt is whether
+the answer means what it looks like it means, and saying so is different from failing.
+
+A content search that finds nothing is deliberately **not** flagged. Finding nothing usually means
+the text is not there, which is the answer that was asked for, and a warning on the common case
+teaches a reader to ignore the field.

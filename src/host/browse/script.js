@@ -604,6 +604,10 @@ async function one(item) {
         (hit ? matched : unmatched).push(sel);
       }
       const skeletonNodes = document.querySelectorAll('[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i],[aria-busy="true"]').length;
+      // Counted because it is the usual explanation for a selector that found nothing. The
+      // probe already walks the document, so this costs a query and answers the question a
+      // caller asks next.
+      const iframes = document.querySelectorAll('iframe').length;
       // The text a required pattern is tested against is the DOM's own, with script and
       // style removed. innerText is the rendered view and collapses on a page the browser
       // has not laid out — the same page answered 2,024 characters that way and 271,303
@@ -634,6 +638,7 @@ async function one(item) {
         patternMatched,
         loggedIn,
         skeletonNodes,
+        iframes,
         sample: visibleText.slice(0, 160),
         // Only when the caller asked. Shipping the whole body by default is how a batch of
         // twenty pages turns into a megabyte of stdout.

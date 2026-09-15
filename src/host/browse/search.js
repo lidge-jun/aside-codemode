@@ -129,7 +129,20 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
       alternate: s.reason && s.reason.alternate,
       error: String(s.reason && s.reason.message ? s.reason.message : s.reason),
     }));
-    return { engine, items, ok: items.every((i) => i.ok), partial: items.some((i) => !i.ok) ? ['item-failure'] : [] };
+    const partial = items.some((i) => !i.ok) ? ['item-failure'] : [];
+    // Every query answering zero is, in practice, a challenge page or a parse that stopped
+    // matching — not a world with no results. One empty query is ordinary and says nothing,
+    // so this needs all of them and at least one to have actually run.
+    const answered = items.filter((i) => i.ok);
+    const allEmpty = answered.length > 0 && answered.every((i) => i.count === 0);
+    if (allEmpty) partial.push('suspect-empty');
+    return {
+      engine, items, ok: items.every((i) => i.ok), partial,
+      suspectEmpty: allEmpty ? {
+        queries: answered.length,
+        why: 'every query came back with nothing, which is more often a challenge page or a parser that stopped matching than a subject with no results anywhere',
+      } : undefined,
+    };
   };
 }
 

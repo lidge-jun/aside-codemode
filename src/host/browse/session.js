@@ -349,11 +349,18 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       artifactNames: Array.isArray(opts.artifactNames) ? opts.artifactNames : null,
       pdfNames: Array.isArray(opts.pdfNames) ? opts.pdfNames : null,
     });
-    // The source travels as a command-line argument, so the ceiling is the platform's.
+    // The source travels as a command-line argument, so this conservative envelope stays
+    // below the platform limit and leaves room for the executable and repl verb.
     // Refusing here with a named code beats spawn ENAMETOOLONG, which says nothing about
     // which option made the script too big.
     if (source.length > WIRE_LIMIT) {
-      const e = new Error(`the generated script is ${source.length} characters, over the ${WIRE_LIMIT} wire limit on ${process.platform}; drop helper, snapshot, actions or some urls`);
+      const urlChars = job.urls.reduce((sum, url) => sum + url.length, 0);
+      const longestUrl = job.urls.reduce((longest, url) => url.length > longest.length ? url : longest, '');
+      const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(longestUrl)?.[1]?.toLowerCase() || 'unknown';
+      const dataAdvice = scheme === 'data'
+        ? '; the document itself is on the wire, so serve it over http from loopback instead'
+        : '';
+      const e = new Error(`the generated script is ${source.length} characters, over the ${WIRE_LIMIT} wire limit on ${process.platform}; drop helper, snapshot, actions or some urls; urls total ${urlChars} characters and the longest url is ${longestUrl.length} characters with scheme ${scheme}${dataAdvice}`);
       e.code = 'ESOURCETOOLONG';
       throw e;
     }

@@ -38,20 +38,25 @@ split here is the host's design, not a local invention.
 
 ## The budget
 
-**The marked region may be up to 50 lines, and `test/readme-51x.test.js` enforces it.** That is
+**The marked region may be up to 56 lines, and `test/readme-51x.test.js` enforces it.** That is
 the one place the number lives; a second copy elsewhere would be a second number waiting to
 disagree. The region is always injected, so every line is spent on every turn whether or not code
 mode is used; the skill body is not, and can afford to be long.
 
 The budget bounds the runaway-file failure. It is a line count, so a region written as a compact
 table carries more than one written as paragraphs, and it does not bound density. Reasoning behind
-the number is in `decisions/ADR-0001-always-injected-block-budget.md`.
+the number is in `decisions/ADR-0001-always-injected-block-budget.md`, and the move from 50 to 56
+in `decisions/ADR-0011-the-block-carries-what-an-error-cannot-say.md`. The question that admits a
+new line is there: without it, does an agent reach a **wrong conclusion**, or merely earn one
+refusal that names the right call? Only the first belongs here.
 
 What the region currently spends its lines on: when to stay native, when a batch is justified and
 why a signed-in site is the exception that looks like the rule, the three-step session order, that
-a successful call is not a correct result, the fetch-or-batch test, that local file work is this
+a successful call is not a correct result and that an incomplete search says so in its own fields,
+the fetch-or-batch test, that local file work is this
 path whether or not it repeats, the invocation pair, reading `actions.describe` before the first
-call rather than after a refusal, the guest's surface, and the things never to do. Everything else
+call rather than after a refusal, that `actions` describes while the namespaces run, the guest's
+surface and how its file names differ from the REPL's, and the things never to do. Everything else
 is the skill's.
 
 `test/docs-guidance.test.js` pins what the region must still say. It asserts, inside the region

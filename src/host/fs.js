@@ -380,5 +380,6 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       });
     },
   };
+
   return Object.freeze(api);
 }

@@ -126,3 +126,19 @@ test('actions catalog includes Aside file names and keeps deprecated fs rows', (
   assert.match(actions.describe('fs.read').notes, /deprecated/);
   assert.equal(actions.find('edit')[0].path, 'edit_file');
 });
+
+// The host fs carries the real surface and nothing else. Guidance for the Aside REPL and
+// Node names an agent reaches for instead lives guest-side; it is asserted through the CLI
+// in test/guest-guidance.test.js. This test guards the surface itself, because the member
+// list is what that guidance quotes back.
+test('the host fs surface is exactly the guest file api', () => {
+  const { fs } = host();
+  assert.deepEqual(Object.keys(fs), [
+    'read', 'readMany', 'grepFile', 'write', 'mkdir', 'stat', 'exists', 'list',
+    'read_file', 'write_file', 'edit_file',
+  ]);
+  for (const name of ['readFile', 'writeFile', 'readdir', 'existsSync', 'unlink']) {
+    assert.equal(fs[name], undefined);
+    assert.equal(createActions().list().some((entry) => entry.path === `fs.${name}`), false);
+  }
+});

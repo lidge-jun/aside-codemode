@@ -44,6 +44,25 @@ has, while `require` was never defined and throws Node's own words. `process`, `
 **The sandbox is a shape, not a security boundary.** It exists so a batch cannot quietly depend on
 something the host never promised. Nothing here is written to survive hostile guest code.
 
+### A wrong name answers with the right one
+
+The host never hands the guest its objects. `src/sandbox.js` sends the worker a manifest of method
+names and the worker rebuilds each namespace as an RPC stub, so anything meant to be read by the
+author of a script has to be attached on that side. `src/guest-guidance.js` is that layer: it wraps
+each injected namespace and carries the table of names agents reach for instead — `actions` used as
+a dispatcher, `fs.readFile` and `fs.readdir` from the Aside REPL and from Node, `browse.open` from
+the REPL's `openTab`. Those names throw and name the call that works.
+
+Only names in the table throw. A property nobody is known to reach for still reads as `undefined`,
+because a version-tolerant script probes before it calls (`if (browse.watch)`) and a probe that
+throws never reaches its own fallback — a worse failure than the blind `is not a function` this
+layer exists to replace. Reserved reads (`then`, `toJSON`, inspection) stay silent for the same
+reason, so awaiting or serializing a namespace behaves normally.
+
+This is a contract about **where** guidance lives, not only what it says: guidance added to the host
+objects passes its unit tests and reaches no script at all. The regression test for this layer runs
+through the CLI for that reason.
+
 ## Asking rather than guessing
 
 `src/tools.js` carries the tool description, and the `actions` namespace answers the question a
@@ -63,4 +82,3 @@ the same validator the real call uses, so a combination it accepts is a combinat
 - The script's own deadline is always earlier than the host's, because a killed CLI leaks its tabs
   permanently and no later session can close them.
 - A result that came back is reconciled against what was asked for, never counted on its own.
-

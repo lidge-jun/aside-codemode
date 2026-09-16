@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateJob, BrowseOptionError, WAIT_STATES } from '../src/host/browse/schema.js';
+import { BROWSE_ACTIONS } from '../src/host/browse/actions-schema.js';
 
 const base = { urls: ['https://example.com'] };
 const codeOf = (fn) => { try { fn(); return null; } catch (e) { return e.code; } };
@@ -46,4 +47,32 @@ test('a valid job is frozen so a caller cannot mutate it after validation', () =
   const job = validateJob(base);
   assert.throws(() => { job.urls = []; }, TypeError);
   assert.ok(new BrowseOptionError('x', 'E').name === 'BrowseOptionError');
+});
+
+test('pdf css page size and margins are validated and preserved', () => {
+  const pdf = { preferCSSPageSize: true, margin: { top: '20mm', right: 12, bottom: '1.5cm', left: '0in' } };
+  assert.deepEqual(validateJob({ ...base, pdf }).pdf, pdf);
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { preferCSSPageSize: 'true' } })), 'EBADVAL');
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { margin: { center: '1in' } } })), 'EBADOPT');
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { margin: { top: '20' } } })), 'EBADVAL');
+});
+
+test('browse url discovery matches the validator for data and file schemes', () => {
+  for (const path of ['browse.exec', 'browse.captureMany']) {
+    const record = BROWSE_ACTIONS.find((action) => action.path === path);
+    assert.match(record.inputs.urls.description, /http\(s\) or data:/);
+    assert.match(record.inputs.urls.description, /file: is refused/);
+  }
+  assert.equal(validateJob({ urls: ['data:text/html,ok'] }).urls[0], 'data:text/html,ok');
+  assert.equal(codeOf(() => validateJob({ urls: ['file:///tmp/report.html'] })), 'ENOTSUP');
+});
+
+test('browse capture discovery describes files while exec describes bytes only', () => {
+  const exec = BROWSE_ACTIONS.find((action) => action.path === 'browse.exec');
+  const capture = BROWSE_ACTIONS.find((action) => action.path === 'browse.captureMany');
+  assert.match(exec.outputs.items.description, /capture\.requested/);
+  assert.match(exec.outputs.items.description, /capture\.actual\.pdfBytes/);
+  assert.match(exec.outputs.items.description, /does not bring an artifact file back/);
+  assert.match(capture.outputs.items.description, /When outDir was passed/);
+  assert.match(capture.outputs.items.description, /pdf is \{ path, bytes, pageBox \}/);
 });

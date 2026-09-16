@@ -80,6 +80,57 @@ test('a page that came back the wrong size is a failure, not a file', async () =
   assert.match(res.items[0].error, /page box/);
 });
 
+test('css page size accepts a different parseable MediaBox and reports its rule', async () => {
+  const h = harness(() => letter());
+  const pdfOptions = { preferCSSPageSize: true, margin: { top: '20mm', right: '18mm', bottom: '22mm', left: '18mm' } };
+  const res = await h.capture(['https://a.test/doc'], { pdf: pdfOptions, outDir: '/out' });
+  assert.equal(res.items[0].status, 'completed');
+  assert.equal(res.items[0].pdf.pageBox.matched, true);
+  assert.equal(res.items[0].pdf.pageBox.rule, 'css-page-size');
+  // The bytes cannot say which size the stylesheet asked for, so the result says it measured
+  // the box rather than that it confirmed the request.
+  assert.equal(res.items[0].pdf.pageBox.measuredOnly, true);
+  assert.equal(res.items[0].pdf.pageBox.actualPt[0].widthPt, 612);
+  assert.deepEqual(h.job().pdf, { ...A4_INCHES, ...pdfOptions });
+});
+
+test('css page size still refuses a pdf with no parseable MediaBox', async () => {
+  const h = harness(() => Buffer.from('not a pdf'));
+  const res = await h.capture(['https://a.test/doc'], { pdf: { preferCSSPageSize: true }, outDir: '/out' });
+  assert.equal(res.items[0].code, 'EPAGEBOX');
+  assert.equal(res.items[0].pdf.pageBox.rule, 'css-page-size');
+  assert.match(res.items[0].error, /no MediaBox/);
+});
+
+// "Different from what was requested" is the point of this mode; "anything at all" is not.
+// A degenerate box and pages that disagree with each other both pass the size comparison
+// trivially, so they have to be refused here or the mode verifies nothing.
+test('css page size refuses a box that is not a page', async () => {
+  const h = harness(() => Buffer.from('%PDF-1.4\n1 0 obj<</MediaBox [ 0 0 0 0 ]>>endobj\n%%EOF', 'latin1'));
+  const res = await h.capture(['https://a.test/doc'], { pdf: { preferCSSPageSize: true }, outDir: '/out' });
+  assert.equal(res.items[0].code, 'EPAGEBOX');
+  assert.match(res.items[0].error, /is not a page/);
+});
+
+test('css page size refuses pages that disagree on size', async () => {
+  const mixed = Buffer.from(
+    '%PDF-1.4\n1 0 obj<</MediaBox [ 0 0 420 595 ]>>endobj\n2 0 obj<</MediaBox [ 0 0 612 792 ]>>endobj\n%%EOF',
+    'latin1',
+  );
+  const h = harness(() => mixed);
+  const res = await h.capture(['https://a.test/doc'], { pdf: { preferCSSPageSize: true }, outDir: '/out' });
+  assert.equal(res.items[0].code, 'EPAGEBOX');
+  assert.match(res.items[0].error, /pages disagree on size/);
+});
+
+test('captureMany shape refusal names the positional urls form', async () => {
+  const h = harness(() => a4());
+  await assert.rejects(() => h.capture({ urls: ['https://a.test/doc'] }, { outDir: '/out' }), (e) => {
+    assert.equal(e.message, 'captureMany requires urls as the first positional argument: browse.captureMany([url], options)');
+    return e.code === 'EBADVAL';
+  });
+});
+
 test('the format shortcut is refused rather than silently producing another size', async () => {
   const h = harness(() => a4());
   await assert.rejects(() => h.capture(['https://a.test/doc'], { pdf: { format: 'A4' }, outDir: '/out' }),

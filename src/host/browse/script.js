@@ -355,7 +355,8 @@ export function stripFragment(src) {
 // kilobytes — and holding every host to the tightest one meant `helper: true` could not be
 // used with a full batch at all. So the cap is the platform's, and the portable envelope is
 // pinned separately by the suite: the ordinary acting and reading jobs stay under 30,000 on
-// every host, and only the combinations beyond that envelope depend on where you are.
+// every host. The larger host-specific value is a conservative envelope under that
+// platform's limit, and only combinations beyond the portable envelope depend on where you are.
 export const WIRE_LIMIT = process.platform === 'win32' ? 30000 : 50000;
 export const WIRE_LIMIT_PORTABLE = 30000;
 

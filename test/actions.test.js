@@ -35,3 +35,17 @@ test('check reports missing, unknown and type errors without calling', () => {
 test('unknown path throws with did-you-mean candidates', () => {
   assert.throws(() => actions.describe('search.contents'), /did you mean: search.content/);
 });
+
+// Wrong-name guidance is asserted through the CLI in test/guest-guidance.test.js, because
+// the host object tested here is never the object the guest holds.
+test('describe without a path teaches exact-path discovery', () => {
+  for (const call of [() => actions.describe(), () => actions.describe(undefined)]) {
+    assert.throws(call, (error) => (
+      error.message.includes('exact action path')
+      && error.message.includes("actions.describe('fs.read')")
+      && error.message.includes('actions.list()')
+      && error.message.includes('actions.find(query)')
+    ));
+  }
+  assert.throws(() => actions.describe('api'), /did you mean: api\./);
+});

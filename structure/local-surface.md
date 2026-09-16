@@ -24,6 +24,12 @@ completeness.
 
 ## Files
 
+The guest file api is `read`, `readMany`, `grepFile`, `write`, `mkdir`, `stat`, `exists`, `list`
+and the three Aside-shaped calls `read_file`, `write_file`, `edit_file`. It is deliberately not
+Node's `fs` and not the Aside REPL's, which the same agent uses in the same session: a name from
+either of those answers with the guest call that does the job, from the table in
+`src/guest-guidance.js`. There is no synchronous variant and nothing deletes.
+
 `src/host/fs.js` carries the compound helpers, and the four Aside-shaped tools keep Aside's own
 argument names so guest code reads the same on both surfaces. `read_file` takes 1-indexed lines,
 `write_file` is create-only, and `edit_file` applies a list of edits.
@@ -40,4 +46,3 @@ Only the staging file this invocation exclusively created is ever cleaned up.
 
 `src/host/file-lock.js` coordinates codemode writers across processes. It does not coordinate
 arbitrary editors, and nothing here pretends otherwise.
-

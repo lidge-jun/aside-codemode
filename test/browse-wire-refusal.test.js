@@ -29,6 +29,20 @@ test('a job that cannot fit the command line is refused before anything starts',
     assert.match(e.message, /drop helper, snapshot, actions or some urls/);
     // And which host decided, since the ceiling is not the same everywhere.
     assert.match(e.message, new RegExp(process.platform));
+    const urls = tooMany(400);
+    assert.match(e.message, new RegExp(`urls total ${urls.reduce((sum, url) => sum + url.length, 0)} characters`));
+    assert.match(e.message, /longest url is \d+ characters with scheme https/);
+    return true;
+  });
+});
+
+test('an oversized data url says the document is on the wire and names the loopback replacement', async () => {
+  const url = 'data:text/html,' + 'x'.repeat(WIRE_LIMIT);
+  await assert.rejects(session().run({ urls: [url] }), (e) => {
+    assert.equal(e.code, 'ESOURCETOOLONG');
+    assert.match(e.message, new RegExp(`urls total ${url.length} characters`));
+    assert.match(e.message, new RegExp(`longest url is ${url.length} characters with scheme data`));
+    assert.match(e.message, /the document itself is on the wire, so serve it over http from loopback instead/);
     return true;
   });
 });

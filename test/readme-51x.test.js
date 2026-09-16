@@ -129,14 +129,14 @@ test('AGENTS template keeps its placeholders and Windows Git Bash', () => {
 // wp9 moved the long form out of the account-wide block and into a skill. The block is read
 // on every turn and a skill is read when it is loaded, so the split has to be deliberate:
 // the block routes and forbids, the skill explains. These two cases keep it that way.
-// The bound was 35 and is now 50. It moved because the block had to gain the session rule,
-// the evidence rule and the routing test, and because 35 was not reachable while leaving
-// what the suite pins inside the block. The number is a decision, recorded in
-// structure/decisions/ADR-0001-always-injected-block-budget.md, and this is the one place
-// that holds it: a second copy elsewhere would be a second number waiting to disagree.
+// The bound was 35, then 50, and is now 56. It moved the first time because the block had to
+// gain the session rule, the evidence rule and the routing test; it moved again because a
+// search can come back successful and incomplete, which no refusal can say for it. The number
+// is a decision, recorded in ADR-0001 and ADR-0011 under structure/decisions/, and this is the
+// one place that holds it: a second copy elsewhere would be a second number waiting to disagree.
 test('the managed block stays short enough to be read every time', () => {
   const lines = agents.trimEnd().split('\n').length;
-  assert.ok(lines <= 50, 'the AGENTS block is ' + lines + ' lines; it belongs in the skill');
+  assert.ok(lines <= 56, 'the AGENTS block is ' + lines + ' lines; it belongs in the skill');
 });
 
 test('what left the block landed in the skill, not on the floor', () => {

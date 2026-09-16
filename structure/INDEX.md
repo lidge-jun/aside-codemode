@@ -51,6 +51,7 @@ What an install writes into an account, and the budget it spends there.
 | `scripts/install-codemode.mjs` | [`install-surface.md`](install-surface.md) |
 | `src/cli.js` | [`overview.md`](overview.md) |
 | `src/execution-output.js` | [`batch-contract.md`](batch-contract.md) |
+| `src/guest-guidance.js` | [`overview.md`](overview.md) |
 | `src/host/browse/` | [`browse-surface.md`](browse-surface.md) |
 | `src/host/browse/attach.js` | [`session-contract.md`](session-contract.md) |
 | `src/host/browse/policy.js` | [`session-contract.md`](session-contract.md) |
@@ -86,3 +87,4 @@ Not yet described, with the reason recorded in the manifest:
 - [`ADR-0008-ownership-lives-in-a-host-journal.md`](decisions/ADR-0008-ownership-lives-in-a-host-journal.md) — ADR-0008 — decision recorded under "Whose tab is whose"
 - [`ADR-0009-the-staleness-guard-is-mandatory-for-writes.md`](decisions/ADR-0009-the-staleness-guard-is-mandatory-for-writes.md) — ADR-0009 — decision recorded under "Acting on a page"
 - [`ADR-0010-attach-is-a-write-path-too.md`](decisions/ADR-0010-attach-is-a-write-path-too.md) — ADR-0010 — decision recorded under "Acting on a page"
+- [`ADR-0011-the-block-carries-what-an-error-cannot-say.md`](decisions/ADR-0011-the-block-carries-what-an-error-cannot-say.md) — ADR-0011 — decision recorded under "The budget"

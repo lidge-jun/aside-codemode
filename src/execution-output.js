@@ -27,6 +27,20 @@ export function errorFields(error) {
 // This translates at the boundary rather than installing an import callback: that callback is
 // ignored without --experimental-vm-modules, and the one loader constant that works without
 // the flag hands back the real module namespace, which is the sandbox gone.
+
+// Names reached for from somewhere else: the host's own tool catalog, Node, the browser. Each
+// was written by an agent in a real run, and each has a guest equivalent worth naming.
+const ELSEWHERE = {
+  web_search: 'the guest searches the web with browse.searchMany([query]).',
+  tools: 'there is no tool object here: the namespaces are globals, for example search.content({ path, query }).',
+  require: 'there is no module loader; the injected globals are the surface.',
+  process: 'no process here: run codemode --doctor for the environment it resolved.',
+  fetch: 'no fetch here: browse.readText(url) reads a page, and api.batch(requests) covers the adapters it names.',
+  XMLHttpRequest: 'no browser globals here: browse.readText(url) reads a page.',
+  Buffer: 'no Buffer here: fs.read(path) returns a string.',
+  setTimeout: 'no timers here: browse actions take a sleepMs step instead.',
+};
+
 export function translateGuestError(error, globals = []) {
   const names = globals.length ? globals.join(', ') : 'the injected globals';
   const message = String(error?.message ?? error);
@@ -50,6 +64,20 @@ export function translateGuestError(error, globals = []) {
     const e = new SyntaxError(message + ' — ' + alternative);
     e.code = 'EGUESTIMPORT';
     return e;
+  }
+
+  // A name from somewhere else entirely: the host's tool catalog, Node, the browser. Node says
+  // "x is not defined" and stops there, which leaves the author to guess whether the capability
+  // is missing or merely named differently. For the handful that were actually reached for in
+  // real runs, the answer is the guest's own name for the same thing.
+  if (error?.name === 'ReferenceError') {
+    const missing = /^(\w+) is not defined$/.exec(message)?.[1];
+    const instead = missing && ELSEWHERE[missing];
+    if (instead) {
+      const e = new ReferenceError(`${message} — ${instead}`);
+      e.code = 'EGUESTNAME';
+      return e;
+    }
   }
 
   // EvalError is the engine refusing; the same words inside some other error are not ours to

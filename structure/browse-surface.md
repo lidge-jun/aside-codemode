@@ -36,7 +36,12 @@ in characters so the next change knows what it has. The combinations past that e
 asserted to be past it and to fit 50,000, so nothing quietly drifts from one side to the other.
 
 Past the ceiling the answer is a refusal, not a surprise. `ESOURCETOOLONG` names the size, the
-limit, the platform that set it and what to drop, and it is raised before a process exists. Both
+limit, the platform that set it and what to drop, and it is raised before a process exists. It also
+names where the size went: the characters the urls account for, and the length and scheme of the
+longest one. That breakdown exists because "drop helper, snapshot, actions or some urls" reads as a
+nudge toward fewer urls, and the measured case was one 65 KB `data:` url carrying a whole document
+on the wire. When the longest url is a `data:` url the refusal says so and names the replacement:
+serve the document over http from loopback, which the browser reaches, and pass the short url. Both
 entry points check: the job path and `session.raw`, which browse's other surfaces compile their own
 source for and which used to skip the check, so a caller who injected a helper learned about it from
 the operating system instead.
@@ -226,9 +231,19 @@ were produced and counted and then dropped, because the branch that writes runs 
 issued a name for the file and `report.build` was the only caller that ever issued one.
 
 Paper is expressed in inches and never as a format name, because the shortcut was measured
-producing US Letter while reporting A4. `verifyPageBox` reads the real MediaBox out of the bytes,
-and a page that came back the wrong size fails the item with `EPAGEBOX`: a file that exists is not
-a page of the size that was requested.
+producing US Letter while reporting A4. A stylesheet may still own the page: `preferCSSPageSize`
+and a four-sided `margin` pass through to the print call, so a document written against
+`@page { size: A5; margin: 20mm }` paginates the way a browser prints it rather than being scaled
+onto the requested sheet with the engine's default margins.
+
+`verifyPageBox` reads the real MediaBox out of the bytes and reports which rule it applied. In the
+default mode a page that came back the wrong size fails the item with `EPAGEBOX`: a file that
+exists is not a page of the size that was requested. When CSS page size is preferred, a different
+size is the point, so the comparison against the requested sheet is dropped — the verifier would
+otherwise refuse exactly the documents the option exists for. What it still requires is that the
+box be a page: a parseable MediaBox, finite and positive, and the same on every page. The bytes
+cannot say which size the stylesheet asked for, so that result carries `measuredOnly` and reports
+the size it read rather than claiming the request was honoured.
 
 Asking for a pdf without naming a screenshot means a pdf and no screenshot, because paying for both
 when only one was wanted is the kind of silent cost this surface exists to remove.

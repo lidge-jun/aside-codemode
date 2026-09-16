@@ -11,6 +11,8 @@ A missing marker is `needs_input`, not a failure: someone can sign in again.
 
 `ok`, `completed`, HTTP 200 and `contentVerified` say the call worked. None of them says
 the page holds what you asked for. Name the content you expect, or you have not checked it.
+A search says it the same way: `complete:false`, `truncated` or a `skippedSymlinks` count
+means rows are missing, so an empty result is not evidence of absence; project those out too.
 
 An open API or a server-rendered page is a fetch, where a tab is pure overhead; an SPA
 whose HTML arrives empty is a batch. The test is whether the text you expect survives
@@ -26,7 +28,8 @@ and `fs.grepFile` answer the same question in one call instead of fifty.
 Use that absolute pair; do not look up `node` or `codemode` on PATH. Do not invoke `src/cli.js`;
 the entry point is `bin/codemode.mjs`. Read `actions.describe` before the first call, not after
 a refusal: the option you needed is usually in it, and `actions.check` validates a call without
-making it. Resolve project-relative paths with `{{CWD_HINT}}`; if it looks wrong, run `--doctor`.
+making it. `actions` only describes. Run the action by its own name, `browse.exec({ urls })`.
+Resolve project-relative paths with `{{CWD_HINT}}`; if it looks wrong, run `--doctor`.
 Procedure, failure codes and resuming: `skills/user/aside-codemode/SKILL.md`.
 
 Batch helper, inside a REPL session:
@@ -35,8 +38,9 @@ Batch helper, inside a REPL session:
 
 That code is a vm guest. No `import`, `require`, `process`, `fetch`, `setTimeout` or `Buffer`;
 a dynamic import answers `EGUESTIMPORT`. What you get instead: `search fs actions browse report
-api recipes read_file write_file edit_file apply_patch console`. `browse` works out of the box;
-a machine that turned it off answers `EDISABLED` with the command that restores it.
+api recipes read_file write_file edit_file apply_patch console`. The line above is the REPL's
+`fs`; the guest reads with `fs.read` and `fs.list`, not `readFile`/`readdir`. `browse` works out
+of the box; a machine that turned it off answers `EDISABLED` with the command that restores it.
 
 Aside's default shell on Windows is Git Bash; PowerShell runs the same absolute call. macOS
 uses its default bash or zsh card. There is no Linux install path.
@@ -45,6 +49,6 @@ Do not: drive one tab from two places at once, reuse a ref from an older observa
 retry a side effect whose outcome you do not know. A result that says `partial`,
 `indeterminate` or `needs_input` is an answer; report it rather than rerunning it.
 `needs_input` means a person has to sign in, clear a challenge, or approve a write. Anything
-that can change something says so first: any `actions` verb but `waitFor`,
+that can change something says so first: every browse action verb but `waitFor`,
 `waitForLoadState` and `sleepMs` needs `approveWrites: true`, on `browse.exec` and on
 `browse.attach` alike, and a ref-aimed one needs `refsFingerprint` too.

@@ -154,6 +154,8 @@ function typeOf(v) {
 }
 
 export function createActions() {
+  // Wrong-name guidance is not here: the worker rebuilds these methods from a manifest, so
+  // only something attached guest-side reaches the script. See src/guest-guidance.js.
   return Object.freeze({
     list(filter) {
       const rows = REGISTRY.filter((r) => !filter || r.path.startsWith(filter));
@@ -168,6 +170,9 @@ export function createActions() {
         .map(([, r]) => ({ path: r.path, description: r.description, signature: r.signature }));
     },
     describe(path) {
+      if (path === undefined) {
+        throw new Error("actions.describe takes an exact action path, for example actions.describe('fs.read'); use actions.list() or actions.find(query) to get paths");
+      }
       const rec = REGISTRY.find((r) => r.path === path);
       if (!rec) {
         const cands = didYouMean(String(path));

@@ -25,9 +25,12 @@ account root, where that same line leaves the account root and is refused. Load 
 by its absolute path, `{{HELPER}}`, which both surfaces read. That value is written as a
 quoted JavaScript string so it stays valid code even when the path contains an apostrophe.
 
-The browser cannot reach this machine's loopback, and the daemon refuses `file://` without
-local file access. For a fixture page, use a `data:text/html` url: it is a real document
-with a real DOM and `snapshot()` reads it normally.
+The daemon refuses `file://` without local file access. For a small fixture page, use a
+`data:text/html` url: it is a real document with a real DOM and `snapshot()` reads it
+normally. For a large one, serve it over http from loopback — the browser does reach
+127.0.0.1, measured — and pass the short url instead, which is also how a document too big
+for the wire limit gets printed. A server started inside a tool call dies with that call:
+detach it and confirm the port answers from a later call before the browser is asked for it.
 
 ## 3. The CLI
 

@@ -41,6 +41,7 @@
         "bin/",
         "src/cli.js",
         "src/sandbox.js",
+        "src/guest-guidance.js",
         "src/tools.js",
         "src/host/globals.js",
         "src/host/namespaces.js"

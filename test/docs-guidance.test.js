@@ -112,6 +112,41 @@ test('the block says a successful call is not a correct result', () => {
   assert.match(skill.replace(/\s+/g, ' '), /completed .*does not mean|success signals/i);
 });
 
+// A refused call teaches itself; a search that comes back successful and incomplete does not,
+// and that is the one measured failure where an agent reached a wrong conclusion instead of a
+// second attempt. Three empty results read as "the tool cannot see this directory". ADR-0011.
+test('the block says an incomplete search is not an empty one', () => {
+  const { agents } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /complete:false/);
+  assert.match(flat, /truncated/);
+  assert.match(flat, /skippedSymlinks/);
+  assert.match(flat, /not evidence of absence/i);
+});
+
+// The block used one word for two things: the discovery namespace and a browse job's list of
+// action verbs. Taking `actions` for a dispatcher was the single most frequent wrong first
+// call, so the block has to separate them itself.
+test('the block separates the discovery namespace from a browse action verb', () => {
+  const { agents, ref } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /`actions` only describes/);
+  assert.match(flat, /browse\.exec\(\{ urls \}\)/);
+  assert.match(flat, /every browse action verb but `waitFor`/);
+  assert.match(ref('call-shapes.md').replace(/\s+/g, ' '), /is not a dispatcher/i);
+});
+
+// The loader line in the block runs in the Aside REPL, where reading is fs.readFile. The guest
+// reads with fs.read. The block shows the first, so it has to name the second in the same place.
+test('the block distinguishes the REPL file names from the guest ones', () => {
+  const { agents, ref } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /the REPL's `fs`/);
+  assert.match(flat, /`fs\.read` and `fs\.list`/);
+  assert.match(flat, /not `readFile`\/`readdir`/);
+  assert.match(ref('call-shapes.md').replace(/\s+/g, ' '), /read a line window .*read_file/i);
+});
+
 test('the block gives the routing test, not just the routing rule', () => {
   const { agents } = rendered();
   const flat = agents.replace(/\s+/g, ' ');

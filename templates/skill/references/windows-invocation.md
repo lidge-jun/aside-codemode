@@ -39,7 +39,13 @@ tab" returns `ENOACTIVE`. Name the tab with `targetId` or `urlIncludes` instead.
 
 ## The wire limit
 
-A generated REPL script travels as a command-line argument and Windows caps a command line
-at 32,767 characters; the host refuses at 30,000 with `ESOURCETOOLONG` rather than letting
-spawn fail with a message that names nothing. If you hit it, drop `helper`, drop
-`snapshot`, or split the urls across two calls.
+A generated REPL script travels as a command-line argument. Windows caps a whole command
+line at 32,767 characters, so the host refuses at 30,000 with `ESOURCETOOLONG` rather than
+letting spawn fail with a message that names nothing; elsewhere the refusal is a
+conservative 50,000 rather than the platform's own byte-based limit.
+
+The refusal reports the breakdown: the total, the limit, and how much of it the urls are,
+with the length and scheme of the longest one. Usually one of the two is true. If the urls
+are small, the script is what grew: drop `helper`, drop `snapshot`, or split the batch. If
+one url is most of the total it will be a `data:` url, which means the document itself is
+on the wire — serve it over http from loopback and pass that url instead.

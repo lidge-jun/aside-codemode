@@ -72,7 +72,7 @@ export const BROWSE_ACTIONS = [
     description: 'Run a batch of urls through ONE Aside REPL session. On by default; refused when browseCaps.enabled is false.',
     signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, snapshot?, screenshot?, pdf?, extract?, concurrency?, detect? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
     inputs: {
-      urls: { type: 'array', required: true, description: 'Array of http(s) url strings. file: is refused.' },
+      urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       timeoutMs: { type: 'number', required: false, description: 'Inner deadline, clamped to browseCaps.timeoutMs (default 25000)' },
       waitUntil: { type: 'string', required: false, description: "One of load | domcontentloaded | stable. networkidle is ENOTSUP." },
       waitSelector: { type: 'string', required: false, description: 'Wait for this css selector instead of a load state' },
@@ -90,7 +90,7 @@ export const BROWSE_ACTIONS = [
       maxTextChars: { type: 'number', required: false, description: 'Cap for fullText, default 200000.' },
       helper: { type: 'boolean', required: false, description: 'Inline the cm batch helper into the generated script, so the run can call cm.run / cm.mapLimit. Costs about 4500 characters of the 30000 wire budget; the result reports which build answered in helper.{version,sha256}.' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality?, fullPage? }. maxWidth is ENOTSUP.' },
-      pdf: { type: 'object', required: false, description: '{ paperWidth, paperHeight } in INCHES. format is ENOTSUP.' },
+      pdf: { type: 'object', required: false, description: '{ paperWidth, paperHeight, printBackground?, preferCSSPageSize?, margin? } in INCHES. margin keys are top/right/bottom/left and accept numbers or unit-labelled strings. format is ENOTSUP.' },
       extract: { type: 'object', required: false, description: "{ field: 'css' } or { field: { selector, attr?, all? } }" },
       concurrency: { type: 'number', required: false, description: 'Tabs in flight inside the one session' },
       detect: { type: 'boolean', required: false, description: 'Block detection, default true. Set false for your own generated pages.' },
@@ -99,6 +99,9 @@ export const BROWSE_ACTIONS = [
       requireContent: { type: 'boolean|string', required: false, description: 'A string is a regular expression the page must contain, and is itself the check: an item without it fails. true instead enforces whatever checks apply, including the render heuristics that always run, and is legal on its own. contentVerified reads true only when a selector, a minimum length or a pattern was asked for, so a bare true never claims verification' },
       loggedInMarker: { type: 'string', required: false, description: 'A regular expression matching text that only appears when you are signed in. An item without it is needs_input rather than failed, because a person can sign in again. Sign in natively first; the batch never attempts a login. The tool cannot infer this: a signed-out page need not contain the word for signing in, and a JSON api answering with your account data contains no sign-out wording at all' },
       stopWhenLoggedOut: { type: 'boolean', required: false, description: 'Default true beside loggedInMarker. Once one item proves the session is gone the rest are skipped with logged-out as the reason, because they share that session and can only open tabs that cannot succeed' },
+    },
+    outputs: {
+      items: { description: 'Each item may include capture.requested and capture.actual; when pdf was requested, capture.actual.pdfBytes reports the produced byte count. browse.exec does not bring an artifact file back.' },
     },
     notes: 'ok means the run completed; contentVerified means the page actually rendered. They are DIFFERENT: Threads returned ok:true with the right title while the body was server bootstrap JSON and no posts. Pass requireSelector/minTextChars to get a real verdict; without them contentVerified is null (nobody asked) rather than true. items[] carries per-url ok/error so one failure never empties the rest. A blocked page returns EBLOCKED with an alternate route; an arrived-but-unrendered page returns EUNRENDERED or partial:[content-unverified]. A navigation that ended on the browser own error page is EDEADEND. If the same extract field came back empty on every page that answered, the run carries suspectEmpty naming it and counting the frames on those pages, because a frame is the usual reason a selector finds nothing.',
   },
@@ -163,12 +166,15 @@ export const BROWSE_ACTIONS = [
     description: 'Batch screenshot or pdf capture; artifacts are written to outDir and verified against the request.',
     signature: 'browse.captureMany(urls, { outDir, screenshot?, pdf?, snapshot?, timeoutMs?, concurrency? }) => Promise<{ok,items}>',
     inputs: {
-      urls: { type: 'array', required: true, description: 'Array of http(s) url strings' },
+      urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       outDir: { type: 'string', required: false, description: 'Directory inside the configured roots; files are host-named' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality? }. clip is honoured exactly.' },
-      pdf: { type: 'object', required: false, description: '{ paperWidth?, paperHeight?, printBackground? } in INCHES, defaulting to A4. Prints the url to a file in outDir. A format name is refused: it was measured producing US Letter while reporting A4. Passing pdf without naming screenshot means a pdf and no screenshot; screenshot: false with no pdf is refused because nothing would come back.' },
+      pdf: { type: 'object', required: false, description: '{ paperWidth?, paperHeight?, printBackground?, preferCSSPageSize?, margin? } in INCHES, defaulting to A4. margin keys are top/right/bottom/left and accept numbers or unit-labelled strings. Prints the url to a file in outDir. A format name is refused: it was measured producing US Letter while reporting A4. Passing pdf without naming screenshot means a pdf and no screenshot; screenshot: false with no pdf is refused because nothing would come back.' },
     },
-    notes: 'Each item.artifact reports the REAL width/height read from the file, not the requested size, and item.pdf.pageBox reports the real MediaBox. A page that came back the wrong size is EPAGEBOX and fails the item; a file that exists is not a page of the size you asked for.',
+    outputs: {
+      items: { description: 'When outDir was passed, each item may include artifact and pdf records. item.artifact contains the host-issued path and measured image fields; item.pdf is { path, bytes, pageBox } under a host-issued file name.' },
+    },
+    notes: 'Each item.artifact reports the REAL width/height read from the file, not the requested size, and item.pdf.pageBox reports the real MediaBox and the rule applied. A page that came back the wrong size is EPAGEBOX in requested-paper-size mode; css-page-size mode accepts a parseable CSS-selected size. A file that exists is not by itself a verified page.',
   },
   {
     path: 'browse.readText',

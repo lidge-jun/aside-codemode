@@ -46,7 +46,7 @@ export async function containedRead(sessionPwd, name, { realpathImpl = realpath,
 export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
   return async function captureMany(urls, opts = {}) {
     if (!Array.isArray(urls) || urls.length === 0) {
-      throw new ArtifactError('captureMany requires a non-empty array of urls', 'EBADVAL');
+      throw new ArtifactError('captureMany requires urls as the first positional argument: browse.captureMany([url], options)', 'EBADVAL');
     }
     // A pdf had no way out of here. browse.exec produced the bytes and counted them and
     // then dropped them, because the branch that writes a file runs only when the host

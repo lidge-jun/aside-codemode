@@ -4,6 +4,7 @@ import util from 'node:util';
 import {
   errorFields, fitEnvelope, fitString, stringifyResult, translateGuestError,
 } from './execution-output.js';
+import { teachNamespaces } from './guest-guidance.js';
 
 const { code, timeoutMs, maxResultBytes, manifest, syncPort, syncBuffer } = workerData;
 const MAX_PENDING = 256;
@@ -55,7 +56,10 @@ for (const name of manifest) {
   if (method) injected[root][method] = (...args) => root === 'actions' ? syncRpc(name, args) : rpc(name, args);
   else injected[root] = (...args) => rpc(name, args);
 }
-for (const key of ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes']) Object.freeze(injected[key]);
+// Freezing and teaching happen together: a namespace is frozen, then wrapped so an unknown
+// property answers with the guest's own member list instead of a blind TypeError two lines
+// later. The host cannot do this for us — it sends a manifest of names, not these objects.
+teachNamespaces(injected);
 const logs = [];
 let logBytes = 2;
 let logsTruncated = false;

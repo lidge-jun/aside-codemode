@@ -49,6 +49,26 @@ const FILE_NAMES = {
 
 const REPL_FILE_NAMES = new Set(['readFile', 'writeFile']);
 
+// Names borrowed from the neighbouring surfaces for the other two namespaces. The Aside REPL
+// opens a tab with openTab and clicks through page, so those names arrive here too.
+const OTHER_NAMES = {
+  browse: {
+    open: 'browse.exec({ urls }) opens the tab and drives it',
+    openTab: 'openTab is the Aside REPL name; here a batch is browse.exec({ urls })',
+    goto: 'browse.exec({ urls }) navigates',
+    navigate: 'browse.exec({ urls }) navigates',
+    screenshot: 'browse.captureMany([url], { outDir, screenshot: true })',
+    pdf: 'browse.captureMany([url], { outDir, pdf: { preferCSSPageSize: true } })',
+    click: 'a click is a step: browse.exec({ urls, actions: [{ ref, click: true }], approveWrites: true })',
+  },
+  search: {
+    grep: 'search.content({ path, query })',
+    find: 'search.files({ path, glob })',
+    glob: 'search.files({ path, glob })',
+    ripgrep: 'search.content({ path, query })',
+  },
+};
+
 // Property reads that must stay silent. A trap that throws on these turns an ordinary
 // await, a JSON serialization or an inspection into a failure that has nothing to do with
 // the script. Function names like `call` and `bind` are deliberately NOT here: every
@@ -82,8 +102,10 @@ export function adviseName(namespace, property, members) {
       : `fs.${property} does not exist in the guest`;
     return `${origin}; ${FILE_NAMES[property]}`;
   }
-  if (members.length) {
-    return `${namespace}.${property} does not exist; ${namespace} has ${members.join(', ')}`;
+  const borrowed = OTHER_NAMES[namespace]?.[property];
+  if (borrowed) {
+    const has = members.length ? `; ${namespace} has ${members.join(', ')}` : '';
+    return `${namespace}.${property} does not exist; use ${borrowed}${has}`;
   }
   return null;
 }
@@ -101,9 +123,14 @@ function teachSynchronous(rows, call) {
   return rows;
 }
 
-// Wrap each injected namespace so an unknown property says what the guest actually has.
-// The target keeps its own identity: known members pass straight through, and a reserved
-// name still reads as undefined so await, JSON and inspection behave normally.
+// Wrap each injected namespace so a name this table knows about says what to call instead.
+//
+// Only names in the table throw. An unknown property that nobody is known to reach for still
+// reads as `undefined`, because guest scripts legitimately probe for a capability
+// (`if (browse.watch)`, `browse.watch?.()`) and a version-tolerant script would otherwise
+// crash on the check rather than take its fallback. A listing of the real members is worth
+// less than not breaking correct code, and a wrong name outside the table still fails on the
+// line that calls it, naming itself.
 export function teachNamespaces(injected) {
   for (const namespace of Object.keys(injected)) {
     const target = injected[namespace];

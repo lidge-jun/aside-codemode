@@ -239,9 +239,11 @@ onto the requested sheet with the engine's default margins.
 `verifyPageBox` reads the real MediaBox out of the bytes and reports which rule it applied. In the
 default mode a page that came back the wrong size fails the item with `EPAGEBOX`: a file that
 exists is not a page of the size that was requested. When CSS page size is preferred, a different
-size is the point, so the check requires a parseable page box and reports the size it measured
-instead of failing on the difference — the verifier would otherwise refuse exactly the documents
-the option exists for.
+size is the point, so the comparison against the requested sheet is dropped — the verifier would
+otherwise refuse exactly the documents the option exists for. What it still requires is that the
+box be a page: a parseable MediaBox, finite and positive, and the same on every page. The bytes
+cannot say which size the stylesheet asked for, so that result carries `measuredOnly` and reports
+the size it read rather than claiming the request was honoured.
 
 Asking for a pdf without naming a screenshot means a pdf and no screenshot, because paying for both
 when only one was wanted is the kind of silent cost this surface exists to remove.

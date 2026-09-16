@@ -52,12 +52,31 @@ test('a wrong name reaches guest code as the right one', () => {
   }
 });
 
-test('an unknown namespace member answers with the members that do exist', () => {
+// A name borrowed from the Aside REPL, where a tab is opened with openTab.
+test('a name borrowed from the REPL answers with the batch that replaces it', () => {
   const out = run('return browse.open("https://example.com")');
   assert.equal(out.ok, false);
+  assert.match(out.error, /browse\.exec\(\{ urls \}\)/);
   for (const member of ['attach', 'captureMany', 'exec', 'readText']) {
     assert.ok(out.error.includes(member), `missing ${member} in: ${out.error}`);
   }
+});
+
+// The table throws; everything else stays silent. A version-tolerant script probes for a
+// capability before using it, and a probe that crashes is worse than the blind TypeError this
+// layer replaces — the script never reaches its own fallback.
+test('a capability probe for a name nobody predicted stays silent', () => {
+  const out = run([
+    'const probes = {',
+    '  truthy: Boolean(browse.somethingFromAFutureVersion),',
+    '  typed: typeof fs.somethingFromAFutureVersion,',
+    '  optional: search.somethingFromAFutureVersion?.() ?? "fallback",',
+    '  destructured: (({ alsoNotHere }) => alsoNotHere)(browse) ?? "fallback",',
+    '};',
+    'return probes;',
+  ].join('\n'));
+  assert.equal(out.ok, true, out.error);
+  assert.deepEqual(out.result, { truthy: false, typed: 'undefined', optional: 'fallback', destructured: 'fallback' });
 });
 
 test('actions.list is synchronous and says so when awaited like a promise', () => {
@@ -78,14 +97,14 @@ test('normal reads through a taught namespace still behave like an object', () =
     '  read: typeof f.read,',
     '  members: Object.keys(f).length,',
     '  json: JSON.stringify(a),',
-    '  absent: typeof fs.readMany,',
+    '  present: typeof fs.readMany,',
     '};',
   ].join('\n'));
   assert.equal(out.ok, true, out.error);
   assert.equal(out.result.discovery, 'function');
   assert.equal(out.result.read, 'function');
   assert.ok(out.result.members >= 11);
-  assert.equal(out.result.absent, 'function');
+  assert.equal(out.result.present, 'function');
 });
 
 test('a real call is untouched by the guidance layer', () => {
@@ -100,7 +119,7 @@ test('a real call is untouched by the guidance layer', () => {
 test('a global from somewhere else names the guest equivalent', () => {
   const cases = [
     ['return web_search("x")', /browse\.searchMany/],
-    ['return fetch("https://example.com")', /api\.batch/],
+    ['return fetch("https://example.com")', /browse\.readText/],
     ['return process.version', /--doctor/],
     ['return require("fs")', /no module loader/],
   ];

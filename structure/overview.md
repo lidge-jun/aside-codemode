@@ -49,10 +49,15 @@ something the host never promised. Nothing here is written to survive hostile gu
 The host never hands the guest its objects. `src/sandbox.js` sends the worker a manifest of method
 names and the worker rebuilds each namespace as an RPC stub, so anything meant to be read by the
 author of a script has to be attached on that side. `src/guest-guidance.js` is that layer: it wraps
-each injected namespace so an unknown property answers with the members the namespace really has,
-and carries the table of names agents reach for instead — `actions` used as a dispatcher,
-`fs.readFile` and `fs.readdir` from the Aside REPL and from Node. Reserved reads (`then`, `toJSON`,
-inspection) stay silent so awaiting or serializing a namespace behaves normally.
+each injected namespace and carries the table of names agents reach for instead — `actions` used as
+a dispatcher, `fs.readFile` and `fs.readdir` from the Aside REPL and from Node, `browse.open` from
+the REPL's `openTab`. Those names throw and name the call that works.
+
+Only names in the table throw. A property nobody is known to reach for still reads as `undefined`,
+because a version-tolerant script probes before it calls (`if (browse.watch)`) and a probe that
+throws never reaches its own fallback — a worse failure than the blind `is not a function` this
+layer exists to replace. Reserved reads (`then`, `toJSON`, inspection) stay silent for the same
+reason, so awaiting or serializing a namespace behaves normally.
 
 This is a contract about **where** guidance lives, not only what it says: guidance added to the host
 objects passes its unit tests and reaches no script at all. The regression test for this layer runs

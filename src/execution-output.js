@@ -35,8 +35,8 @@ const ELSEWHERE = {
   tools: 'there is no tool object here: the namespaces are globals, for example search.content({ path, query }).',
   require: 'there is no module loader; the injected globals are the surface.',
   process: 'no process here: run codemode --doctor for the environment it resolved.',
-  fetch: 'no fetch here: api.batch(requests) does plain http, and browse.readText(url) reads a page.',
-  XMLHttpRequest: 'no browser globals here: api.batch(requests) does plain http.',
+  fetch: 'no fetch here: browse.readText(url) reads a page, and api.batch(requests) covers the adapters it names.',
+  XMLHttpRequest: 'no browser globals here: browse.readText(url) reads a page.',
   Buffer: 'no Buffer here: fs.read(path) returns a string.',
   setTimeout: 'no timers here: browse actions take a sleepMs step instead.',
 };

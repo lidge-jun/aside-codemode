@@ -14,9 +14,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'codemode.mjs');
 // A refused call exits non-zero with the envelope on stdout, which is the shape a caller
 // sees; parse it either way rather than letting the exit code hide the message.
-const run = (code) => {
+const run = (code, env) => {
   try {
-    return JSON.parse(execFileSync(process.execPath, [cli, '--code', '-'], { encoding: 'utf8', input: code }));
+    return JSON.parse(execFileSync(process.execPath, [cli, '--code', '-'], {
+      encoding: 'utf8', input: code, env: { ...process.env, ...env },
+    }));
   } catch (e) {
     const text = String(e.stdout || '');
     if (!text.trim()) throw e;
@@ -107,8 +109,14 @@ test('normal reads through a taught namespace still behave like an object', () =
   assert.equal(out.result.present, 'function');
 });
 
+// The checkout is not inside a configured root on every runner — on Windows CI the workspace
+// lives on another drive than the home directory — so this names the root it searches.
 test('a real call is untouched by the guidance layer', () => {
-  const out = run('const rows = await search.files({ path: ' + JSON.stringify(path.join(root, 'bin')) + ' }); return { n: rows.length, complete: rows.complete };');
+  const bin = path.join(root, 'bin');
+  const out = run(
+    'const rows = await search.files({ path: ' + JSON.stringify(bin) + ' }); return { n: rows.length, complete: rows.complete };',
+    { CODEMODE_ROOTS: root },
+  );
   assert.equal(out.ok, true, out.error);
   assert.ok(out.result.n > 0);
   assert.equal(out.result.complete, true);

@@ -47,3 +47,11 @@ test('a valid job is frozen so a caller cannot mutate it after validation', () =
   assert.throws(() => { job.urls = []; }, TypeError);
   assert.ok(new BrowseOptionError('x', 'E').name === 'BrowseOptionError');
 });
+
+test('pdf css page size and margins are validated and preserved', () => {
+  const pdf = { preferCSSPageSize: true, margin: { top: '20mm', right: 12, bottom: '1.5cm', left: '0in' } };
+  assert.deepEqual(validateJob({ ...base, pdf }).pdf, pdf);
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { preferCSSPageSize: 'true' } })), 'EBADVAL');
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { margin: { center: '1in' } } })), 'EBADOPT');
+  assert.equal(codeOf(() => validateJob({ ...base, pdf: { margin: { top: '20' } } })), 'EBADVAL');
+});

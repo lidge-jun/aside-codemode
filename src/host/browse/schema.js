@@ -169,7 +169,9 @@ export function normalizeSnapshot(value) {
   );
 }
 const SHOT_KEYS = Object.freeze(['clip', 'type', 'quality', 'fullPage']);
-const PDF_KEYS = Object.freeze(['paperWidth', 'paperHeight', 'printBackground']);
+const PDF_KEYS = Object.freeze(['paperWidth', 'paperHeight', 'printBackground', 'preferCSSPageSize', 'margin']);
+const PDF_MARGIN_KEYS = Object.freeze(['top', 'right', 'bottom', 'left']);
+const PDF_MARGIN_UNIT = /^\d+(?:\.\d+)?(?:px|in|cm|mm)$/;
 
 function rejectUnknown(obj, allowed, where) {
   for (const key of Object.keys(obj)) {
@@ -331,6 +333,22 @@ export function validateJob(raw, browseCaps = {}) {
     if (!raw.pdf || typeof raw.pdf !== 'object') throw new BrowseOptionError('pdf must be an object', 'EBADVAL');
     if ('format' in raw.pdf) notSupported('format');
     rejectUnknown(raw.pdf, PDF_KEYS, 'pdf');
+    if (raw.pdf.preferCSSPageSize !== undefined && typeof raw.pdf.preferCSSPageSize !== 'boolean') {
+      throw new BrowseOptionError('pdf.preferCSSPageSize must be a boolean', 'EBADVAL');
+    }
+    if (raw.pdf.margin !== undefined) {
+      if (!raw.pdf.margin || typeof raw.pdf.margin !== 'object' || Array.isArray(raw.pdf.margin)) {
+        throw new BrowseOptionError('pdf.margin must be an object with top, right, bottom or left', 'EBADVAL');
+      }
+      rejectUnknown(raw.pdf.margin, PDF_MARGIN_KEYS, 'pdf.margin');
+      for (const [side, value] of Object.entries(raw.pdf.margin)) {
+        const number = typeof value === 'number' && Number.isFinite(value) && value >= 0;
+        const labelled = typeof value === 'string' && PDF_MARGIN_UNIT.test(value);
+        if (!number && !labelled) {
+          throw new BrowseOptionError(`pdf.margin.${side} must be a non-negative number or a string with px, in, cm or mm`, 'EBADVAL');
+        }
+      }
+    }
     pdf = { ...raw.pdf };
   }
 

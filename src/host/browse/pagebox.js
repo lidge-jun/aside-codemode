@@ -18,15 +18,18 @@ export function readMediaBoxes(buf) {
 
 export function verifyPageBox(buf, requested) {
   const boxes = readMediaBoxes(buf);
-  if (boxes.length === 0) return { matched: false, reason: 'no MediaBox found', boxes: [] };
+  const rule = requested.preferCSSPageSize === true ? 'css-page-size' : 'requested-paper-size';
+  if (boxes.length === 0) return { matched: false, rule, reason: 'no MediaBox found', boxes: [] };
   const wantW = requested.paperWidth * PT_PER_INCH;
   const wantH = requested.paperHeight * PT_PER_INCH;
   const actual = boxes.map((b) => ({ widthPt: b.x1 - b.x0, heightPt: b.y1 - b.y0 }));
   const bad = actual.filter((a) => Math.abs(a.widthPt - wantW) > TOLERANCE_PT || Math.abs(a.heightPt - wantH) > TOLERANCE_PT);
+  const matched = requested.preferCSSPageSize === true || bad.length === 0;
   return {
-    matched: bad.length === 0,
+    matched,
+    rule,
     requestedPt: { widthPt: wantW, heightPt: wantH },
     actualPt: actual,
-    reason: bad.length === 0 ? null : `page box ${actual[0].widthPt}x${actual[0].heightPt}pt is not the requested ${wantW}x${wantH}pt`,
+    reason: matched ? null : `page box ${actual[0].widthPt}x${actual[0].heightPt}pt is not the requested ${wantW}x${wantH}pt`,
   };
 }

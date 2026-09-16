@@ -95,6 +95,31 @@ test('a real call is untouched by the guidance layer', () => {
   assert.equal(out.result.complete, true);
 });
 
+// A name from another environment entirely. Node stops at "x is not defined", which does not
+// say whether the capability is missing or only named differently.
+test('a global from somewhere else names the guest equivalent', () => {
+  const cases = [
+    ['return web_search("x")', /browse\.searchMany/],
+    ['return fetch("https://example.com")', /api\.batch/],
+    ['return process.version', /--doctor/],
+    ['return require("fs")', /no module loader/],
+  ];
+  for (const [code, expected] of cases) {
+    const out = run(code);
+    assert.equal(out.ok, false, code);
+    assert.equal(out.code, 'EGUESTNAME', code);
+    assert.match(out.error, expected);
+  }
+});
+
+// An ordinary typo is still an ordinary typo: translating it would hide the author's own bug.
+test("a name nobody publishes keeps the engine's own words", () => {
+  const out = run('return someRandomThing');
+  assert.equal(out.ok, false);
+  assert.match(out.error, /someRandomThing is not defined/);
+  assert.equal(out.code, undefined);
+});
+
 // The table itself, without a process: one case per branch so a future edit that empties a
 // message fails here rather than in a session.
 test('the guidance table names a replacement for every branch', () => {

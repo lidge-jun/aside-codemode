@@ -380,5 +380,26 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       });
     },
   };
+
+  const guestNameError = (message) => {
+    const error = new Error(message);
+    error.code = 'EGUESTNAME';
+    throw error;
+  };
+  const stubs = {
+    readFile: () => guestNameError('fs.readFile is an Aside REPL name; in the guest, use fs.read(path) for bytes or read_file({path, offset, limit}) for a one-indexed line window'),
+    writeFile: () => guestNameError('fs.writeFile is an Aside REPL name; in the guest, use write_file({file_path, content}) to create or fs.write(path, content) to overwrite'),
+    readdir: () => guestNameError('fs.readdir is unavailable in the guest; use fs.list(path)'),
+    appendFile: () => guestNameError('fs.appendFile is unavailable in the guest; use edit_file({path, appendText})'),
+    existsSync: () => guestNameError('fs.existsSync is unavailable because the guest API is async; use await fs.exists(path)'),
+    readFileSync: () => guestNameError('fs.readFileSync is unavailable because the guest API is async; use await fs.read(path)'),
+    writeFileSync: () => guestNameError('fs.writeFileSync is unavailable because the guest API is async; use await fs.write(path, content)'),
+    statSync: () => guestNameError('fs.statSync is unavailable because the guest API is async; use await fs.stat(path)'),
+    unlink: () => guestNameError('fs.unlink is unavailable because the guest cannot delete files'),
+    rm: () => guestNameError('fs.rm is unavailable because the guest cannot delete files'),
+  };
+  for (const [name, value] of Object.entries(stubs)) {
+    Object.defineProperty(api, name, { value, enumerable: false });
+  }
   return Object.freeze(api);
 }

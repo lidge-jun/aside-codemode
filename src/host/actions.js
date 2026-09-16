@@ -154,10 +154,29 @@ function typeOf(v) {
 }
 
 export function createActions() {
-  return Object.freeze({
+  const namespaceExamples = {
+    fs: ['fs.read(path)', 'fs.read'],
+    search: ['search.content({ path, query })', 'search.content'],
+    browse: ['browse.exec({})', 'browse.exec'],
+    api: ['api.batch([])', 'api.batch'],
+    report: ['report.build({})', 'report.build'],
+    recipes: ['recipes.list()', 'recipes.list'],
+  };
+  const dispatcherGuesses = new Set(['call', 'run', 'invoke', 'exec', 'describeAll', 'get']);
+  const decorateList = (rows) => {
+    const rejectPromiseStyle = () => {
+      throw new Error('actions.list() is synchronous; drop the await/.catch and use the returned array directly');
+    };
+    Object.defineProperties(rows, {
+      catch: { value: rejectPromiseStyle },
+      finally: { value: rejectPromiseStyle },
+    });
+    return rows;
+  };
+  const api = Object.freeze({
     list(filter) {
       const rows = REGISTRY.filter((r) => !filter || r.path.startsWith(filter));
-      return rows.map((r) => ({ path: r.path, description: r.description }));
+      return decorateList(rows.map((r) => ({ path: r.path, description: r.description })));
     },
     find(query) {
       const tokens = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -168,6 +187,9 @@ export function createActions() {
         .map(([, r]) => ({ path: r.path, description: r.description, signature: r.signature }));
     },
     describe(path) {
+      if (path === undefined) {
+        throw new Error("actions.describe takes an exact action path, for example actions.describe('fs.read'); use actions.list() or actions.find(query) to get paths");
+      }
       const rec = REGISTRY.find((r) => r.path === path);
       if (!rec) {
         const cands = didYouMean(String(path));
@@ -225,6 +247,21 @@ export function createActions() {
         invalid,
         signature: rec.signature,
       };
+    },
+  });
+  return new Proxy(api, {
+    get(target, property, receiver) {
+      if (typeof property !== 'string' || Reflect.has(target, property)) {
+        return Reflect.get(target, property, receiver);
+      }
+      const example = namespaceExamples[property];
+      if (example) {
+        throw new Error(`actions is discovery only; call ${example[0]} directly in the guest and use actions.describe('${example[1]}') to look it up`);
+      }
+      if (dispatcherGuesses.has(property)) {
+        throw new Error("actions is discovery only; call fs.read(path) directly in the guest and use actions.describe('fs.read') to look it up");
+      }
+      return undefined;
     },
   });
 }

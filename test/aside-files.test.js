@@ -126,3 +126,39 @@ test('actions catalog includes Aside file names and keeps deprecated fs rows', (
   assert.match(actions.describe('fs.read').notes, /deprecated/);
   assert.equal(actions.find('edit')[0].path, 'edit_file');
 });
+
+test('Node and Aside REPL file names teach the guest equivalents', () => {
+  const { fs } = host();
+  const expected = {
+    readFile: ['fs.read(path)', 'read_file({path, offset, limit})'],
+    writeFile: ['write_file({file_path, content})', 'fs.write(path, content)'],
+    readdir: ['fs.list(path)'],
+    appendFile: ['edit_file({path, appendText})'],
+    existsSync: ['await fs.exists(path)'],
+    readFileSync: ['await fs.read(path)'],
+    writeFileSync: ['await fs.write(path, content)'],
+    statSync: ['await fs.stat(path)'],
+    unlink: ['guest cannot delete files'],
+    rm: ['guest cannot delete files'],
+  };
+  for (const [name, calls] of Object.entries(expected)) {
+    assert.throws(() => fs[name]('/p', 'x'), (error) => (
+      error.code === 'EGUESTNAME' && calls.every((call) => error.message.includes(call))
+    ));
+  }
+});
+
+test('teaching file-name stubs do not change the real fs surface or actions catalog', () => {
+  const { fs } = host();
+  assert.deepEqual(Object.keys(fs), [
+    'read', 'readMany', 'grepFile', 'write', 'mkdir', 'stat', 'exists', 'list',
+    'read_file', 'write_file', 'edit_file',
+  ]);
+  for (const name of [
+    'readFile', 'writeFile', 'readdir', 'appendFile', 'existsSync',
+    'readFileSync', 'writeFileSync', 'statSync', 'unlink', 'rm',
+  ]) {
+    assert.equal(typeof fs[name], 'function');
+    assert.equal(createActions().list().some((entry) => entry.path === `fs.${name}`), false);
+  }
+});

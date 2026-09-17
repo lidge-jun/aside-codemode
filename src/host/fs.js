@@ -8,7 +8,7 @@
 //     rename their own complete file, and the second silently erases the first.
 //   * Reads are bounded at the descriptor. The cap used to be applied after
 //     readFile() had already pulled the whole file into memory.
-import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
+import { open, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { types as utilTypes } from 'node:util';
 import path from 'node:path';
 import { replaceAtomically } from './file-write.js';
@@ -27,6 +27,27 @@ const MAX_GREP_LINE_BYTES = 1024 * 1024;
 
 function truncNote(total, kept) {
   return `\n[truncated: kept ${kept} of ${total} bytes — re-read with a larger maxBytes, a byte range, or use fs.grepFile]`;
+}
+
+function rangeStartNote(skipped) {
+  return `\n[range began mid-character: skipped ${skipped} bytes]`;
+}
+
+async function alignUtf8Offset(target, offset, totalBytes, signal) {
+  if (offset === 0 || offset >= totalBytes) return { offset, skipped: 0 };
+  const fh = await open(target, 'r');
+  try {
+    const bytes = Buffer.allocUnsafe(Math.min(3, totalBytes - offset));
+    signal?.throwIfAborted();
+    const { bytesRead } = await fh.read(bytes, 0, bytes.length, offset);
+    let skipped = 0;
+    // Valid UTF-8 has at most three continuation bytes. Advancing over them
+    // preserves the caller's byte-range end without decoding a partial scalar.
+    while (skipped < bytesRead && (bytes[skipped] & 0xc0) === 0x80) skipped += 1;
+    return { offset: offset + skipped, skipped };
+  } finally {
+    await fh.close();
+  }
 }
 
 // `instanceof RegExp` is false for a RegExp built in another realm, which is
@@ -64,14 +85,19 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       const target = assertInside(p);
       const s = await stat(target);
       if (s.isDirectory()) throw new Error(`fs.read: ${p} is a directory; use fs.list`);
-      const out = await readBounded(target, { maxBytes, offset, signal });
+      const aligned = Number.isSafeInteger(offset) && offset >= 0
+        ? await alignUtf8Offset(target, offset, s.size, signal)
+        : { offset, skipped: 0 };
+      const alignedMaxBytes = maxBytes === Infinity ? Infinity : Math.max(0, maxBytes - aligned.skipped);
+      const out = await readBounded(target, { maxBytes: alignedMaxBytes, offset: aligned.offset, signal });
+      const startNote = aligned.skipped ? rangeStartNote(aligned.skipped) : '';
       if (out.truncated) {
         // Truncation used to be silent about how much was lost and what to do
         // next; a 224 KB memory page read as "complete" is a correctness bug
         // for anything that then claims a fact is absent.
-        return out.text + truncNote(out.totalBytes, maxBytes);
+        return out.text + startNote + truncNote(out.totalBytes, alignedMaxBytes);
       }
-      return out.text;
+      return out.text + startNote;
     },
 
     // Read many files in one call. The whole point of code mode is avoiding

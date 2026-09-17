@@ -262,10 +262,12 @@ test('user ripgrep config cannot change results (--no-config)', async () => {
 });
 
 test('excludeGlobs prunes heavy dirs by default and includeExcluded opts back in', async () => {
-  // With roots=$HOME the walk is 1,565,196 files / 7.8s; pruning Library and
-  // friends makes it 336,206 / 0.53s for the same answers. The pruning must be
-  // reversible per call, or it becomes an invisible second blind spot on top
-  // of .gitignore.
+  // How much a home directory's heavy trees cost is a property of that machine, so the
+  // numbers live in evidence/exclude-pruning-260918.md and are reproducible with
+  // scripts/measure-excludes.mjs. An earlier copy of them here disagreed with that note,
+  // which is the drift the note exists to stop. What this test pins is the rule: the
+  // pruning must be reversible per call, or it becomes an invisible second blind spot on
+  // top of .gitignore.
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-excl-'));
   mkdirSync(path.join(dir, 'Library'));
   writeFileSync(path.join(dir, 'Library', 'cache.md'), 'needle-token\n');

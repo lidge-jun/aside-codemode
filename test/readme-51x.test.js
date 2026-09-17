@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -72,6 +73,27 @@ test('the excludeGlobs figures the READMEs quote are the ones the note records',
   }
   // The note names its own method, so a reader can re-run it rather than trust it.
   assert.match(note, /scripts\/measure-excludes\.mjs/);
+});
+
+// Four different exclude-pruning figures were in circulation across the READMEs, a source
+// comment and a test comment, and none of them agreed with any other. One note now owns the
+// number, so the superseded ones must not come back anywhere in the repository.
+test('no tracked file carries a superseded exclude-pruning figure', () => {
+  const superseded = ['331,709', '1,565,078', '1,565,196', '336,206'];
+  const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\u0000').filter(Boolean);
+  const found = [];
+  for (const rel of tracked) {
+    // Two files may name them: this one, to forbid them, and the note, which says which
+    // figures it replaced and why it could not reproduce them.
+    if (rel === 'test/readme-51x.test.js') continue;
+    if (rel === 'evidence/exclude-pruning-260918.md') continue;
+    let text;
+    try { text = readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
+    for (const figure of superseded) {
+      if (text.includes(figure)) found.push(rel + ' still quotes ' + figure);
+    }
+  }
+  assert.deepEqual(found, [], found.join(String.fromCharCode(10)));
 });
 
 // The symlink example is the one figure in that section a reader could check, so it is now

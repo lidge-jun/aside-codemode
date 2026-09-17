@@ -60,6 +60,12 @@ registry rather than from a local tarball: `npm i -g aside-codemode@0.8.0` follo
 `codemode --install-mcp --json` on the Windows host returned `ok: true`, `activated: true`
 and `tools: ["execute_code"]`. That is the path a reader of the README actually takes.
 
+The same published version was run on macOS straight from the registry, without touching the
+account's existing registration: `npx -y aside-codemode@0.8.0 --doctor` reported `ok: true`
+with the bundled ripgrep resolved, and a guest search through `npx -y aside-codemode@0.8.0
+--code` returned one row with `complete: true`. The published artifact runs; that run says
+nothing about activation on this host, which was measured separately above.
+
 ## Refusal guard
 
 Deleting `inventories` drops every other server's cached inventory too, so those servers

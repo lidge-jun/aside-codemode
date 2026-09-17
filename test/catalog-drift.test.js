@@ -344,6 +344,25 @@ test('an unknown recipe is refused only where the registry is actually known', (
   assert.equal(createActions().check('recipes.run', { name: 'nope' }).ok, true);
 });
 
+// An empty path is the string a caller gets from a variable that was never set, and the root
+// guard refuses it before it resolves anything. Discovery typed these as strings and said yes.
+test('an empty path is refused wherever the root guard would refuse it', () => {
+  for (const [path, args] of [
+    ['fs.read', { path: '' }],
+    ['fs.list', { path: '' }],
+    ['read_file', { path: '' }],
+    ['write_file', { file_path: '', content: 'x' }],
+    ['report.build', { items: [], outFile: '' }],
+  ]) {
+    const r = actions.check(path, args);
+    assert.equal(r.ok, false, path + ' accepted an empty path');
+    assert.match(r.invalid[0].why || r.invalid[0].message, /non-empty string/);
+  }
+  // And the entry that already owned the rule still reports it once, not twice.
+  const search = actions.check('search.content', { query: 'x', path: '' });
+  assert.equal(search.invalid.length, 1, JSON.stringify(search.invalid));
+});
+
 test('the capture plan discovery runs is the plan the call runs', () => {
   assert.throws(() => planCaptureMany(['data:text/html,ok'], { pdf: { format: 'A4' } }), /format is ENOTSUP/);
   assert.throws(() => validateJob({ urls: ['data:text/html,ok'], timeoutMs: 8000, screenshot: true }), /screenshot must be an object/);

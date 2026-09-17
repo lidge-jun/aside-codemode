@@ -259,6 +259,19 @@ function checkFileArgs(path, args) {
     }
   }
 
+  // Every path the guest hands in goes through the root guard, and the guard refuses an empty
+  // one before it resolves anything: "path (non-empty string) is required". Discovery typed
+  // these as strings and said yes to "", which is the one string a caller gets by passing a
+  // variable that was never set - the case where being told early matters most.
+  // search.* owns this rule already, through the option contract in search-schema.js, and
+  // reporting it twice would make one mistake look like two.
+  const PATH_INPUTS = path.startsWith('search.') ? [] : ['path', 'file_path', 'outFile'];
+  for (const name of PATH_INPUTS) {
+    if (name in args && typeof args[name] === 'string' && args[name].length === 0) {
+      return [problem(name, name + ' (non-empty string) is required')];
+    }
+  }
+
   if (path === 'fs.read') {
     if ('offset' in args && (!Number.isSafeInteger(args.offset) || args.offset < 0)) {
       return [problem('offset', 'offset must be a non-negative integer')];

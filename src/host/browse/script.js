@@ -93,8 +93,10 @@ export const TREE_SUMMARY_SRC = String.raw`function summarizeTree(tree, mode, ca
 const summarizeTreeRaw = new Function(TREE_SUMMARY_SRC + '; return summarizeTree;')();
 
 // The structured view, kept OUT of the always-injected summariser. The generated script
-// travels as a command-line argument the host caps at 30000 characters, and the acting job
-// was measured at 29,429 of them: a parser nobody asked for cost the case its headroom.
+// travels as a command-line argument with a hard character ceiling, and the fullest acting
+// job runs close enough to it that a parser nobody asked for would have cost the case its
+// headroom. The margin is enforced rather than remembered: test/browse-tabs.test.js fails
+// below 1,000 characters of headroom and reports the number it measured.
 // Injected only when a job sets treeNodes.
 export const TREE_NODES_SRC = String.raw`function summarizeNodes(tree, mode, opts) {
   var ROW_REF = /\[ref=([^\]]+)\]/;
@@ -656,7 +658,7 @@ async function one(item) {
 
     // Did the page actually RENDER, or did we just arrive at it?
     //
-    // Threads answered ok:true with the right title while the body was 530KB of server
+    // Threads answered ok:true with the right title while the body was the server's
     // bootstrap JSON and no post UI. "Navigated successfully" and "read the content" are
     // different claims and the caller could not tell them apart, so they are separate
     // fields now and the checks are reported even when nobody asked for them.

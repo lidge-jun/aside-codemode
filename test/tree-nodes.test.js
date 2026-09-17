@@ -135,8 +135,10 @@ test('a job can ask for nodes, and does not get them by accident', () => {
 });
 
 // The generated script travels as a command-line argument with a hard ceiling, and the
-// fullest acting job had 571 characters of headroom. A parser nobody asked for is not
-// allowed to spend them.
+// fullest acting job runs near it. How near is measured where it is enforced, in
+// test/browse-tabs.test.js, which fails below 1,000 characters of headroom; a number
+// repeated here would go stale the first time the script changed. A parser nobody asked
+// for is not allowed to spend that margin.
 test('the parser is only in the wire when the job asked for it', () => {
   const base = { urls: ['https://a.test'], snapshot: 'tree' };
   const without = compile(validateJob(base, { enabled: true }));

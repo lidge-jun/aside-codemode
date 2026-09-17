@@ -1,9 +1,9 @@
 // Arriving at a page is not reading it.
 //
-// Threads answered ok:true with the correct title while the body was 530KB of server
-// bootstrap JSON and no post UI, because textContent includes <script> text and ok only
-// ever meant 'the script ran'. These pin the two halves of the fix: the verdict fields
-// and the aggregation that carries them to the caller.
+// Threads answered ok:true with the correct title while the body was the server's bootstrap
+// JSON and no post UI, because textContent includes <script> text and ok only ever meant
+// 'the script ran'. These pin the two halves of the fix: the verdict fields and the
+// aggregation that carries them to the caller.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateJob } from '../src/host/browse/schema.js';
@@ -28,8 +28,8 @@ test('render options reach the compiled script', () => {
 });
 
 test('the compiled script reads visible text, not script payload', () => {
-  // textContent includes <script> bodies; innerText does not. This is the line that
-  // turned 530KB of bootstrap JSON into 973 characters of real UI text.
+  // textContent includes <script> bodies; innerText does not. This is the line that turned
+  // a page of bootstrap JSON into the handful of characters of real UI text it carried.
   const src = compile(validateJob({ ...base, extract: { body: 'body' } }));
   assert.match(src, /innerText/);
   assert.match(src, /script,style,noscript,template/);

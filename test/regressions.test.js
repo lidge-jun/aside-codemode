@@ -21,7 +21,7 @@ function runner() {
 
 // A corpus with a .gitignore that hides a whole subdirectory, mirroring the
 // real failure: a parent .gitignore listed an entire project dir, so a
-// repo-wide search silently lost 126 of 356 matching files, including that
+// repo-wide search silently lost most of the matching files, including that
 // project's own README.
 function ignoredCorpus() {
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-ign-'));

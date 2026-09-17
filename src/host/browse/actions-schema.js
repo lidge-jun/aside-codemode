@@ -282,9 +282,9 @@ export const REPORT_ACTIONS = [
   {
     path: 'report.build',
     description: 'Assemble a paged HTML report and print it to PDF, verifying the real page size.',
-    signature: 'report.build({ items, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,path,bytes,pageBox}>',
+    signature: 'report.build({ items?, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,path,bytes,pageBox}>',
     inputs: {
-      items: { type: 'array', required: true, description: 'Rows: { url, title?, ok, data?, error?, figure? }' },
+      items: { type: 'array', required: false, description: 'Rows: { url, title?, ok, data?, error?, figure? }. Defaults to [].' },
       outFile: { type: 'string', required: true, description: 'Destination pdf path inside the configured roots' },
       title: { type: 'string', required: false, description: 'Document heading rendered into the report HTML' },
       paper: { type: 'object', required: false, description: '{ paperWidth, paperHeight } in INCHES; defaults to A4. format is ENOTSUP.' },
@@ -309,7 +309,7 @@ export const API_ACTIONS = [
 
 export const RECIPE_ACTIONS = [
   { path: 'recipes.list', description: 'Names of the configured site recipes.', signature: 'recipes.list() => Promise<string[]>', inputs: {} },
-  { path: 'recipes.describe', description: 'The stored definition of one recipe.', signature: 'recipes.describe(name) => Promise<object|null>', inputs: { name: { type: 'string', required: true, description: 'Recipe name' } } },
+  { path: 'recipes.describe', description: 'The stored definition of one recipe.', signature: 'recipes.describe(name?) => Promise<object|null>', inputs: { name: { type: 'string', required: false, description: 'Recipe name. Omission returns null.' } } },
   {
     path: 'recipes.run',
     description: 'Execute a stored site recipe with no model turn.',

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { buildHtml } from './html.js';
 import { createReportServer } from './serve.js';
 import { verifyPageBox } from '../browse/pagebox.js';
-import { A4_INCHES } from '../browse/schema.js';
+import { A4_INCHES, validateJob } from '../browse/schema.js';
 import { containedRead, artifactNameFor } from '../browse/capture.js';
 
 export class ReportError extends Error {
@@ -24,12 +24,20 @@ export function planReportBuild(opts = {}) {
   if (opts.paper && 'format' in opts.paper) {
     throw new ReportError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches.', 'ENOTSUP');
   }
-  return { items, paper };
+  const timeoutMs = opts.timeoutMs || 25000;
+  // The session validates this same job after the loopback server starts. Running its
+  // validator here makes discovery truthful without opening a socket: unknown paper keys
+  // and impossible deadlines are call refusals, not failures discovered after side effects.
+  validateJob(
+    { urls: ['data:text/html,report-preflight'], pdf: paper, timeoutMs, detect: false },
+    opts.browseCaps || {},
+  );
+  return { items, paper, timeoutMs };
 }
 
 export function createReport({ session, assertInside, deps = {} } = {}) {
   async function build(opts = {}) {
-    const { items, paper } = planReportBuild(opts);
+    const { items, paper, timeoutMs } = planReportBuild(opts);
 
     const server = createReportServer();
     const figures = new Map();
@@ -47,7 +55,7 @@ export function createReport({ session, assertInside, deps = {} } = {}) {
         // detect:false — this is our own assembled HTML on loopback, not a remote origin.
         // A report that lists blocked pages renders the word "blocked" and would otherwise
         // be flagged as blocked itself.
-        { urls: [live.origin], pdf: paper, timeoutMs: opts.timeoutMs || 25000, detect: false },
+        { urls: [live.origin], pdf: paper, timeoutMs, detect: false },
         { browseCaps: opts.browseCaps || {}, pdfNames: [pdfName] },
       );
     } finally {

@@ -245,6 +245,32 @@ export function checkEntryOptionValue(fn, name, value) {
 }
 
 /**
+ * fs.grepFile shares numeric option rules with search, but its pattern is a JavaScript
+ * RegExp source rather than search.files' non-empty path substring. Keeping that distinction
+ * here prevents the discovery checker from refusing an empty or cross-realm RegExp that the
+ * file scanner deliberately accepts.
+ */
+export function checkGrepFileOptionValue(name, value) {
+  if (name === 'pattern') {
+    if (typeof value !== 'string') return null;
+    try {
+      new RegExp(value);
+      return null;
+    } catch (error) {
+      return {
+        name,
+        code: 'EBADVAL',
+        message: `pattern must be a valid regular expression source (${String(error && error.message || error)})`,
+      };
+    }
+  }
+  // The runtime applies maxLineBytes while bounding each returned line. It accepts every
+  // catalogued number plus null, whose measured coercion is a zero-byte cap.
+  if (name === 'maxLineBytes') return null;
+  return checkOptionValue(name, value);
+}
+
+/**
  * Validate one option value. Returns null when acceptable, otherwise
  * { name, code, message }. Used by both execution and actions.check so the two
  * cannot disagree.

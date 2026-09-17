@@ -97,6 +97,7 @@ test('only the cited measurement notes are tracked under evidence/', () => {
     'evidence/review-hardening-20260913.json',
     'evidence/summary-compound.md',
     'evidence/summary.md',
+    'evidence/symlink-skip-260918.md',
     'evidence/synthetic-search-bench.md',
   ];
   assert.deepEqual(tracked.filter((f) => f.startsWith('evidence/')).sort(), allowed);

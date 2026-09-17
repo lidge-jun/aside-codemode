@@ -258,7 +258,7 @@ false로 두면 되고, 그러면 모든 호출이 `EDISABLED`와 함께 되돌�
 ### `ok`는 "페이지를 읽었다"가 아닙니다
 
 `ok`는 실행이 끝났다는 말이지 페이지가 그려졌다는 말이 아닙니다. Threads는 제목까지 맞게 `ok: true`를
-돌려줬는데 본문은 부트스트랩 JSON 530KB에 글은 하나도 없었습니다. 판정을 원하면 요청하세요.
+돌려줬는데 본문은 부트스트랩 JSON뿐이고 글은 하나도 없었습니다. 판정을 원하면 요청하세요.
 `requireSelector`나 `minTextChars`가 `contentVerified`를 채우고, `requireContent: true`는 확인에
 실패한 항목을 실패로 만듭니다. 아무것도 주지 않으면 `contentVerified`는 `null`입니다. 아무도 묻지
 않았으니까요. `scriptRatio`는 보고만 하고 판정에 쓰지 않습니다. 요즘 SPA는 전부 인라인 스크립트가
@@ -279,7 +279,7 @@ CLI를 죽이면 그 탭이 영구히 남아 이후 세션에서도 닫을 수 �
 
 `codemode --doctor --browse`로 설치된 빌드의 전체 표를 볼 수 있습니다.
 
-**기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 356개 중 126개가 빠졌고, 그 프로젝트 README도 빠졌습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
+**기본은 `.gitignore`를 따릅니다.** 상위 ignore 한 줄이 프로젝트 전체를 가릴 수 있습니다. 어떤 트리에서는 히트 대부분이 빠지고 그 프로젝트 README까지 빠지는 걸 실제로 확인했습니다. 없다고 단정하기 전에 `noIgnore: true`로 `search.count`를 한 번 더 보세요. 점파일은 `hidden: true`입니다.
 
 포함형 `glob`(예: `**/*.js`)은 ripgrep `-g` / `--glob`입니다. `noIgnore`와 `hidden`이 false여도 gitignore나 숨김 파일 일부가 맞을 수 있습니다. 워크스페이스 탈출이 아니라 ripgrep의 glob 우선순위이며, `-uuu`와는 다릅니다. 제외 glob(`-g '!…'`)은 여전히 가립니다. ignore/점파일을 glob 없이 다루려면 `noIgnore` / `hidden`을 직접 켜세요.
 
@@ -289,7 +289,7 @@ CLI를 죽이면 그 탭이 영구히 남아 이후 세션에서도 닫을 수 �
 
 `context`는 검색 행의 앞뒤 문맥을 반환합니다. 모르는 옵션과 잘못된 값은 거절합니다. `includeExcluded: true`는 설정된 제외 목록을 해제하며, `noIgnore`·`hidden`과는 별도입니다. **`followSymlinks: true`는 거절합니다.** 허용 루트 밖을 읽은 뒤 결과만 감추는 대신, 안전한 링크 탐색을 구현하기 전까지 사용을 막습니다.
 
-거절한 탐색을 말없이 넘기던 것도 이번에 고쳤습니다. 항목 37개 중 35개가 링크인 디렉터리가 행 2개와
+거절한 탐색을 말없이 넘기던 것도 이번에 고쳤습니다. [항목 37개 중 35개가 링크인 디렉터리](evidence/symlink-skip-260918.md)가 행 2개와
 `complete: true`로 답했고, 어떤 옵션으로도 그 차이를 볼 수 없었습니다. 이제 `scope.skippedSymlinks`가
 `{ dirs, files, examples, capped, scanned }`를 보고하고, 건너뛴 것이 **디렉터리**면 `complete: false`가
 됩니다. 그 아래 트리가 통째로 가려질 수 있고 `noIgnore`·`hidden`으로도 되돌아오지 않으니, `path`를 링크

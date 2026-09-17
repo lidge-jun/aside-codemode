@@ -6,7 +6,13 @@
 // is what made browse.exec read like a read-only fetcher while it could drive writes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import path from 'node:path';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createActions } from '../src/host/actions.js';
+import { createFs } from '../src/host/fs.js';
+import { makeRootGuard } from '../src/paths.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
 import { createCaptureMany, planCaptureMany } from '../src/host/browse/capture.js';
 import { validateJob } from '../src/host/browse/schema.js';
@@ -131,6 +137,31 @@ test('check accepts the batch-capture options the runtime honours', () => {
   assert.equal(r.ok, true, JSON.stringify(r));
 });
 
+test('grepFile discovery follows measured runtime pattern and line-cap semantics', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'codemode-catalog-grep-'));
+  writeFileSync(path.join(root, 'a.txt'), 'alpha\nbeta needle\n');
+  const fs = createFs({ assertInside: makeRootGuard([root], { cwd: root }) });
+  const guestRegexp = vm.runInContext('/needle/', vm.createContext({}));
+
+  assert.deepEqual(
+    (await fs.grepFile('a.txt', guestRegexp)).map((row) => row.text),
+    ['beta needle'],
+  );
+  assert.deepEqual(
+    (await fs.grepFile('a.txt', '')).map((row) => row.text),
+    ['alpha', 'beta needle', ''],
+  );
+  assert.equal(
+    (await fs.grepFile('a.txt', 'needle', { maxLineBytes: 4 }))[0].text,
+    'beta…[line truncated: kept 4 of 11 bytes]',
+  );
+  // null is genuinely different from omission here: the runtime coerces it to zero.
+  assert.equal(
+    (await fs.grepFile('a.txt', 'needle', { maxLineBytes: null }))[0].text,
+    '…[line truncated: kept 0 of 11 bytes]',
+  );
+});
+
 // The fixture names every runtime pre-flight, not selected incidents. A new dispatch-table
 // row therefore has to bring one refusal and one accepted call with it. The expected reason
 // comes from the owner validator at test time; copying message text here would let the test
@@ -201,8 +232,12 @@ const RUNTIME_PREFLIGHTS = {
   },
   'report.build': {
     run: (args) => planReportBuild(args),
-    refused: [{ args: { items: [], outFile: 'out.pdf', paper: { format: 'A4' } }, name: 'paper' }],
-    accepted: { items: [], outFile: 'out.pdf', title: 'x', timeoutMs: 9000 },
+    refused: [
+      { args: { items: [], outFile: 'out.pdf', paper: { format: 'A4' } }, name: 'paper' },
+      { args: { items: [], outFile: 'out.pdf', paper: { bogus: 1 } }, name: 'paper' },
+      { args: { items: [], outFile: 'out.pdf', timeoutMs: -1 }, name: 'timeoutMs' },
+    ],
+    accepted: { outFile: 'out.pdf', title: 'x', paper: null, timeoutMs: 9000 },
   },
   'api.batch': {
     run: (args) => validateApiBatch(args.requests),
@@ -291,10 +326,16 @@ test('the extracted pre-flights are the checks their calls execute', async () =>
   );
   await sameRefusal(() => validateWatchUrls([]), () => watch([]));
   await sameRefusal(() => validatePrefetchUrls([]), () => prefetch([]));
-  await sameRefusal(
-    () => planReportBuild({ items: [], outFile: 'out.pdf', paper: { format: 'A4' } }),
-    () => report.build({ items: [], outFile: 'out.pdf', paper: { format: 'A4' } }),
-  );
+  for (const opts of [
+    { items: [], outFile: 'out.pdf', paper: { format: 'A4' } },
+    { items: [], outFile: 'out.pdf', paper: { bogus: 1 } },
+    { items: [], outFile: 'out.pdf', timeoutMs: -1 },
+  ]) {
+    await sameRefusal(
+      () => planReportBuild(opts),
+      () => report.build(opts),
+    );
+  }
   await sameRefusal(() => validateApiBatch([]), () => api.batch([]));
   await sameRefusal(() => validateRecipeRun('unknown', registry), () => recipes.run('unknown'));
 });

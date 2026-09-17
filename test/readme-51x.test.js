@@ -58,6 +58,24 @@ test('the excludeGlobs figures the READMEs quote are the ones the note records',
   assert.match(note, /scripts\/measure-excludes\.mjs/);
 });
 
+// The symlink example is the one figure in that section a reader could check, so it is now
+// reproducible: scripts/measure-symlink-skip.mjs builds the same directory and the note
+// records what came back.
+test('the symlink example the READMEs quote is the one the note records', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'symlink-skip-260918.md'), 'utf8');
+  assert.match(note, /scripts\/measure-symlink-skip\.mjs/);
+  for (const figure of ['37', '35', '2 rows']) assert.ok(note.includes(figure), 'the note no longer records ' + figure);
+  assert.match(readmeEn, /37 entries where 35 were links/);
+  assert.match(readmeEn, /evidence\/symlink-skip-260918\.md/);
+  assert.match(readmeKo, /37개 중 35개가 링크/);
+  assert.match(readmeKo, /evidence\/symlink-skip-260918\.md/);
+  // The unrecorded figures the section used to carry are gone from both.
+  for (const stale of ['530KB', '126 of 356', '356개 중 126개']) {
+    assert.equal(readmeEn.includes(stale), false, 'README.md still quotes ' + stale);
+    assert.equal(readmeKo.includes(stale), false, 'README.ko.md still quotes ' + stale);
+  }
+});
+
 test('historical Aside-turn table is still present', () => {
   assert.match(readmeEn, /1\.81x/);
   assert.match(readmeEn, /1\.05x/);

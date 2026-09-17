@@ -6,8 +6,16 @@
 // absent from this catalog, so actions.check() called a working option unknown
 // (measured 2026-09-13). Value rules come from the same module, so `check` and a
 // real call agree on what is acceptable.
-import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../search-schema.js';
-import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS, checkBrowseArgs } from './browse/actions-schema.js';
+import { types as utilTypes } from 'node:util';
+import { SEARCH_ACTIONS, checkGrepFileOptionValue, checkEntryOptionValue } from '../search-schema.js';
+import {
+  BROWSE_ACTIONS,
+  REPORT_ACTIONS,
+  API_ACTIONS,
+  RECIPE_ACTIONS,
+  RUNTIME_VALIDATED_PATHS,
+  checkBrowseArgs,
+} from './browse/actions-schema.js';
 import { validateRecipeRun } from './browse/watch.js';
 
 const REGISTRY = [
@@ -91,15 +99,16 @@ const REGISTRY = [
   {
     path: 'fs.grepFile',
     description: 'Return only matching lines (with optional context) from ONE file. Use instead of fs.read on a large file.',
-    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase?, normalize? }?) => Promise<{line,text,context?}[]>',
-    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100). A non-ASCII pattern also tries the NFC-folded line so a decomposed file still matches; .scope.normalize reports whether that was in force, and normalize:false turns it off. Returned text and line numbers are always the raw file.',
+    signature: 'fs.grepFile(path, pattern, { context?, max?, ignoreCase?, normalize?, maxLineBytes? }?) => Promise<{line,text,context?}[]>',
+    notes: 'Array ergonomics unchanged. Non-enumerable .truncated/.complete/.partial/.scope; JSON is {rows,complete,truncated,partial,scope}. max must be a positive integer (default 100). A non-ASCII pattern also tries the NFC-folded line so a decomposed file still matches; .scope.normalize reports whether that was in force, and normalize:false turns it off. Returned text and line numbers are always the raw file. An empty pattern matches every line. maxLineBytes:null is not omission: the runtime coerces it to a zero-byte cap.',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
-      pattern: { type: 'string', required: true, description: 'Regex source or literal' },
+      pattern: { type: 'string|regexp', required: true, description: 'Regex source or a RegExp, including one created in another realm. An empty source matches every line.' },
       context: { type: 'number', required: false, description: 'Lines of context to include' },
       max: { type: 'number', required: false, description: 'Max matches (default 100). Positive integer; invalid values throw. Hitting max sets .truncated after a one-match lookahead.' },
       ignoreCase: { type: 'boolean', required: false, description: 'Case-insensitive' },
       normalize: { type: 'boolean', required: false, description: 'Fold Unicode normalization when the pattern is non-ASCII (default true). Match decision only; returned bytes are untouched.' },
+      maxLineBytes: { type: 'number|null', required: false, description: 'Returned-line byte cap (default 256 KiB). Infinity preserves the full line; null is a measured zero-byte cap, not the default.' },
     },
   },
   {
@@ -127,8 +136,8 @@ const REGISTRY = [
   {
     path: 'fs.exists',
     description: 'True when the path exists AND is inside roots. Never throws.',
-    signature: 'fs.exists(path) => Promise<boolean>',
-    inputs: { path: { type: 'string', required: true, description: 'Path to test' } },
+    signature: 'fs.exists(path?) => Promise<boolean>',
+    inputs: { path: { type: 'string', required: false, description: 'Path to test. Omission returns false.' } },
   },
   {
     path: 'fs.list',
@@ -165,6 +174,7 @@ function didYouMean(path) {
 function typeOf(v) {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
+  if (utilTypes.isRegExp(v)) return 'regexp';
   return typeof v;
 }
 
@@ -215,22 +225,29 @@ export function createActions({ recipes = null } = {}) {
       // typeErrors so the existing shape is unchanged for type mismatches.
       const invalid = [];
       const isSearch = rec.path.startsWith('search.');
+      const hasRuntimePreflight = RUNTIME_VALIDATED_PATHS.includes(rec.path);
       // browse catalogues several options as unions ('boolean|string'). A plain !== check
       // reads that as one literal type and refuses true for an option the runtime accepts.
       const accepts = (want, got) => String(want).split('|').map((s) => s.trim()).includes(got);
       for (const [name, spec] of Object.entries(rec.inputs)) {
+        // Optional null is judged by the runtime pre-flight when one exists. Some validators
+        // normalize it as omission (snapshot, report paper); others give it meaning or refuse
+        // it (browse pdf). Skipping only the generic type opinion lets that owning family
+        // answer without turning null into a catalog-wide allowance. Families without a
+        // pre-flight keep their declared type rule, including search.*.
+        const runtimeOwnsNull = args[name] === null && !spec.required && hasRuntimePreflight;
         if (spec.required && !(name in args)) missing.push(name);
-        else if (name in args && !accepts(spec.type, typeOf(args[name]))) {
+        else if (name in args && !runtimeOwnsNull && !accepts(spec.type, typeOf(args[name]))) {
           typeErrors.push({ name, want: spec.type, got: typeOf(args[name]) });
         } else if (name in args && (isSearch || rec.path === 'fs.grepFile')) {
-          // fs.grepFile deliberately keeps the plain check. Its `pattern` is a
+          // fs.grepFile deliberately keeps its own checker. Its `pattern` is a
           // REGEX, where 'a*' is a quantifier, while search.files' `pattern` is a
           // substring filter that refuses glob metacharacters. Routing both
-          // through the entry-scoped checker would make discovery report a valid
+          // through the search entry checker would make discovery report a valid
           // grepFile regex as invalid while the real call kept running it.
           const problem = isSearch
             ? checkEntryOptionValue(rec.path, name, args[name])
-            : checkOptionValue(name, args[name]);
+            : checkGrepFileOptionValue(name, args[name]);
           if (problem) invalid.push(problem);
         }
       }

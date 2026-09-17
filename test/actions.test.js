@@ -1,6 +1,7 @@
 // AC 8 — actions discovery contracts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { createActions } from '../src/host/actions.js';
 
 const actions = createActions();
@@ -30,6 +31,46 @@ test('check reports missing, unknown and type errors without calling', () => {
   assert.deepEqual(r2.typeErrors, [{ name: 'max', want: 'number', got: 'string' }]);
   const r3 = actions.check('search.content', { query: 'x', path: 'y' });
   assert.equal(r3.ok, true);
+});
+
+test('check does not require arguments the call defaults or treats as absent', () => {
+  assert.equal(actions.check('report.build', { outFile: 'out.pdf' }).ok, true);
+  assert.equal(actions.check('fs.exists', {}).ok, true);
+  assert.equal(actions.check('recipes.describe', {}).ok, true);
+});
+
+test('optional null follows each runtime family instead of one blanket type rule', () => {
+  // report.build normalizes a null paper to its A4 default.
+  assert.equal(actions.check('report.build', { outFile: 'out.pdf', paper: null }).ok, true);
+  assert.equal(actions.check('browse.exec', {
+    urls: ['data:text/html,ok'], snapshot: null,
+  }).ok, true);
+
+  // A null pdf is not omission in the browse job schema, so its validator keeps deciding.
+  const browsePdf = actions.check('browse.exec', {
+    urls: ['data:text/html,ok'], pdf: null,
+  });
+  assert.equal(browsePdf.ok, false);
+  assert.equal(browsePdf.invalid[0].name, 'pdf');
+
+  // Search validates null as a supplied value, not as omission. Keeping this refusal proves
+  // the checker did not turn the report exception into a catalog-wide null allowance.
+  const search = actions.check('search.files', { path: '.', max: null });
+  assert.equal(search.ok, false);
+  assert.deepEqual(search.typeErrors, [{ name: 'max', want: 'number', got: 'null' }]);
+});
+
+test('grepFile discovery admits every measured pattern and line-cap form', () => {
+  const guestRegexp = vm.runInContext('/needle/', vm.createContext({}));
+  assert.equal(actions.check('fs.grepFile', { path: 'a.txt', pattern: guestRegexp }).ok, true);
+  assert.equal(actions.check('fs.grepFile', { path: 'a.txt', pattern: '' }).ok, true);
+  assert.equal(actions.check('fs.grepFile', {
+    path: 'a.txt', pattern: 'needle', maxLineBytes: 256,
+  }).ok, true);
+  assert.equal(actions.check('fs.grepFile', {
+    path: 'a.txt', pattern: 'needle', maxLineBytes: null,
+  }).ok, true);
+  assert.equal(actions.check('fs.grepFile', { path: 'a.txt', pattern: '[' }).ok, false);
 });
 
 test('unknown path throws with did-you-mean candidates', () => {

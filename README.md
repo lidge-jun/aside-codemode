@@ -276,7 +276,7 @@ the one command that restores it, `codemode --enable-browse`.
 ### What `ok` does not mean
 
 `ok` says the run finished. It does not say the page rendered. Threads answered `ok: true` with
-the right title while the body was 530KB of bootstrap JSON and no posts. Ask for a verdict and
+the right title while the body was bootstrap JSON and no posts. Ask for a verdict and
 you get one: `requireSelector` or `minTextChars` set `contentVerified`, and `requireContent: true` makes
 a failed check fail the item. Without them `contentVerified` is `null`, because nobody asked.
 `scriptRatio` is reported and never decides anything: every bundled SPA ships large inline scripts,
@@ -298,7 +298,7 @@ than as a clean result.
 
 `codemode --doctor --browse` prints the whole matrix for the build you have installed.
 
-**`.gitignore` is on by default** and can hide a whole project. A parent ignore once dropped 126 of 356 hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
+**`.gitignore` is on by default** and can hide a whole project. A parent ignore was once measured dropping most of a project's hits, including that project's README. Compare `search.count` with and without `noIgnore: true` (add `hidden: true` for dotfiles) before concluding a file is missing.
 
 Inclusive `glob` values (for example `**/*.js`) are ripgrep `-g` / `--glob` globs. They can match some gitignored or hidden files even when `noIgnore` and `hidden` are false. That is ripgrep glob precedence, not a workspace escape, and it is **not** the same as `-uuu`: ignore rules still apply to paths the glob does not force in. Exclusive globs (`-g '!…'`) still hide paths. Set `noIgnore` / `hidden` explicitly when you want ignore-or-dotfile control without an inclusive glob.
 
@@ -308,7 +308,7 @@ Search arrays still support `.map`, `.filter` and `.length` inside guest code. R
 
 `context` returns surrounding text on content hits. Unknown or invalid options are rejected. `includeExcluded: true` overrides configured exclusions; `noIgnore` and `hidden` are separate controls. **`followSymlinks: true` is rejected** until guarded link traversal is implemented, rather than allowing ripgrep to read outside the configured roots.
 
-A rejected traversal used to be a silent one. A directory of 37 entries where 35 were links
+A rejected traversal used to be a silent one. A [directory of 37 entries where 35 were links](evidence/symlink-skip-260918.md)
 answered with 2 rows and `complete: true`, and no option could reveal the difference. Now
 `scope.skippedSymlinks` reports `{ dirs, files, examples, capped }`, and a skipped **directory**
 sets `complete: false` — `noIgnore`/`hidden` will not recover those results, so point `path` at

@@ -78,6 +78,26 @@ and `actions.describe('search.content')` was run live to confirm the completenes
 and `scope.skippedSymlinks` are reachable on demand. The paired A/B trial that would show a
 slimmed description is not WORSE for an agent was not run, so no usability claim is made here.
 
+## Pinless resolution, measured after 0.7.0
+
+The ERG404 above was recorded when the resolver had no candidate for the ripgrep that Aside
+itself bundles, so the fix at the time was an absolute `rgPath` pin. 0.7.0 added that bundled
+binary to the ladder, ahead of PATH and behind any explicit path, derived from the home
+directory on macOS and Windows.
+
+Re-measured on macOS with **no pin at all** (`rgPath: null`): one `aside exec` session called
+`mcp__aside-codemode__execute_code` exactly once, ran a fixed-string `search.content`, and got
+its row back with `complete:true`, `truncated:false` and `partial:[]`. The agent used no other
+tool, so no fallback produced the answer. The explicit pin is now an override, not a requirement.
+
+Which binary served that search is an **inference**, not a direct observation: an MCP response
+carries rows and completeness, not the resolved path. It rests on four premises checked at the
+same moment. The configured `rgPath` was null; the daemon-spawned child carries the same
+six-variable environment that produced the ERG404 above; and the ladder's three fixed macOS
+locations — `/opt/homebrew/bin/rg`, `/usr/local/bin/rg` and
+`/home/linuxbrew/.linuxbrew/bin/rg` — were all absent. What remains is the Aside bundle.
+Install a ripgrep into one of those locations and the inference no longer holds.
+
 ## What this does not claim
 
 - No automatic activation: a server registration with **0 tools cached** did not
@@ -87,5 +107,9 @@ slimmed description is not WORSE for an agent was not run, so no usability claim
   session after refreshing the inventory.
 - The 6,775 -> 1,793 byte reduction is a size measurement only. No trial established that an
   agent performs as well with the shorter description.
-- The result does not make native MCP the default and does not deprecate the CLI
-  route. They are two supported installation paths.
+- Pinless resolution was measured on macOS only. The Windows daemon was not re-measured after
+  0.7.0; the earlier Windows run succeeded through the package-vendored relative path instead.
+- ERG404 is not structurally impossible. An explicit path that fails still throws it by design,
+  Linux has no bundled candidate, and a moved or unexecutable bundle exhausts the ladder.
+- The bundled binary serving a search is an inference from the premises above, not a reading of
+  the resolved path out of the MCP response.

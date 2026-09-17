@@ -26,3 +26,14 @@ test('the MCP attachment note keeps unmeasured activation behavior out of its cl
   assert.doesNotMatch(note, /(?:supports?|provides?|has) automatic activation/i);
   assert.doesNotMatch(note, /already running sessions? (?:can|will|does) hot-attach/i);
 });
+
+// 0.7.0 put Aside's own ripgrep in the ladder, so the note's original "pin an absolute rgPath"
+// reading became a requirement the product no longer has. The pinless measurement has to stay,
+// and so does the admission that the binary which served it was inferred rather than read.
+test('the note records pinless resolution without overclaiming which binary served it', () => {
+  assert.match(note, /rgPath: null|no pin at all/i);
+  assert.match(note, /override, not a requirement/i);
+  assert.match(note, /inference/i);
+  assert.match(note, /ERG404 is not structurally impossible/i);
+  assert.doesNotMatch(note, /ERG404 is (?:now )?impossible/i);
+});

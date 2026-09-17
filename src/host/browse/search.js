@@ -64,15 +64,35 @@ export function parseDuckDuckGo(html) {
 }
 
 export function applyDateFilter(rows, since) {
-  if (!since) return { rows, filtered: 0 };
+  if (!since) {
+    return {
+      rows,
+      filtered: 0,
+      dateFilter: { requested: false, applied: false, evaluated: 0, unknown: 0 },
+    };
+  }
   const cutoff = since instanceof Date ? since.getTime() : Date.parse(since);
-  if (!Number.isFinite(cutoff)) return { rows, filtered: 0 };
+  if (!Number.isFinite(cutoff)) {
+    return {
+      rows,
+      filtered: 0,
+      dateFilter: { requested: true, applied: false, evaluated: 0, unknown: rows.length },
+    };
+  }
+  let evaluated = 0;
+  let unknown = 0;
   const kept = rows.filter((r) => {
-    if (!r.published) return true;
+    if (!r.published) { unknown += 1; return true; }
     const t = Date.parse(r.published);
-    return Number.isFinite(t) ? t >= cutoff : true;
+    if (!Number.isFinite(t)) { unknown += 1; return true; }
+    evaluated += 1;
+    return t >= cutoff;
   });
-  return { rows: kept, filtered: rows.length - kept.length };
+  return {
+    rows: kept,
+    filtered: rows.length - kept.length,
+    dateFilter: { requested: true, applied: evaluated > 0 || rows.length === 0, evaluated, unknown },
+  };
 }
 
 export function createSearchMany({ fetchImpl, session, cache = null, accountRoot = '' } = {}) {
@@ -108,12 +128,18 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
     const keyParts = { namespace: 'search', subject: query, engine, accountRoot, since: since || null };
     if (cache) {
       const hit = await cache.get(keyParts);
-      if (hit.hit) return { query, engine, ok: true, cached: true, ...hit.value };
+      if (hit.hit && hit.value.dateFilter) return { query, engine, ok: true, cached: true, ...hit.value };
+      if (hit.hit && !since) {
+        return {
+          query, engine, ok: true, cached: true, ...hit.value,
+          dateFilter: { requested: false, applied: false, evaluated: 0, unknown: 0 },
+        };
+      }
     }
     const rows = engine === 'duckduckgo' ? await ddg(query) : await viaAside(engine, query);
     const unique = dedupe(rows);
-    const { rows: kept, filtered } = applyDateFilter(unique, since);
-    const value = { rows: kept, count: kept.length, deduped: rows.length - unique.length, filtered };
+    const { rows: kept, filtered, dateFilter } = applyDateFilter(unique, since);
+    const value = { rows: kept, count: kept.length, deduped: rows.length - unique.length, filtered, dateFilter };
     if (cache) await cache.put(keyParts, value);
     return { query, engine, ok: true, cached: false, ...value };
   }
@@ -123,12 +149,29 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
     const engine = opts.engine || 'duckduckgo';
     if (!ENGINES[engine]) throw new SearchError(`unknown engine "${engine}"; valid: ${Object.keys(ENGINES).join(', ')}`, 'EBADOPT');
     const settled = await Promise.allSettled(queries.map((q) => one(q, engine, opts.since)));
-    const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : {
+    const rawItems = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : {
       query: queries[i], engine, ok: false,
       code: s.reason && s.reason.code,
       alternate: s.reason && s.reason.alternate,
       error: String(s.reason && s.reason.message ? s.reason.message : s.reason),
     }));
+    const seen = new Set();
+    const items = rawItems.map((item) => {
+      if (!item.ok) return item;
+      let crossDeduped = 0;
+      const rows = item.rows.filter((row) => {
+        const key = normaliseUrl(row && row.url);
+        if (!key || seen.has(key)) { crossDeduped += 1; return false; }
+        seen.add(key);
+        return true;
+      });
+      return {
+        ...item,
+        rows,
+        count: rows.length,
+        deduped: item.deduped + crossDeduped,
+      };
+    });
     const partial = items.some((i) => !i.ok) ? ['item-failure'] : [];
     // Every query answering zero is, in practice, a challenge page or a parse that stopped
     // matching — not a world with no results. One empty query is ordinary and says nothing,
@@ -139,8 +182,17 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
     const answered = items.filter((i) => i.ok);
     const allEmpty = answered.length >= 2 && answered.every((i) => i.count === 0);
     if (allEmpty) partial.push('suspect-empty');
+    const deduped = answered.reduce((total, item) => total + item.deduped, 0);
+    const filtered = answered.reduce((total, item) => total + item.filtered, 0);
+    const requested = Boolean(opts.since);
+    const dateFilter = {
+      requested,
+      applied: requested && answered.length > 0 && answered.every((item) => item.dateFilter.applied),
+      evaluated: answered.reduce((total, item) => total + item.dateFilter.evaluated, 0),
+      unknown: answered.reduce((total, item) => total + item.dateFilter.unknown, 0),
+    };
     return {
-      engine, items, ok: items.every((i) => i.ok), partial,
+      engine, items, ok: items.every((i) => i.ok), partial, deduped, filtered, dateFilter,
       suspectEmpty: allEmpty ? {
         queries: answered.length,
         why: 'every query came back with nothing, which is more often a challenge page or a parser that stopped matching than a subject with no results anywhere',

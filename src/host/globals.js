@@ -18,7 +18,9 @@ export function createHostGlobals(config, assertInside, signal) {
     write_file: hostFs.write_file,
     edit_file: hostFs.edit_file,
     apply_patch: createApplyPatch({ write_file: hostFs.write_file, edit_file: hostFs.edit_file }),
-    actions: createActions(),
+    // The recipe registry goes in so actions.check can refuse an unknown recipe the same way
+    // recipes.run does; it is this instance's data, not something the catalog can know.
+    actions: createActions({ recipes: (config && config.recipes) || {} }),
     browse,
     report: createReport({ config, signal, assertInside }),
     api: createApiNamespace(),

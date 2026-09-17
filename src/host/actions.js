@@ -8,6 +8,7 @@
 // real call agree on what is acceptable.
 import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../search-schema.js';
 import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS, checkBrowseArgs } from './browse/actions-schema.js';
+import { validateRecipeRun } from './browse/watch.js';
 
 const REGISTRY = [
   ...SEARCH_ACTIONS.map((entry) => {
@@ -167,7 +168,13 @@ function typeOf(v) {
   return typeof v;
 }
 
-export function createActions() {
+/**
+ * `recipes` is the host instance's recipe registry, and it is an argument because it is
+ * instance state: a checker that guessed from an empty or global list would report a
+ * configured recipe as unknown. Without it, recipes.run is not value-checked at all, which
+ * is the honest answer for a caller that has no registry to check against.
+ */
+export function createActions({ recipes = null } = {}) {
   // Wrong-name guidance is not here: the worker rebuilds these methods from a manifest, so
   // only something attached guest-side reaches the script. See src/guest-guidance.js.
   return Object.freeze({
@@ -235,6 +242,17 @@ export function createActions() {
       // would return that same problem a second time in different words.
       if (missing.length === 0 && unknown.length === 0 && typeErrors.length === 0) {
         invalid.push(...checkBrowseArgs(rec.path, args));
+        // The one rule that cannot live in the path table with the others, because it needs
+        // this host's registry rather than only the arguments.
+        if (rec.path === 'recipes.run' && recipes) {
+          try {
+            validateRecipeRun(args.name, recipes);
+          } catch (e) {
+            if (e && ['EBADVAL', 'ENOTSUP', 'EBADOPT', 'EINVAL'].includes(e.code)) {
+              invalid.push({ name: 'name', why: String(e.message).slice(0, 200), code: e.code });
+            }
+          }
+        }
       }
       return {
         ok: missing.length === 0 && unknown.length === 0 && typeErrors.length === 0 && invalid.length === 0,

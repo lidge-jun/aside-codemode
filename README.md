@@ -436,7 +436,7 @@ Later entries win:
 
 Env keys still win: `CODEMODE_ROOTS`, `CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`, `CODEMODE_OUTPUT_BYTES`.
 
-With no config, `roots` defaults to `$HOME` (`--doctor` reports `default:$HOME`). Wide roots are pruned by `excludeGlobs` (`Library`, `node_modules`, caches, media, …). Measured on one machine: default excludes walked 331,709 files in 0.77s; `includeExcluded: true` walked 1,565,078 in 7.37s. Set `"excludeGlobs": []` to disable pruning. `codemode.config.json` is machine-specific and gitignored.
+With no config, `roots` defaults to `$HOME` (`--doctor` reports `default:$HOME`). Wide roots are pruned by `excludeGlobs` (`Library`, `node_modules`, caches, media, …). [Measured on one machine](evidence/exclude-pruning-260918.md) with `node scripts/measure-excludes.mjs`: the default excludes walked 348,353 files, `includeExcluded: true` walked 756,239, and the same walk took 0.69s and 1.22s on the first pair of runs. How much that saves is a property of what is in the root, so measure your own. Set `"excludeGlobs": []` to disable pruning. `codemode.config.json` is machine-specific and gitignored.
 
 ## Trust model
 

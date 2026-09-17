@@ -40,6 +40,24 @@ test('old general-50x denial strings are gone', () => {
   }
 });
 
+// The pruning sentence quoted 331,709 and 1,565,078 files for two years with no note saying
+// where they came from, and a re-measurement on another machine reproduced neither. Both
+// READMEs now quote the recorded run, and the note has to agree with them.
+test('the excludeGlobs figures the READMEs quote are the ones the note records', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'exclude-pruning-260918.md'), 'utf8');
+  for (const figure of ['348,353', '756,239']) {
+    assert.ok(note.includes(figure), 'the note no longer records ' + figure);
+    assert.ok(readmeEn.includes(figure), 'README.md no longer quotes ' + figure);
+    assert.ok(readmeKo.includes(figure), 'README.ko.md no longer quotes ' + figure);
+  }
+  for (const stale of ['331,709', '1,565,078', '1,565,196', '336,206']) {
+    assert.equal(readmeEn.includes(stale), false, 'README.md still quotes the untraced ' + stale);
+    assert.equal(readmeKo.includes(stale), false, 'README.ko.md still quotes the untraced ' + stale);
+  }
+  // The note names its own method, so a reader can re-run it rather than trust it.
+  assert.match(note, /scripts\/measure-excludes\.mjs/);
+});
+
 test('historical Aside-turn table is still present', () => {
   assert.match(readmeEn, /1\.81x/);
   assert.match(readmeEn, /1\.05x/);

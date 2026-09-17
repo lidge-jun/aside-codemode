@@ -1,5 +1,9 @@
 // Pending write approvals, and the one rule that makes them safe to act on twice.
 //
+// requireApprovalId lives here rather than inside browse.js so discovery can ask the same
+// question the call asks: actions.check typed approvalId as a string and approved an empty
+// one, which every real approve() and reject() refuses.
+//
 // A batch that could change something is refused before it runs (session.js), and the
 // caller is handed an approvalId. Approving it is not resuming anything: nothing was
 // started, because the whole point of refusing before compile is that nothing was started.
@@ -43,6 +47,19 @@ const ID_SHAPE = /^approval-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 export function isApprovalId(value) {
   return typeof value === 'string' && ID_SHAPE.test(value);
+}
+
+// The one pre-flight both approve() and reject() run, shared so discovery runs it too.
+// actions.check typed approvalId as a string and approved an empty one, which every real
+// call refuses: there is no implicit "the current run" to fall back on.
+export function requireApprovalId(verb, opts = {}) {
+  const id = opts && typeof opts.approvalId === 'string' ? opts.approvalId : null;
+  if (!id) {
+    const e = new Error(verb + ' needs the approvalId the refusal returned');
+    e.code = 'EBADVAL';
+    throw e;
+  }
+  return id;
 }
 
 export function createApprovals({ dir = APPROVAL_DIR, ttlMs = DEFAULT_TTL_MS, now = Date.now } = {}) {

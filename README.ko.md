@@ -413,7 +413,7 @@ Aside 기본 셸은 Git Bash입니다. 같은 절대 경로 `node`와 `bin/codem
 
 환경 변수가 더 강합니다. `CODEMODE_ROOTS`, `CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`, `CODEMODE_OUTPUT_BYTES`.
 
-설정이 없으면 `roots`는 `$HOME`입니다 (`--doctor`에 `default:$HOME`). 넓은 루트는 `excludeGlobs`로 자릅니다 (`Library`, `node_modules`, 캐시, 미디어 등). 한 머신에서 기본 제외는 331,709개 / 0.77초, `includeExcluded: true`는 1,565,078개 / 7.37초였습니다. 가지치기를 끄려면 `"excludeGlobs": []`. `codemode.config.json`은 머신마다 다르고 gitignore됩니다.
+설정이 없으면 `roots`는 `$HOME`입니다 (`--doctor`에 `default:$HOME`). 넓은 루트는 `excludeGlobs`로 자릅니다 (`Library`, `node_modules`, 캐시, 미디어 등). `node scripts/measure-excludes.mjs`로 [한 머신에서 실측](evidence/exclude-pruning-260918.md)한 값은 기본 제외 348,353개, `includeExcluded: true` 756,239개이고, 첫 쌍의 소요 시간은 0.69초와 1.22초였습니다. 얼마나 줄어드는지는 루트에 무엇이 들어 있느냐에 달렸으니 각자 재보는 편이 낫습니다. 가지치기를 끄려면 `"excludeGlobs": []`. `codemode.config.json`은 머신마다 다르고 gitignore됩니다.
 
 ## Trust model
 

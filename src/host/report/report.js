@@ -15,14 +15,21 @@ export class ReportError extends Error {
   constructor(message, code) { super(message); this.name = 'ReportError'; this.code = code; }
 }
 
+// This is everything report.build decides before it starts the loopback server. Discovery
+// must be able to ask the same question without opening a socket or touching an output file.
+export function planReportBuild(opts = {}) {
+  const items = Array.isArray(opts.items) ? opts.items : [];
+  if (!opts.outFile) throw new ReportError('report.build requires { outFile }', 'EBADVAL');
+  const paper = { ...A4_INCHES, ...(opts.paper || {}) };
+  if (opts.paper && 'format' in opts.paper) {
+    throw new ReportError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches.', 'ENOTSUP');
+  }
+  return { items, paper };
+}
+
 export function createReport({ session, assertInside, deps = {} } = {}) {
   async function build(opts = {}) {
-    const items = Array.isArray(opts.items) ? opts.items : [];
-    if (!opts.outFile) throw new ReportError('report.build requires { outFile }', 'EBADVAL');
-    const paper = { ...A4_INCHES, ...(opts.paper || {}) };
-    if (opts.paper && 'format' in opts.paper) {
-      throw new ReportError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches.', 'ENOTSUP');
-    }
+    const { items, paper } = planReportBuild(opts);
 
     const server = createReportServer();
     const figures = new Map();

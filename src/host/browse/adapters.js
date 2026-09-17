@@ -51,6 +51,14 @@ async function itunes(req, doFetch) {
 
 const IMPL = { youtube, itunes };
 
+// A catalog check calls this on every discovery request, so it must stop at the argument
+// boundary. Adapter lookup and HTTP remain execution work.
+export function validateApiBatch(requests) {
+  if (!Array.isArray(requests) || requests.length === 0) {
+    throw new AdapterError('api.batch requires a non-empty array', 'EBADVAL');
+  }
+}
+
 export function createApi({ fetchImpl } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
 
@@ -68,9 +76,7 @@ export function createApi({ fetchImpl } = {}) {
 
   // Per-item isolation, same shape as browse: one adapter failing never empties the rest.
   async function batch(requests) {
-    if (!Array.isArray(requests) || requests.length === 0) {
-      throw new AdapterError('api.batch requires a non-empty array', 'EBADVAL');
-    }
+    validateApiBatch(requests);
     const settled = await Promise.allSettled(requests.map((r) => one(r)));
     const items = settled.map((s, i) => {
       const req = requests[i];

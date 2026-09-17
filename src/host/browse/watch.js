@@ -6,9 +6,17 @@
 // changed'.
 import { textHash, lineDiff } from './cache.js';
 
+export function validateWatchUrls(urls) {
+  if (!Array.isArray(urls) || urls.length === 0) throw Object.assign(new Error('watch requires a non-empty array of urls'), { code: 'EBADVAL' });
+}
+
+export function validatePrefetchUrls(urls) {
+  if (!Array.isArray(urls) || urls.length === 0) throw Object.assign(new Error('prefetch requires a non-empty array of urls'), { code: 'EBADVAL' });
+}
+
 export function createWatch({ readText, cache, accountRoot = '' } = {}) {
   return async function watch(urls, opts = {}) {
-    if (!Array.isArray(urls) || urls.length === 0) throw Object.assign(new Error('watch requires a non-empty array of urls'), { code: 'EBADVAL' });
+    validateWatchUrls(urls);
     const items = await Promise.all(urls.map(async (url) => {
       const keyParts = { namespace: 'watch', subject: url, accountRoot, locale: opts.locale || null };
       try {
@@ -38,19 +46,28 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
   };
 }
 
+function assertDataRecipe(name, recipe) {
+  if (typeof recipe === 'function' || typeof recipe === 'string') {
+    throw Object.assign(new Error(`recipe "${name}" must be data ({ url, waitSelector, extract }), not code: a host-loaded script would bypass the guest sandbox`), { code: 'ENOTSUP' });
+  }
+  if (!recipe || typeof recipe !== 'object' || typeof recipe.url !== 'string') {
+    throw Object.assign(new Error(`recipe "${name}" needs at least { url }`), { code: 'EBADVAL' });
+  }
+}
+
+// The registry is an input because recipes belong to one host instance. A checker that
+// guessed from an empty or global list would turn a configured recipe into a false refusal.
+export function validateRecipeRun(name, registry = {}) {
+  const recipe = registry[name];
+  if (!recipe) throw Object.assign(new Error(`unknown recipe "${name}"; known: ${Object.keys(registry).join(', ') || 'none'}`), { code: 'EBADOPT' });
+  assertDataRecipe(name, recipe);
+  return recipe;
+}
+
 // Recipes are DATA, never code. A guest-supplied .js recipe would be host-loaded and so
 // would bypass the node:vm boundary that contains guest JavaScript; a declarative
 // { url, waitSelector, extract } runs through the ordinary browse path with no model turn.
 export function createRecipes({ registry = {}, exec } = {}) {
-  function assertDataRecipe(name, recipe) {
-    if (typeof recipe === 'function' || typeof recipe === 'string') {
-      throw Object.assign(new Error(`recipe "${name}" must be data ({ url, waitSelector, extract }), not code: a host-loaded script would bypass the guest sandbox`), { code: 'ENOTSUP' });
-    }
-    if (!recipe || typeof recipe !== 'object' || typeof recipe.url !== 'string') {
-      throw Object.assign(new Error(`recipe "${name}" needs at least { url }`), { code: 'EBADVAL' });
-    }
-  }
-
   function resolve(recipe, args = {}) {
     const url = recipe.url.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] === undefined ? '' : args[k])));
     return { url, waitSelector: recipe.waitSelector || null, extract: recipe.extract || null };
@@ -60,9 +77,7 @@ export function createRecipes({ registry = {}, exec } = {}) {
     list: async () => Object.keys(registry),
     describe: async (name) => registry[name] || null,
     run: async (name, args = {}) => {
-      const recipe = registry[name];
-      if (!recipe) throw Object.assign(new Error(`unknown recipe "${name}"; known: ${Object.keys(registry).join(', ') || 'none'}`), { code: 'EBADOPT' });
-      assertDataRecipe(name, recipe);
+      const recipe = validateRecipeRun(name, registry);
       const r = resolve(recipe, args);
       const job = { urls: [r.url] };
       if (r.waitSelector) job.waitSelector = r.waitSelector;
@@ -77,7 +92,7 @@ export function createRecipes({ registry = {}, exec } = {}) {
 // is strictly worse than a cold cache.
 export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
   return async function prefetch(urls, opts = {}) {
-    if (!Array.isArray(urls) || urls.length === 0) throw Object.assign(new Error('prefetch requires a non-empty array of urls'), { code: 'EBADVAL' });
+    validatePrefetchUrls(urls);
     const settled = await Promise.allSettled(urls.map(async (url) => {
       const read = await readText(url, { timeoutMs: opts.timeoutMs, locale: opts.locale });
       // readText owns this entry now. The second, thinner write that used to live here

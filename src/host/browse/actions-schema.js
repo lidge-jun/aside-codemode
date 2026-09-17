@@ -11,14 +11,19 @@ import { validateAttach } from './attach-schema.js';
 import { planCaptureMany } from './capture.js';
 import { validateSearchMany } from './search.js';
 import { validateReadTextUrl } from './read-text.js';
+import { validateDownloadMedia } from './media.js';
+import { validateWatchUrls, validatePrefetchUrls } from './watch.js';
+import { planReportBuild } from '../report/report.js';
+import { validateApiBatch } from './adapters.js';
+import { requireApprovalId } from './approvals.js';
 
 // Discovery answers with the RUNTIME validator rather than a second opinion. The two used to
 // disagree in both directions: check refused a snapshot the job accepted, and accepted a
 // waitUntil the job refused with ENOTSUP.
 //
-// A path appears here when it can be asked the question the real call asks. exec and attach
-// own whole-object validators; the other three had their pre-flight pulled out of the call
-// path so discovery can run it instead of guessing from types. An audit measured what the
+// A path appears here when it can be asked the question the real call asks. Exec and attach
+// own whole-object validators; the others have their pre-flight pulled out of the call path
+// so discovery can run it instead of guessing from types. An audit measured what the
 // guessing cost: check approved screenshot:true, pdf:{format}, waitUntil:'networkidle',
 // engine:'bing' and a file:// url, all of which the call refuses. What is NOT here parses
 // its arguments inside browse.js, and putting one of those through the job schema reported
@@ -35,7 +40,18 @@ const RUNTIME_VALIDATED = Object.freeze({
   },
   'browse.searchMany': (args) => validateSearchMany(args.queries, args),
   'browse.readText': (args) => validateReadTextUrl(args.url),
+  'browse.approve': (args) => requireApprovalId('browse.approve', args),
+  'browse.reject': (args) => requireApprovalId('browse.reject', args),
+  'browse.downloadMedia': (args) => validateDownloadMedia(args.urls, args),
+  'browse.watch': (args) => validateWatchUrls(args.urls),
+  'browse.prefetch': (args) => validatePrefetchUrls(args.urls),
+  'report.build': (args) => planReportBuild(args),
+  'api.batch': (args) => validateApiBatch(args.requests),
 });
+
+// The sweep test compares its independent runtime examples against this list. Exporting
+// names rather than validator functions keeps discovery's dispatch table as the one owner.
+export const RUNTIME_VALIDATED_PATHS = Object.freeze(Object.keys(RUNTIME_VALIDATED));
 
 const VALUE_CODES = Object.freeze(['EBADVAL', 'ENOTSUP', 'EBADOPT', 'EINVAL']);
 

@@ -18,6 +18,14 @@ export class MediaError extends Error {
 
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg' };
 
+// Discovery runs this same pre-flight. Keeping it ahead of fetch and mkdir is what makes
+// asking whether a call is valid observational: no probe can create a directory or send a
+// request merely because an agent checked its arguments.
+export function validateDownloadMedia(urls, opts = {}) {
+  if (!Array.isArray(urls) || urls.length === 0) throw new MediaError('downloadMedia requires a non-empty array of urls', 'EBADVAL');
+  if (!opts.outDir) throw new MediaError('downloadMedia requires { outDir }', 'EBADVAL');
+}
+
 export function createDownloadMedia({ fetchImpl, assertInside, deps = {} } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
 
@@ -72,8 +80,7 @@ export function createDownloadMedia({ fetchImpl, assertInside, deps = {} } = {})
   }
 
   return async function downloadMedia(urls, opts = {}) {
-    if (!Array.isArray(urls) || urls.length === 0) throw new MediaError('downloadMedia requires a non-empty array of urls', 'EBADVAL');
-    if (!opts.outDir) throw new MediaError('downloadMedia requires { outDir }', 'EBADVAL');
+    validateDownloadMedia(urls, opts);
     if (!doFetch) throw new MediaError('no fetch implementation is available', 'ENOTSUP');
     const outDir = assertInside ? assertInside(opts.outDir) : opts.outDir;
     await (deps.mkdirImpl || mkdir)(outDir, { recursive: true });

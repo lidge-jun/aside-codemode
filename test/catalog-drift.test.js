@@ -10,6 +10,14 @@ import { createActions } from '../src/host/actions.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
 import { createCaptureMany, planCaptureMany } from '../src/host/browse/capture.js';
 import { validateJob } from '../src/host/browse/schema.js';
+import { requireApprovalId } from '../src/host/browse/approvals.js';
+import { validateSearchMany } from '../src/host/browse/search.js';
+import { validateReadTextUrl } from '../src/host/browse/read-text.js';
+import { createDownloadMedia, validateDownloadMedia } from '../src/host/browse/media.js';
+import { createWatch, createPrefetch, createRecipes, validateWatchUrls, validatePrefetchUrls, validateRecipeRun } from '../src/host/browse/watch.js';
+import { createReport, planReportBuild } from '../src/host/report/report.js';
+import { createApi, validateApiBatch } from '../src/host/browse/adapters.js';
+import { RUNTIME_VALIDATED_PATHS } from '../src/host/browse/actions-schema.js';
 
 const actions = createActions();
 const entries = actions.list().map((row) => actions.describe(row.path));
@@ -123,47 +131,133 @@ test('check accepts the batch-capture options the runtime honours', () => {
   assert.equal(r.ok, true, JSON.stringify(r));
 });
 
-// A type that admits a value the runtime refuses is the same lie as a missing option, told the
-// other way, and the types could not express these rules: screenshot is boolean|object because
-// false means capture a pdf instead, pdf is an object whose one forbidden key is format, and
-// engine is a string out of a list the runtime owns. An audit measured nine such calls being
-// approved by discovery and refused by the call. Each case below is asserted twice, against
-// the real validator and against check, so agreement is what the test proves.
-const RUNTIME_REFUSALS = [
-  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: true }, 'screenshot', /screenshot must be an object/],
-  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false }, 'screenshot', /nothing to bring back/],
-  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { maxWidth: 640 } }, 'screenshot', /maxWidth/],
-  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', pdf: { format: 'A4' } }, 'pdf', /format is ENOTSUP/],
-  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', waitUntil: 'networkidle' }, 'waitUntil', /networkidle/],
-  ['browse.searchMany', { queries: ['x'], engine: 'bing' }, 'engine', /unknown engine/],
-  ['browse.readText', { url: 'file:///etc/hosts' }, 'url', /file:\/\/ urls are refused/],
-];
+// The fixture names every runtime pre-flight, not selected incidents. A new dispatch-table
+// row therefore has to bring one refusal and one accepted call with it. The expected reason
+// comes from the owner validator at test time; copying message text here would let the test
+// and the call drift independently while both still looked precise.
+const RUNTIME_PREFLIGHTS = {
+  'browse.exec': {
+    run: (args) => validateJob({ timeoutMs: 8000, ...args }),
+    refused: [{ args: { urls: ['data:text/html,ok'], waitUntil: 'networkidle' }, name: 'waitUntil' }],
+    accepted: { urls: ['data:text/html,ok'], snapshot: true },
+  },
+  'browse.attach': {
+    run: (args) => validateAttach(args),
+    refused: [{ args: { targetId: 'tab-1', urlIncludes: 'example.com' }, name: 'targetId' }],
+    accepted: { targetId: 'tab-1' },
+  },
+  'browse.captureMany': {
+    run: (args) => {
+      const { urls, outDir, ...rest } = args;
+      const { job } = planCaptureMany(urls, rest);
+      return validateJob({ timeoutMs: 8000, ...job });
+    },
+    refused: [
+      { args: { urls: ['data:text/html,ok'], outDir: 'out', screenshot: true }, name: 'screenshot' },
+      { args: { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false }, name: 'screenshot' },
+      { args: { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { maxWidth: 640 } }, name: 'screenshot' },
+      { args: { urls: ['data:text/html,ok'], outDir: 'out', pdf: { format: 'A4' } }, name: 'pdf' },
+      { args: { urls: ['data:text/html,ok'], outDir: 'out', waitUntil: 'networkidle' }, name: 'waitUntil' },
+    ],
+    accepted: { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false, pdf: { paperWidth: 8.27, paperHeight: 11.69 } },
+  },
+  'browse.searchMany': {
+    run: (args) => validateSearchMany(args.queries, args),
+    refused: [{ args: { queries: ['x'], engine: 'bing' }, name: 'engine' }],
+    accepted: { queries: ['x'], engine: 'duckduckgo', since: '2026-01-01' },
+  },
+  'browse.readText': {
+    run: (args) => validateReadTextUrl(args.url),
+    refused: [{ args: { url: 'file:///etc/hosts' }, name: 'url' }],
+    accepted: { url: 'https://example.com', timeoutMs: 9000 },
+  },
+  'browse.approve': {
+    run: (args) => requireApprovalId('browse.approve', args),
+    refused: [{ args: { approvalId: '' }, name: 'approvalId' }],
+    accepted: { approvalId: 'approval-11111111-2222-3333-4444-555555555555' },
+  },
+  'browse.reject': {
+    run: (args) => requireApprovalId('browse.reject', args),
+    refused: [{ args: { approvalId: '' }, name: 'approvalId' }],
+    accepted: { approvalId: 'approval-11111111-2222-3333-4444-555555555555' },
+  },
+  'browse.downloadMedia': {
+    run: (args) => validateDownloadMedia(args.urls, args),
+    refused: [
+      { args: { urls: [], outDir: 'out' }, name: 'urls' },
+      { args: { urls: ['https://example.com/image.png'], outDir: '' }, name: 'outDir' },
+    ],
+    accepted: { urls: ['https://example.com/image.png'], outDir: 'out' },
+  },
+  'browse.watch': {
+    run: (args) => validateWatchUrls(args.urls),
+    refused: [{ args: { urls: [] }, name: 'urls' }],
+    accepted: { urls: ['https://example.com'] },
+  },
+  'browse.prefetch': {
+    run: (args) => validatePrefetchUrls(args.urls),
+    refused: [{ args: { urls: [] }, name: 'urls' }],
+    accepted: { urls: ['https://example.com'], timeoutMs: 5000, locale: 'ko-KR' },
+  },
+  'report.build': {
+    run: (args) => planReportBuild(args),
+    refused: [{ args: { items: [], outFile: 'out.pdf', paper: { format: 'A4' } }, name: 'paper' }],
+    accepted: { items: [], outFile: 'out.pdf', title: 'x', timeoutMs: 9000 },
+  },
+  'api.batch': {
+    run: (args) => validateApiBatch(args.requests),
+    refused: [{ args: { requests: [] }, name: null }],
+    accepted: { requests: [{ adapter: 'youtube', url: 'https://example.com/watch?v=1' }] },
+  },
+};
 
-test('every value the runtime refuses is refused by discovery, with the runtime reason', () => {
-  for (const [path, args, option, why] of RUNTIME_REFUSALS) {
-    const r = actions.check(path, args);
-    assert.equal(r.ok, false, path + ' accepted ' + JSON.stringify(args));
-    assert.equal(r.invalid.length, 1, JSON.stringify(r.invalid));
-    assert.equal(r.invalid[0].name, option, JSON.stringify(r.invalid));
-    assert.match(r.invalid[0].why, why);
-  }
+test('the sweep covers every catalog entry backed by a runtime pre-flight', () => {
+  assert.deepEqual(Object.keys(RUNTIME_PREFLIGHTS).sort(), [...RUNTIME_VALIDATED_PATHS].sort());
 });
 
-test('the shapes the runtime does accept are still accepted', () => {
-  const accepted = [
-    ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false, pdf: { paperWidth: 8.27, paperHeight: 11.69 } }],
-    ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { type: 'jpeg' }, snapshot: true, timeoutMs: 8000, waitUntil: 'load', concurrency: 1 }],
-    ['browse.searchMany', { queries: ['x'], engine: 'duckduckgo', since: '2026-01-01' }],
-    ['browse.readText', { url: 'https://example.com', timeoutMs: 9000 }],
-  ];
-  for (const [path, args] of accepted) {
-    const r = actions.check(path, args);
-    assert.equal(r.ok, true, path + ' refused ' + JSON.stringify(r.invalid || r));
-  }
-});
+for (const [path, fixture] of Object.entries(RUNTIME_PREFLIGHTS)) {
+  test(path + ' discovery agrees with its runtime pre-flight in both directions', () => {
+    for (const refused of fixture.refused) {
+      let runtimeError = null;
+      try { fixture.run(refused.args); } catch (error) { runtimeError = error; }
+      assert.ok(runtimeError, path + ' runtime accepted ' + JSON.stringify(refused.args));
+
+      const checked = actions.check(path, refused.args);
+      assert.equal(checked.ok, false, path + ' discovery accepted ' + JSON.stringify(refused.args));
+      assert.equal(checked.invalid.length, 1, JSON.stringify(checked.invalid));
+      assert.equal(checked.invalid[0].code, runtimeError.code);
+      assert.equal(checked.invalid[0].why, runtimeError.message);
+      assert.equal(checked.invalid[0].name ?? null, refused.name, JSON.stringify(checked.invalid));
+    }
+
+    assert.doesNotThrow(() => fixture.run(fixture.accepted));
+    const checked = actions.check(path, fixture.accepted);
+    assert.equal(checked.ok, true, path + ' discovery refused ' + JSON.stringify(checked.invalid || checked));
+  });
+}
 
 // The pre-flight is shared rather than copied. If captureMany stopped calling planCaptureMany
 // the two would drift apart again without any test noticing.
+// recipes.run is the one rule that cannot sit in the dispatch table: the registry is this
+// host instance's data. Discovery gets it from the host scope, and a caller who has no
+// registry gets no answer rather than a guess, because guessing from an empty list would
+// report every configured recipe as unknown.
+test('an unknown recipe is refused only where the registry is actually known', () => {
+  const withRegistry = createActions({ recipes: { known: { url: 'https://example.com/{q}' } } });
+  const refused = withRegistry.check('recipes.run', { name: 'nope' });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.invalid[0].code, 'EBADOPT');
+  assert.match(refused.invalid[0].why, /unknown recipe/);
+  assert.equal(withRegistry.check('recipes.run', { name: 'known' }).ok, true);
+
+  // The real call refuses the same two, from the same function.
+  assert.throws(() => validateRecipeRun('nope', { known: { url: 'https://example.com' } }), /unknown recipe/);
+  assert.equal(validateRecipeRun('known', { known: { url: 'https://example.com' } }).url, 'https://example.com');
+
+  // No registry, no value check: types only, as before.
+  assert.equal(createActions().check('recipes.run', { name: 'nope' }).ok, true);
+});
+
 test('the capture plan discovery runs is the plan the call runs', () => {
   assert.throws(() => planCaptureMany(['data:text/html,ok'], { pdf: { format: 'A4' } }), /format is ENOTSUP/);
   assert.throws(() => validateJob({ urls: ['data:text/html,ok'], timeoutMs: 8000, screenshot: true }), /screenshot must be an object/);
@@ -171,12 +265,36 @@ test('the capture plan discovery runs is the plan the call runs', () => {
   assert.deepEqual(job.screenshot, { type: 'jpeg' });
 });
 
-test('check accepts report.build title and timeoutMs, which report.js reads', () => {
-  const r = actions.check('report.build', { items: [], outFile: 'out.pdf', title: 'x', timeoutMs: 9000 });
-  assert.equal(r.ok, true, JSON.stringify(r));
-});
+test('the extracted pre-flights are the checks their calls execute', async () => {
+  async function sameRefusal(validate, call) {
+    let expected = null;
+    try { validate(); } catch (error) { expected = error; }
+    assert.ok(expected, 'the pre-flight must refuse the example');
+    await assert.rejects(call, (actual) => {
+      assert.equal(actual.code, expected.code);
+      assert.equal(actual.message, expected.message);
+      return true;
+    });
+  }
 
-test('check accepts the prefetch options the warmer forwards to the read', () => {
-  const r = actions.check('browse.prefetch', { urls: ['https://example.com'], timeoutMs: 5000, locale: 'ko-KR' });
-  assert.equal(r.ok, true, JSON.stringify(r));
+  const media = createDownloadMedia({ fetchImpl: async () => { throw new Error('fetch must not run'); } });
+  const watch = createWatch({ readText: async () => { throw new Error('read must not run'); } });
+  const prefetch = createPrefetch({ readText: async () => { throw new Error('read must not run'); } });
+  const report = createReport({ session: { run: async () => { throw new Error('session must not run'); } } });
+  const api = createApi({ fetchImpl: async () => { throw new Error('fetch must not run'); } });
+  const registry = { known: { url: 'https://example.com' } };
+  const recipes = createRecipes({ registry, exec: async () => { throw new Error('exec must not run'); } });
+
+  await sameRefusal(
+    () => validateDownloadMedia([], { outDir: 'out' }),
+    () => media([], { outDir: 'out' }),
+  );
+  await sameRefusal(() => validateWatchUrls([]), () => watch([]));
+  await sameRefusal(() => validatePrefetchUrls([]), () => prefetch([]));
+  await sameRefusal(
+    () => planReportBuild({ items: [], outFile: 'out.pdf', paper: { format: 'A4' } }),
+    () => report.build({ items: [], outFile: 'out.pdf', paper: { format: 'A4' } }),
+  );
+  await sameRefusal(() => validateApiBatch([]), () => api.batch([]));
+  await sameRefusal(() => validateRecipeRun('unknown', registry), () => recipes.run('unknown'));
 });

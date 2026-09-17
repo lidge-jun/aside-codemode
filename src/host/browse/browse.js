@@ -8,7 +8,7 @@ import { createBreaker } from './policy.js';
 import { createCaptureMany } from './capture.js';
 import { createReadText } from './read-text.js';
 import { createCache } from './cache.js';
-import { createApprovals } from './approvals.js';
+import { createApprovals, requireApprovalId } from './approvals.js';
 import { createTabJournal } from './tab-journal.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
@@ -111,8 +111,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // which one the caller meant.
   async function approve(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
-    const id = opts && typeof opts.approvalId === 'string' ? opts.approvalId : null;
-    if (!id) { const e = new Error('browse.approve needs the approvalId the refusal returned'); e.code = 'EBADVAL'; throw e; }
+    const id = requireApprovalId('browse.approve', opts);
     const claimed = approvals.claim(id);
     // Nothing moved. Whatever state it is in is the answer, and the caller is told which
     // one rather than being left to infer it from a failure.
@@ -125,8 +124,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 
   async function reject(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
-    const id = opts && typeof opts.approvalId === 'string' ? opts.approvalId : null;
-    if (!id) { const e = new Error('browse.reject needs the approvalId the refusal returned'); e.code = 'EBADVAL'; throw e; }
+    const id = requireApprovalId('browse.reject', opts);
     const done = approvals.reject(id);
     // A claimed record is never reported as rejected. By then the steps may have run, and
     // saying otherwise is the one wrong answer this surface can give.

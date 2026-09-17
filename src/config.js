@@ -6,10 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
 
-// Directories that cost a lot to walk and almost never hold an answer.
-// Measured on this machine with roots=$HOME: 1,565,196 files / 7.8s without
-// them, 336,206 files / 0.53s with them — ~13x faster for the same hits.
-// ~/Library alone is 1,138,593 of those files (caches, app support).
+// Directories that cost a lot to walk and almost never hold an answer. How much they cost is
+// a property of the machine, so the number belongs to a note rather than to this comment:
+// evidence/exclude-pruning-260918.md records 756,239 paths walked without them against
+// 348,353 with them, on one home directory, reproducible with scripts/measure-excludes.mjs.
 // These are DEFAULTS, not policy: set excludeGlobs to [] to search everything,
 // or pass noIgnore/hidden per call to override ignore behaviour separately.
 const DEFAULT_EXCLUDES = [

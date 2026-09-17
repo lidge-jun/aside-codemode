@@ -93,6 +93,7 @@ test('only the cited measurement notes are tracked under evidence/', () => {
     'evidence/aside-mcp-attach-260918.md',
     'evidence/browse-compression-260915.md',
     'evidence/dev-folder-51x.md',
+    'evidence/exclude-pruning-260918.md',
     'evidence/review-hardening-20260913.json',
     'evidence/summary-compound.md',
     'evidence/summary.md',

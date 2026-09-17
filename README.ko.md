@@ -12,6 +12,7 @@
 
 ```bash
 npm install -g aside-codemode
+codemode --install-mcp
 codemode --doctor
 ```
 
@@ -86,6 +87,7 @@ bash 카드가 보이는 방식을 선호하는 사용자는 CLI 경로를 이�
 
 ```sh
 npm install -g aside-codemode
+codemode --install-mcp
 codemode --doctor
 ```
 
@@ -100,31 +102,44 @@ codemode --doctor
 
 ### 경로 1: 네이티브 MCP
 
-Aside에는 MCP 클라이언트가 들어 있습니다. 패키지 체크아웃에서 명령 하나를 실행하면 계정용 파일을
-설치하고 네이티브 MCP용 `aside-codemode` 서버도 등록합니다. `0`은 `~/.aside/u/<n>/`에서 확인한
-계정 번호로 바꿉니다.
+Aside에는 MCP 클라이언트가 들어 있습니다. 설치한 CLI가 `aside-codemode`를 등록하고, 실행 중인
+Aside 데몬 안에서 도구 목록 마이그레이션을 초기화한 다음 일반 세션 하나로 도구를 찾습니다. 마지막에는
+Aside가 저장한 도구 목록까지 확인합니다.
 
 ```sh
-node scripts/install-codemode.mjs install --account 0 --json
+codemode --install-mcp --account u1
 ```
 
-MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. 다른 바이너리를
-쓰고 싶을 때만 codemode 설정의 절대 `rgPath`나 `CODEMODE_RG`로 재정의합니다. 이 명령은 Aside가
-자체 도구 목록을 찾도록 준비할 뿐, 목록을 임의로 만들어 넣지 않습니다. **MCP는 설치 명령을
-실행하는 순간이 아니라 다음 Aside 세션을 열 때 활성화됩니다.** 새 세션이 서버에 연결해
-`execute_code`를 캐시에 넣고 `mcp__aside-codemode__execute_code`를 붙입니다. 이미 실행 중인 세션에
-즉시 붙는지는 확인하지 않았습니다.
+`--account`는 생략할 수 있습니다. 지정할 때는 `~/.aside/u/`에 있는 `u<n>` 이름을 씁니다. 결과를
+기계가 읽어야 하면 `--json`을 붙입니다. Aside CLI 1.26.906.1630을 쓴 macOS 실측에서는 데몬 설정
+단계가 종료 코드 0으로 끝났고, 마이그레이션 버전 0과 빈 도구 목록 맵을 다시 읽었습니다. 이어진 찾기
+세션도 종료 코드 0이었고, `settings.json`에는
+`inventories["aside-codemode"].tools = ["execute_code"]`가 남았습니다. 설정 창이나 데몬 재시작 없이
+[17초가 걸렸습니다](evidence/aside-mcp-activation-260918.md). 이 활성화 경로는 Windows에서는
+측정하지 않았습니다.
 
-도구 목록 찾기는 캐시가 없는 등록 서버를 모두 대상으로 삼습니다. 그중 연결할 수 없는 서버는
-Aside가 끄고 마이그레이션 버전까지 올리므로 자동으로 다시 시도하지 않습니다. 다른 서버에도 캐시가
-없으면 설치기가 자동 찾기를 시작하지 않는 이유입니다. 이때는 직접 처리하거나, 손으로 처리하고
-싶을 때와 마찬가지로 **Settings > Plugins & MCPs > MCPs**에서 `aside-codemode`를 고른 뒤
-**Refresh tools**를 실행합니다. 도구 한 개가 캐시에 들어왔는지 확인하고 새 Aside 세션을 엽니다.
+MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. 다른 바이너리를
+쓰고 싶을 때만 codemode 설정의 절대 `rgPath`나 `CODEMODE_RG`로 재정의합니다. CLI가 도구 목록을
+꾸며서 넣지는 않습니다. Aside 데몬이 `execute_code`를 직접 찾아 캐시에 넣고, 새 세션에는
+`mcp__aside-codemode__execute_code`로 붙입니다.
+
+데몬의 `set()`은 `mcp` 객체 전체를 바꾸므로 다른 서버의 도구 목록 캐시도 모두 사라집니다. 이어지는
+찾기 과정은 그 서버들을 다시 방문합니다. 이때 연결할 수 없는 서버는 Aside가 끄고 자동으로 다시
+시도하지 않습니다. 그래서 `codemode --install-mcp`는 다른 활성 MCP 서버나 다른 도구 목록 캐시가
+하나라도 있으면 거부합니다. 위험한 서버 이름과 원래 실행할 두 명령을 보여주고 설정은 바꾸지 않습니다.
+다른 서버가 모두 연결 가능한 상태이고 도구를 전부 다시 찾는 데 동의할 때만
+`codemode --install-mcp --account u1 --force`를 씁니다.
+
+다른 MCP 서버를 쓰는 기계에서는 예전 파일 기반 경로도 그대로 쓸 수 있습니다. 패키지 체크아웃에서
+`node scripts/install-codemode.mjs install --account 0 --json`을 실행해 `settings.json`을 쓴 다음,
+**Settings > Plugins & MCPs > MCPs**에서 `aside-codemode`를 고르고 **Refresh tools**를 실행합니다.
+다른 방법은 Aside 데몬을 재시작해 `settings.json`을 다시 읽힌 뒤 일반 세션 하나로 도구를 찾는
+것입니다. 새 작업 세션을 열기 전에 `execute_code`가 캐시에 들어왔는지 확인합니다.
 
 지금 어느 상태인지는 직접 짐작하지 않아도 됩니다. `codemode --doctor`가 계정마다 하나씩
 알려줍니다. `not-registered`, `registered-not-activated`, `activated`, 그리고 예전 설치를
 가리키고 있으면 `stale-entry`입니다. `activated`가 아니면 다음에 할 일을 같이 적어줍니다.
-설치기는 Aside의 도구 목록 캐시를 손으로 쓰지 않습니다. 그렇게 만든 캐시는 도구 정의가 바뀌는
+CLI는 Aside의 도구 목록 캐시를 손으로 쓰지 않습니다. 그렇게 만든 캐시는 도구 정의가 바뀌는
 순간 조용히 낡습니다.
 
 이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **1,984바이트**짜리 도구

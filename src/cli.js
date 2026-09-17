@@ -36,6 +36,10 @@ function readStdin() {
   try { return readFileSync(0, 'utf8'); } catch (_) { return ''; }
 }
 
+// Declared up here because --install-mcp runs before the config is loaded, and it names the
+// same server the doctor reports on. One spelling, one place.
+const MCP_SERVER = 'aside-codemode';
+
 // Startup failures used to escape as raw node stack traces (a Windows root in
 // a committed config crashed the macOS CLI with a realpath ENOENT dump).
 // Every exit path now emits the same {ok:false,error} envelope the guest uses,
@@ -63,6 +67,76 @@ if (has('--enable-browse')) {
   }
 }
 
+// Also before the config load, and for the same reason: this is the command that puts the
+// MCP server in front of Aside, and a config it would go on to fix must not stop it.
+//
+// MCP is the first-class surface, so registration is one command with no editor and no
+// settings window. AGENTS.md and the skill template are deliberately untouched here: the
+// tool arrives as a tool, and a machine that only wants MCP installs only MCP.
+if (has('--install-mcp')) {
+  const { activateMcp, normalizedServerEntry, normalizeAccount, planActivation } = await import('./activate.js');
+  const { listAccountRoots } = await import('./register.js');
+  const { spawnSync } = await import('node:child_process');
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+  const asideHome = process.env.ASIDE_HOME ?? path.join(os.homedir(), '.aside');
+  const requested = flag('--account');
+  const { roots } = listAccountRoots({
+    asideHome,
+    only: requested ? [String(requested).replace(/^u/, '')] : undefined,
+  });
+  const target = roots[0];
+  const entry = normalizedServerEntry({ execPath: process.execPath, repoRoot });
+  const settingsPath = path.join(target.root, 'settings.json');
+
+  const run = (cmd, args) => {
+    const res = spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    return {
+      code: res.status,
+      stdout: res.stdout ?? '',
+      stderr: res.stderr ?? '',
+      cliMissing: Boolean(res.error && res.error.code === 'ENOENT'),
+    };
+  };
+  // The proof of activation is the cached inventory Aside wrote, not our own report of
+  // having asked for it.
+  const readInventory = () => {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+      const inv = settings && settings.mcp && settings.mcp.inventories
+        ? settings.mcp.inventories[MCP_SERVER] : null;
+      return inv && Array.isArray(inv.tools) ? inv.tools.map((t) => t && t.name).filter(Boolean) : [];
+    } catch { return []; }
+  };
+
+  const result = await activateMcp({
+    server: MCP_SERVER,
+    entry,
+    account: normalizeAccount(target.id),
+    asideCli: process.env.CODEMODE_ASIDE_CLI || 'aside',
+    force: has('--force'),
+    discover: !has('--no-discovery'),
+    run,
+    readInventory,
+  });
+  const report = { ...result, account: 'u' + target.id, settingsPath, server: MCP_SERVER, entry };
+  if (has('--json')) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log((report.ok ? 'ok' : 'failed') + ': ' + MCP_SERVER + ' on account u' + target.id);
+    if (Array.isArray(report.tools)) console.log('cached tools: ' + (report.tools.join(', ') || '(none)'));
+    if (report.error) console.error('error: ' + report.error + (report.detail ? ' - ' + report.detail : ''));
+    if (report.blocked) {
+      console.error('other MCP servers would be reset by this write: ' + [...new Set([...(report.atRisk || []), ...(report.cached || [])])].join(', '));
+      console.error('re-run with --force to accept that, or register from Aside Settings > Plugins & MCPs > MCPs instead.');
+      console.error('the two commands this would have run:');
+      for (const step of planActivation({ account: normalizeAccount(target.id), server: MCP_SERVER, entry, force: true })) {
+        console.error('  ' + step.cmd + ' ' + step.args.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' '));
+      }
+    }
+    if (report.next) console.log('next: ' + report.next);
+  }
+  process.exit(report.ok ? 0 : 1);
+}
+
 let config;
 try {
   config = loadConfig(argv);
@@ -88,9 +162,10 @@ try {
 const rgResolver = createDetailedRgResolver(config);
 const globals = signal => createHostGlobals(config, assertInside, signal);
 
-const MCP_SERVER = 'aside-codemode';
 const MCP_ACCOUNT_LIMIT = 32;
-const MCP_NEXT = 'Open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, then start a NEW Aside session.';
+// The one command comes first because it is the whole step. The settings window is the
+// fallback for a machine with other MCP servers, where --install-mcp refuses on purpose.
+const MCP_NEXT = 'Run: codemode --install-mcp. It registers the server through the Aside daemon and runs one session so the inventory is cached. If another MCP server is registered it refuses rather than resetting that server; then open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, and start a NEW Aside session.';
 const MCP_FAILED_DISCOVERY_NEXT = 'Fix the aside-codemode command or config and re-run install. Aside has advanced the migration version, so discovery will not retry on its own.';
 
 function sameResolvedPath(actual, expected) {
@@ -297,11 +372,15 @@ if (codeFile) {
   code = inline === '-' ? readStdin() : inline;
 }
 if (!code || !code.trim()) {
-  console.error("usage: node src/cli.js --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
-  console.error('       node src/cli.js --code-file <path>   # safest: no shell quoting');
-  console.error('       node src/cli.js --code - < script.js  # same, via stdin');
-    console.error('       node src/cli.js --doctor [--browse] [--config <file>] [--cwd <dir>]');
-  console.error('       node src/cli.js --enable-browse      # turns browse on in your user config');
+  // The name the caller typed. A globally installed bin that tells you to run
+  // "node src/cli.js" is telling you about a directory you do not have.
+  const self = /(^|[\\/])cli\.js$/.test(process.argv[1] || '') ? 'node src/cli.js' : 'codemode';
+  console.error('usage: ' + self + ' --install-mcp [--account u1] [--json]  # MCP: register and activate in one command');
+  console.error('       ' + self + " --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
+  console.error('       ' + self + ' --code-file <path>   # safest: no shell quoting');
+  console.error('       ' + self + ' --code - < script.js  # same, via stdin');
+  console.error('       ' + self + ' --doctor [--browse] [--config <file>] [--cwd <dir>]');
+  console.error('       ' + self + ' --enable-browse      # turns browse on in your user config');
   process.exit(2);
 }
 

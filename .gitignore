@@ -15,6 +15,7 @@ devlog/
 # records are written here. The exceptions are the measurement notes the README cites and the
 # tests read, which carry numbers and no machine identity.
 evidence/*
+!evidence/aside-mcp-activation-260918.md
 !evidence/aside-mcp-attach-260918.md
 !evidence/browse-compression-260915.md
 !evidence/dev-folder-51x.md

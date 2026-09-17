@@ -18,7 +18,7 @@ export { helperLoadPathFor };
 const START = '<!-- aside-codemode:start -->';
 const END = '<!-- aside-codemode:end -->';
 
-export const MCP_ACTIVATION_REQUIRED = 'Open Aside Settings > Plugins & MCPs > MCPs, ensure the aside-codemode server is present, use Refresh tools so its inventory is cached, then start a new Aside session. For MCP search actions, set an absolute rgPath or CODEMODE_RG because the Aside daemon starts the server with a minimal environment.';
+export const MCP_ACTIVATION_REQUIRED = 'Run codemode --install-mcp: it registers the server through the Aside daemon and runs one session so the inventory is cached. It refuses when another MCP server would be reset, and then the manual path is to open Aside Settings > Plugins & MCPs > MCPs, ensure the aside-codemode server is present, use Refresh tools so its inventory is cached, then start a new Aside session. Search actions resolve the ripgrep Aside ships with, so the minimal environment the daemon starts the server in is no longer a blocker; set an absolute rgPath or CODEMODE_RG only if that binary is absent.';
 export const MCP_ACTIVATION_PENDING = 'Activation is pending. First make the Aside daemon re-read settings by restarting it when safe or by using Refresh tools in Aside Settings > Plugins & MCPs > MCPs. Then start a new Aside session; that session performs discovery and caches the aside-codemode inventory. The installer does not restart the daemon.';
 
 // One filler for both writers. The installer and register both hand an account the same

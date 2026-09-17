@@ -11,7 +11,9 @@ const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const cli = path.join(checkout, 'bin', 'codemode.mjs');
 const serverPath = path.join(checkout, 'src', 'server.js');
 const configPath = path.join(checkout, 'codemode.config.json');
-const next = 'Open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, then start a NEW Aside session.';
+// Pinned as a whole string on purpose: this is the sentence a stuck user reads, and the
+// first thing in it has to be the command that finishes the install.
+const next = 'Run: codemode --install-mcp. It registers the server through the Aside daemon and runs one session so the inventory is cached. If another MCP server is registered it refuses rather than resetting that server; then open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, and start a NEW Aside session.';
 
 function server(command = process.execPath, args = [serverPath, '--config', configPath]) {
   return { command, args, transport: 'stdio' };

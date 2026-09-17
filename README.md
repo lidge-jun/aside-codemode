@@ -12,6 +12,7 @@ Five real pages are 1.87 MB of HTML. The answer to a question about them is 4.4 
 
 ```bash
 npm install -g aside-codemode
+codemode --install-mcp
 codemode --doctor
 ```
 
@@ -90,6 +91,7 @@ attach MCP servers or when you prefer account guidance and a visible `bash` card
 
 ```sh
 npm install -g aside-codemode
+codemode --install-mcp
 codemode --doctor
 ```
 
@@ -104,33 +106,45 @@ codemode --doctor
 
 ### Route 1: native MCP
 
-Aside ships an MCP client. From the package checkout, one command installs the account payload
-and registers `aside-codemode` for native MCP (replace `0` with the account number in
-`~/.aside/u/<n>/`):
+Aside ships an MCP client. The installed CLI registers `aside-codemode`, asks the live Aside
+daemon to reset its tool-inventory migration, runs one ordinary discovery session, and verifies
+the inventory Aside wrote:
 
 ```sh
-node scripts/install-codemode.mjs install --account 0 --json
+codemode --install-mcp --account u1
 ```
+
+`--account` is optional; use the `u<n>` name from `~/.aside/u/`. Add `--json` for a machine-readable
+report. On the measured macOS run, with Aside CLI 1.26.906.1630, the live settings write exited 0
+and read back migration version 0 with an empty inventory map. The discovery session exited 0,
+and `settings.json` then contained `inventories["aside-codemode"].tools = ["execute_code"]`.
+The [measured run](evidence/aside-mcp-activation-260918.md) took 17 seconds, without opening
+Settings or restarting the daemon. This activation path has not been measured on Windows.
 
 The MCP server resolves Aside's bundled native ripgrep automatically on macOS and Windows.
 Set an absolute `rgPath` in codemode config or `CODEMODE_RG` only when you want to override it.
-The command prepares Aside's own tool-inventory discovery; it does not fabricate an inventory.
-**Activation happens when you start the next Aside session, not while the installer is
-running.** That new session connects to the server, caches `execute_code`, and attaches
-`mcp__aside-codemode__execute_code`. Hot-attachment to an already running session has not been
-verified.
+The command does not fabricate an inventory: the Aside daemon discovers and caches
+`execute_code`, which is attached as `mcp__aside-codemode__execute_code` in a new session.
 
-Inventory discovery applies to every registered MCP server that does not yet have a cached
-inventory. If one of those servers cannot be reached, Aside disables it and advances the
-migration version, so it will not be retried automatically. That is why the installer refuses
-to trigger discovery when another server is uncached. In that case, or if you prefer to do it
-yourself, open **Settings > Plugins & MCPs > MCPs**, select `aside-codemode`, use **Refresh
-tools**, confirm that one tool is cached, and then start a new Aside session.
+The daemon's `set()` replaces the whole `mcp` object, so this operation drops every other
+server's cached inventory. Discovery then visits those servers again; Aside disables one it
+cannot reach and does not retry it automatically. `codemode --install-mcp` therefore refuses
+when another enabled MCP server or another cached inventory exists. It names what is at risk,
+prints the two commands it would have run, and makes no change. Use
+`codemode --install-mcp --account u1 --force` only when every other server is reachable and you
+accept rediscovering all of their tools.
+
+For a machine that already has other MCP servers, the older file-based path remains available.
+From the package checkout, run
+`node scripts/install-codemode.mjs install --account 0 --json` to write `settings.json`, then
+open **Settings > Plugins & MCPs > MCPs**, select `aside-codemode`, and use **Refresh tools**.
+Alternatively, restart the Aside daemon so it reloads `settings.json`, then let an ordinary
+session run discovery. Confirm that `execute_code` is cached before starting a new work session.
 
 You do not have to guess which state you are in. `codemode --doctor` reports one per Aside
 account: `not-registered`, `registered-not-activated`, `activated`, or `stale-entry` when the
 entry still points at an older installation. Anything but `activated` comes with the exact next
-step. The installer never writes Aside's inventory cache by hand; doing so would go stale when
+step. The CLI never writes Aside's inventory cache by hand; doing so would go stale when
 the tool definition changes.
 
 The agent then calls `mcp__aside-codemode__execute_code` directly. Its **1,984-byte** tool

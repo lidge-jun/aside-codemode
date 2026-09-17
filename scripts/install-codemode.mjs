@@ -387,7 +387,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1] === fileU
       if (result.activationPending) {
         console.log('Route 2 (native MCP): activation pending.');
         console.log('  1. The normalized server entry is written with discovery migration keys omitted.');
-        console.log('  2. Make the Aside daemon re-read settings: restart it when safe, or use Refresh tools in Aside Settings > Plugins & MCPs > MCPs. This installer does not restart it.');
+        console.log('  2. Run codemode --install-mcp: it writes the entry through the Aside daemon, so the live copy of settings is the one that changes and no restart is needed. This installer does not restart it. Fallback for a machine with other MCP servers: restart it when safe, or use Refresh tools in Aside Settings > Plugins & MCPs > MCPs.');
         console.log('  3. Start a new Aside session; that session performs tool discovery.');
       } else {
         console.log('Route 2 (native MCP): ' + (result.activationRequired || 'already activated.'));

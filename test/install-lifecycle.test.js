@@ -355,7 +355,7 @@ test('successful install prints both routes and the MCP activation requirements'
   assert.equal(out.status, 0, out.stderr + out.stdout);
   assert.match(out.stdout, /Route 1 \(CLI\): ready immediately/);
   assert.match(out.stdout, /Route 2 \(native MCP\)/);
-  assert.match(out.stdout, /Make the Aside daemon re-read settings/);
+  assert.match(out.stdout, /codemode --install-mcp/);
   assert.match(out.stdout, /restart it when safe, or use Refresh tools/);
   assert.match(out.stdout, /This installer does not restart it/);
   assert.match(out.stdout, /Start a new Aside session; that session performs tool discovery/);

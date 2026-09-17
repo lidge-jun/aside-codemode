@@ -108,6 +108,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     let status = null;
     let fetchError = null;
     let fetched = null;
+    let contentType = null;
     // A warm entry is only worth reusing if it was a real observation. Failures are not
     // cached at all, so a hit is always something we were willing to call an answer.
     const cacheKeyParts = { namespace: 'readText', subject: url, accountRoot, locale: opts.locale || null };
@@ -131,6 +132,9 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     try {
       fetched = await doFetch(url, { signal: ac.signal, redirect: 'follow' });
       status = fetched.status;
+      contentType = fetched.headers && typeof fetched.headers.get === 'function'
+        ? fetched.headers.get('content-type')
+        : null;
       html = await fetched.text();
     } catch (e) {
       fetchError = String(e && e.message ? e.message : e);
@@ -138,46 +142,52 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       clearTimeout(timer);
     }
 
-    // The body is markdown-shaped text. It used to be returned under 'markdown' alone, and a
-    // caller reading res.text - which is what everyone reaches for - got nothing. One field,
-    // named for what it is, with the shape stated separately. Two fields would double the
-    // payload and the budget would drop whichever came second.
-    const markdown = fetchError ? '' : toMarkdown(html);
-    // format describes what the body actually is. The fetch path converts html to markdown;
-    // the browser path returns the rendered innerText, which has no markup at all. Saying
-    // 'markdown' for both would be the old key name pretending to be a description.
+    // Only HTML is markup to transform. JSON and other text formats are already their own
+    // content; passing them through the HTML converter can change bytes and make valid JSON
+    // impossible to parse. A missing type keeps the historical HTML behavior for injected
+    // fetch implementations and servers that omit the header.
+    const mediaType = String(contentType || '').split(';', 1)[0].trim().toLowerCase();
+    const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+    const isHtml = !mediaType || mediaType === 'text/html' || mediaType === 'application/xhtml+xml';
+    const format = isHtml ? 'markdown' : (isJson ? 'json' : 'text');
+    const text = fetchError ? '' : (isHtml ? toMarkdown(html) : html);
+    // format describes what the body actually is. HTML becomes markdown, non-HTML fetches
+    // stay in their declared textual form, and the browser path returns rendered innerText.
     const body0 = (text, format = 'markdown') => ({ text, format, chars: text.length });
     // An http status that says "not today" is not a page. Storing it as one is how a 503
     // became a page's new content and a 403 became an empty article.
-    const httpBad = status === 401 || status === 403 || status === 429 || (status !== null && status >= 500);
+    // HTTP defines client and server errors as 400-599. Redirects and successes can still
+    // carry content after fetch follows redirects; nonstandard statuses above 599 are not
+    // silently assigned semantics this protocol does not define.
+    const httpBad = status !== null && status >= 400 && status <= 599;
     if (httpBad) {
       return {
-        url, source: 'fetch', status, ...body0(markdown), ok: false,
-        blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : 'auth'),
+        url, source: 'fetch', status, ...body0(text, format), ok: false,
+        blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : ([401, 403].includes(status) ? 'auth' : 'blocked')),
         fallbackReason: 'http-' + status,
       };
     }
     // A sign-in page loads perfectly and says nothing we asked for. policy.detect names it,
     // and the final url is the one the redirect landed on, not the one we asked for.
     const finalUrl = (fetched && fetched.url) || url;
-    const wall = fetchError ? null : detect({ requestedUrl: url, finalUrl, tree: markdown });
+    const wall = fetchError || !isHtml ? null : detect({ requestedUrl: url, finalUrl, tree: text });
     if (wall && wall.kind === 'login-wall') {
       return {
-        url, finalUrl, source: 'fetch', status, ...body0(markdown), ok: false,
+        url, finalUrl, source: 'fetch', status, ...body0(text, format), ok: false,
         blockKind: 'login-wall', fallbackReason: 'login-wall',
       };
     }
     const verdict = fetchError
       ? { needed: true, reason: `fetch failed: ${fetchError}` }
-      : needsBrowser(html, markdown);
+      : (isHtml ? needsBrowser(html, text) : { needed: false, reason: null });
 
     if (!verdict.needed) {
-      const out = { url, source: 'fetch', status, ...body0(markdown), ok: true, fallbackReason: null };
+      const out = { url, source: 'fetch', status, ...body0(text, format), ok: true, fallbackReason: null };
       if (cache) await cache.put(cacheKeyParts, out);
       return out;
     }
     if (!browse) {
-      return { url, source: 'fetch', status, ...body0(markdown), ok: false, fallbackReason: verdict.reason, degraded: true };
+      return { url, source: 'fetch', status, ...body0(text, format), ok: false, fallbackReason: verdict.reason, degraded: true };
     }
     // fullText asks the page for its rendered body. Without it the only text the batch
     // returns is a 160-character sample, and promoting a summary to "the article" is the
@@ -189,7 +199,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const out = enough
       ? { url, source: 'browser', status, ...body0(body, 'text'),
           fallbackReason: verdict.reason, browserOk: true, ok: true, blockKind: item.blockKind || null }
-      : { url, source: 'browser', status, ...body0(markdown),
+      : { url, source: 'browser', status, ...body0(text, format),
           fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, degraded: true,
           degradedReason: item.ok ? 'the browser returned no text' : 'the browser could not read the page',
           blockKind: item.blockKind || null };

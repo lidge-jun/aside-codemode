@@ -11,7 +11,10 @@
 // call HANGS. (PowerShell does not hang; it mangles the argument into a parse error
 // instead.) Both were observed from a real Aside agent on 2026-09-14. Anything with a quote
 // in it should go through --code-file or stdin.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
@@ -85,6 +88,108 @@ try {
 const rgResolver = createRgResolver(config);
 const globals = signal => createHostGlobals(config, assertInside, signal);
 
+const MCP_SERVER = 'aside-codemode';
+const MCP_ACCOUNT_LIMIT = 32;
+const MCP_NEXT = 'Open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, then start a NEW Aside session.';
+
+function sameResolvedPath(actual, expected) {
+  return typeof actual === 'string' && actual.length > 0
+    && path.resolve(actual) === path.resolve(expected);
+}
+
+function pointsToThisInstallation(entry) {
+  if (!entry || typeof entry !== 'object' || !Array.isArray(entry.args)) return false;
+  const expectedServer = fileURLToPath(new URL('./server.js', import.meta.url));
+  if (!sameResolvedPath(entry.command, process.execPath)
+      || !sameResolvedPath(entry.args[0], expectedServer)) return false;
+
+  const configIndex = entry.args.indexOf('--config');
+  if (configIndex === -1) return true;
+  const expectedConfig = fileURLToPath(new URL('../codemode.config.json', import.meta.url));
+  return sameResolvedPath(entry.args[configIndex + 1], expectedConfig);
+}
+
+function mcpAccountReport({ id, root }) {
+  const base = {
+    id,
+    settingsReadable: true,
+    settingsError: null,
+    serverRegistered: false,
+    pointsToThisInstallation: null,
+    cachedToolCount: 0,
+    cachedToolNames: [],
+    state: 'not-registered',
+  };
+  let mcp;
+  try {
+    ({ mcp } = JSON.parse(readFileSync(path.join(root, 'settings.json'), 'utf8')));
+  } catch (e) {
+    return {
+      ...base,
+      settingsReadable: false,
+      settingsError: e.message,
+      serverRegistered: null,
+      next: MCP_NEXT,
+    };
+  }
+
+  const entry = mcp && typeof mcp === 'object'
+    && mcp.servers && typeof mcp.servers === 'object'
+    ? mcp.servers[MCP_SERVER]
+    : null;
+  if (!entry || typeof entry !== 'object') return { ...base, next: MCP_NEXT };
+
+  const inventory = mcp.inventories && typeof mcp.inventories === 'object'
+    ? mcp.inventories[MCP_SERVER]
+    : null;
+  const tools = inventory && typeof inventory === 'object' && Array.isArray(inventory.tools)
+    ? inventory.tools
+    : [];
+  const cachedToolNames = tools
+    .map((tool) => typeof tool === 'string' ? tool : tool && tool.name)
+    .filter((name) => typeof name === 'string');
+  const current = pointsToThisInstallation(entry);
+  const state = !current
+    ? 'stale-entry'
+    : tools.length > 0 ? 'activated' : 'registered-not-activated';
+  const result = {
+    ...base,
+    serverRegistered: true,
+    pointsToThisInstallation: current,
+    cachedToolCount: tools.length,
+    cachedToolNames,
+    state,
+  };
+  if (state !== 'activated') result.next = MCP_NEXT;
+  return result;
+}
+
+function mcpDoctorReport(env = process.env) {
+  const asideHome = env.ASIDE_HOME || path.join(os.homedir(), '.aside');
+  const rgPathAbsolute = typeof config.rgPath === 'string' && path.isAbsolute(config.rgPath);
+  let roots = [];
+  let discoveryError = null;
+  try {
+    roots = readdirSync(path.join(asideHome, 'u'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((a, b) => Number(a) - Number(b));
+  } catch (e) {
+    discoveryError = e.message;
+  }
+  const accountsTruncated = roots.length > MCP_ACCOUNT_LIMIT;
+  if (accountsTruncated) roots = roots.slice(0, MCP_ACCOUNT_LIMIT);
+  return {
+    rgPathAbsolute,
+    rgPathConsequence: rgPathAbsolute
+      ? null
+      : 'A relative or unset rgPath cannot be found by the Aside daemon\'s minimal environment.',
+    discoveryError,
+    accountsTruncated,
+    accounts: roots.map((id) => mcpAccountReport({ id, root: path.join(asideHome, 'u', id) })),
+  };
+}
+
 
 // `--doctor` answers "why is this not working" without making the caller
 // reverse-engineer it from a failed search.
@@ -99,6 +204,7 @@ if (has('--doctor')) {
     configSources: config._sources,
     rgPath: config.rgPath,
     excludeGlobs: config.excludeGlobs,
+    mcp: mcpDoctorReport(),
   };
   try {
     report.rgResolved = await rgResolver();

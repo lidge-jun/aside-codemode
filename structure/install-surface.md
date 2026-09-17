@@ -1,20 +1,21 @@
 # Install surface
 
-aside-codemode has two supported install paths. Neither is the default, legacy, or deprecated. The
-CLI route writes three artifact groups into one Aside account and owns exactly one region of one
-file it did not create; `scripts/install-codemode.mjs` is the whole of that behaviour. The native
-MCP route adds one project-owned server entry to the account settings, while Aside owns the tool
-inventory that makes the registered tool attachable.
+aside-codemode has two supported install paths. Native MCP is first-class: it adds one
+project-owned server entry to the account settings, while Aside owns the tool inventory that makes
+the registered tool attachable. The CLI route follows for hosts that do not attach MCP servers and
+for people who prefer a bash card. It writes three artifact groups into one Aside account and owns
+exactly one region of one file it did not create; `scripts/install-codemode.mjs` is the whole of
+that behaviour.
 
 ## What an install writes
 
 | Route | Path | Role | Owner |
 |---|---|---|---|
+| MCP | `settings.json` -> `mcp.servers.aside-codemode` | command, server arguments, and configuration path | this project owns only this entry; the user and Aside own the file |
+| MCP | `settings.json` -> `mcp.inventories` | Aside's cached discovery result used for tool attachment | Aside; this project must not write or synthesize it |
 | CLI | `codemode/` | the REPL helper, catalogue, and install manifest | the installer |
 | CLI | `skills/user/aside-codemode/` | full usage, failure handling, recovery, and references | the installer |
 | CLI | a marked region inside `AGENTS.md` | the always-injected summary | the installer owns the region, the user owns the file |
-| MCP | `settings.json` -> `mcp.servers.aside-codemode` | command, server arguments, and configuration path | this project owns only this entry; the user and Aside own the file |
-| MCP | `settings.json` -> `mcp.inventories` | Aside's cached discovery result used for tool attachment | Aside; this project must not write or synthesize it |
 
 The region is delimited by `<!-- aside-codemode:start -->` and its closing marker. Everything
 outside it is left exactly as found, so a user's own `AGENTS.md` survives an upgrade.
@@ -28,8 +29,9 @@ the tool has not been measured.
 
 The MCP child is launched by the Aside daemon with a minimal environment and a working directory
 inside the daemon's bundle, unlike the CLI route's normal shell environment. Its server
-configuration therefore needs an absolute `rgPath`; finding `rg` on the invoking shell's `PATH`
-does not prove that the MCP route can find it.
+configuration therefore needs an absolute `rgPath` or `CODEMODE_RG`; finding `rg` on the invoking
+shell's `PATH` does not prove that the MCP route can find it. Without the absolute pin, search
+actions fail with `ERG404` even when the CLI route works on the same machine.
 
 ## Why the paths are absolute
 

@@ -92,3 +92,26 @@ test('AC4b: stdin close exits the server with code 0', async () => {
   });
   assert.equal(code, 0);
 });
+
+// serverInfo.icons arrived with SEP-973 in protocol 2025-11-25. Advertising it to a client
+// that negotiated an older version would be a schema violation, so the field is gated on the
+// negotiated version rather than always sent.
+test('the icon is advertised on 2025-11-25 and withheld from older protocols', async () => {
+  const { cfg } = fixtureConfig();
+  const { child, call } = startServer(cfg);
+  const modern = await call('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+  assert.equal(modern.result.protocolVersion, '2025-11-25');
+  const icons = modern.result.serverInfo.icons;
+  assert.ok(Array.isArray(icons) && icons.length === 1, 'one icon is advertised');
+  assert.equal(icons[0].mimeType, 'image/png');
+  assert.match(icons[0].src, /^data:image\/png;base64,[A-Za-z0-9+/=]+$/);
+  assert.deepEqual(icons[0].sizes, ['448x336']);
+  child.stdin.end();
+
+  const { cfg: cfg2 } = fixtureConfig();
+  const { child: child2, call: call2 } = startServer(cfg2);
+  const legacy = await call2('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+  assert.equal(legacy.result.protocolVersion, '2025-06-18');
+  assert.equal(legacy.result.serverInfo.icons, undefined, 'an older negotiated protocol gets no icons field');
+  child2.stdin.end();
+});

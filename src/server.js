@@ -15,6 +15,26 @@ const SERVER_VERSION = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version;
 
+// SEP-973 added serverInfo.icons in protocol 2025-11-25, so a client that negotiated an
+// older version must not receive it. Aside parses the field and does not render it today —
+// its stdio rows draw a fixed glyph — but a server that only advertises what one client
+// happens to display is a server that never gets displayed anywhere else.
+const ICON_PROTOCOL = '2025-11-25';
+let cachedIcons;
+function serverIcons(protocolVersion) {
+  if (protocolVersion !== ICON_PROTOCOL) return null;
+  if (cachedIcons === undefined) {
+    try {
+      const png = readFileSync(new URL('../assets/logo.png', import.meta.url));
+      cachedIcons = [{ src: `data:image/png;base64,${png.toString('base64')}`, mimeType: 'image/png', sizes: ['448x336'] }];
+    } catch {
+      // A missing asset is cosmetic. Never let it take down initialize.
+      cachedIcons = null;
+    }
+  }
+  return cachedIcons;
+}
+
 function log(...args) {
   console.error('[aside-codemode]', ...args);
 }
@@ -64,10 +84,14 @@ async function main() {
     switch (msg.method) {
       case 'initialize': {
         const requested = msg.params && typeof msg.params.protocolVersion === 'string' ? msg.params.protocolVersion : null;
+        const protocolVersion = requested ?? PROTOCOL_VERSION;
+        const serverInfo = { name: SERVER_NAME, version: SERVER_VERSION };
+        const icons = serverIcons(protocolVersion);
+        if (icons) serverInfo.icons = icons;
         send(result(id, {
-          protocolVersion: requested ?? PROTOCOL_VERSION,
+          protocolVersion,
           capabilities: { tools: {} },
-          serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+          serverInfo,
         }));
         return;
       }

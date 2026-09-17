@@ -7,17 +7,19 @@ evidence needed to judge it.
 
 ## The product boundary
 
-aside-codemode supports two install paths. The CLI route uses one `bash` call to `codemode` plus a
-rule in the account's `AGENTS.md`. The native MCP route registers the server under
-`mcp.servers`; `aside exec` then attaches its tools as `mcp__aside-codemode__*` only after Aside has
-populated the matching `mcp.inventories` cache. Registration alone is not attachment: use the GUI
-Add or Refresh tools action, then start a new session. Hot-attachment to an already running session
-has not been measured. Neither install path is the default or a legacy compatibility route.
+aside-codemode has two supported install paths. Native MCP is the first-class path: it registers
+the server under `mcp.servers`, and `aside exec` attaches its tools as
+`mcp__aside-codemode__*` only after Aside has populated the matching `mcp.inventories` cache.
+Registration alone is not attachment: use the GUI Add or Refresh tools action, confirm the tool is
+cached, then start a new session. Hot-attachment to an already running session has not been
+measured. The CLI path follows for hosts that do not attach MCP servers and for people who prefer
+one visible `bash` call to `codemode` plus account guidance in `AGENTS.md`.
 
-The CLI route inherits the invoking shell's environment and working directory. The MCP route is
-spawned by the Aside daemon with a minimal environment and a working directory inside the daemon's
-bundle. Ripgrep can therefore resolve on the CLI route and fail on the MCP route from the same
-checkout; the MCP configuration needs an absolute `rgPath` that works in that environment.
+The MCP route is spawned by the Aside daemon with a minimal environment and a working directory
+inside the daemon's bundle. Ripgrep can therefore fail there while the CLI route, which inherits
+the invoking shell's environment and working directory, works from the same checkout. The MCP
+configuration needs an absolute `rgPath` that works in the daemon environment; otherwise search
+actions fail with `ERG404`.
 
 File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`, and a
 guest write through either route is not one of those cards.
@@ -34,13 +36,13 @@ ceiling. The batch helper `cm` runs there and owns the part a hand-written loop 
 tabs are open at once, closing a tab whose item threw, and refusing to call a run finished when it
 was not.
 
-The CLI is this package. `bin/` holds the entry point, `bin/codemode.mjs`, and `src/cli.js` parses
-the invocation behind it. Guest code arrives as `--code-file`, as `--code -` on stdin, or as
-`--code` for a short expression with no quotes of its own.
-
 The MCP server exposes the same execution surface as `execute_code`. Aside launches it from the
 per-account server registration and attaches it to new sessions only when the tool inventory is
 cached.
+
+The CLI is this package's follow-on route. `bin/` holds the entry point, `bin/codemode.mjs`, and
+`src/cli.js` parses the invocation behind it. Guest code arrives as `--code-file`, as `--code -`
+on stdin, or as `--code` for a short expression with no quotes of its own.
 
 ## What the guest may reach
 

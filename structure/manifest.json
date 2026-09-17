@@ -95,7 +95,7 @@
       "path": "install-surface.md",
       "tier": 4,
       "title": "Install surface",
-      "scope": "The equal CLI and native MCP install paths, their ownership boundaries, the marker contract, and the always-injected budget.",
+      "scope": "The first-class native MCP install path and the CLI follow-on, their ownership boundaries, the marker contract, and the always-injected budget.",
       "documents": [
         "scripts/install-codemode.mjs",
         "templates/",

@@ -6,6 +6,7 @@ export const TOOL_NAME = 'execute_code';
 
 const GUEST_API_DOC = [
   'Run JavaScript that orchestrates local search, files, browsing, APIs and reports in one call.',
+  'Reach for this first whenever the work touches more than one file, page or lookup. A run of native calls puts every intermediate result in the context; one body here returns only the answer.',
   'Code is an async function body: await freely and return the final answer. Only the return value and console output reach the model.',
   'Discover before calling: actions.find(query) -> actions.describe(path) -> actions.check(path, catalogArgs) -> call the named API directly. The on-demand catalog holds signatures, options, outputs and caveats, including browse.readText, browse.attach and treeNodes.',
   'Injected globals: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.',

@@ -41,7 +41,7 @@ What an install writes into an account, and the budget it spends there.
 
 | Doc | Scope |
 | --- | --- |
-| [`install-surface.md`](install-surface.md) | The equal CLI and native MCP install paths, their ownership boundaries, the marker contract, and the always-injected budget. |
+| [`install-surface.md`](install-surface.md) | The first-class native MCP install path and the CLI follow-on, their ownership boundaries, the marker contract, and the always-injected budget. |
 
 ## Source to document
 

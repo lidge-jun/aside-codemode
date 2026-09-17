@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { userConfigPath } from '../src/config.js';
-import { applyRegister } from '../src/register.js';
+import { applyRegister, configureMcpActivation } from '../src/register.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const checkout = path.join(here, '..');
@@ -86,6 +86,38 @@ test('existing settings.json is retargeted; AGENTS still written', () => {
   assert.ok(settings.mcp.servers['aside-codemode'].args[0].endsWith(`${path.sep}src${path.sep}server.js`));
   assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false, 'registration must not synthesize Aside-owned inventory data');
   assert.ok(existsSync(r.agentsPath));
+});
+
+test('activation writer normalizes only our server and backs up settings', () => {
+  const fx = fixture();
+  const account = path.join(fx.asideHome, 'u', '0');
+  const settingsPath = path.join(account, 'settings.json');
+  const unrelated = { exact: ['value', 7] };
+  mkdirSync(account, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify({
+    unrelated,
+    mcp: {
+      servers: { 'aside-codemode': { enabled: false, command: '/old', extra: true } },
+      inventories: {},
+      toolInventoryMigrationVersion: 1,
+    },
+  }, null, 2) + '\n');
+
+  const out = configureMcpActivation({ settingsPath, execPath: fx.execPath, repoRoot: fx.repoRoot });
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(out.activationPending, true);
+  assert.equal(out.activationPendingReason, 'daemon-settings-reread-required');
+  assert.deepEqual(settings.unrelated, unrelated);
+  assert.deepEqual(settings.mcp.servers['aside-codemode'], {
+    enabled: true,
+    transport: 'stdio',
+    command: fx.execPath,
+    args: [path.join(fx.repoRoot, 'src', 'server.js'), '--config', path.join(fx.repoRoot, 'codemode.config.json')],
+    env: {},
+  });
+  assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false);
+  assert.equal(Object.hasOwn(settings.mcp, 'toolInventoryMigrationVersion'), false);
+  assert.ok(readdirSync(account).some((name) => name.startsWith('settings.json.bak-')));
 });
 
 test('retargeting merges the named server and leaves Aside-owned settings intact', () => {

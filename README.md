@@ -104,25 +104,35 @@ codemode --doctor
 
 ### Route 1: native MCP
 
-Aside ships an MCP client. Open **Settings > Plugins & MCPs > MCPs**, add the
-`aside-codemode` server from this package, and pin ripgrep with an absolute `rgPath` in the
-codemode config or an absolute `CODEMODE_RG`. Per-account MCP configuration lives in
-`~/.aside/u/<n>/settings.json` under `mcp.servers` and `mcp.inventories`.
+Aside ships an MCP client. From the package checkout, one command installs the account payload
+and registers `aside-codemode` for native MCP (replace `0` with the account number in
+`~/.aside/u/<n>/`):
 
-Registration is not activation. **Refresh tools** for the server (the GUI **Add** flow does this
-when it succeeds) and confirm that one tool is cached. A hand-written `mcp.servers` entry can
-remain at `0 tools cached`; in that state the tool never attaches. After refreshing, start a
-new Aside session. A newly created session picks up the inventory without a daemon restart;
-hot-attachment to an already running session has not been verified.
+```sh
+node scripts/install-codemode.mjs install --account 0 --json
+```
 
-You do not have to guess which of those states you are in. `codemode --doctor` reports one per
-Aside account: `not-registered`, `registered-not-activated`, `activated`, or `stale-entry` when
-the entry still points at an older installation. Anything but `activated` comes with the exact
-next step. There is no supported way for an installer to activate the server for you: the
-daemon's own refresh procedure sits behind authentication with no public contract, and writing
-the inventory cache by hand would go stale the moment the tool definition changes.
+Pin ripgrep with an absolute `rgPath` in the codemode config or an absolute `CODEMODE_RG`.
+The command prepares Aside's own tool-inventory discovery; it does not fabricate an inventory.
+**Activation happens when you start the next Aside session, not while the installer is
+running.** That new session connects to the server, caches `execute_code`, and attaches
+`mcp__aside-codemode__execute_code`. Hot-attachment to an already running session has not been
+verified.
 
-The agent then calls `mcp__aside-codemode__execute_code` directly. Its **1,793-byte** tool
+Inventory discovery applies to every registered MCP server that does not yet have a cached
+inventory. If one of those servers cannot be reached, Aside disables it and advances the
+migration version, so it will not be retried automatically. That is why the installer refuses
+to trigger discovery when another server is uncached. In that case, or if you prefer to do it
+yourself, open **Settings > Plugins & MCPs > MCPs**, select `aside-codemode`, use **Refresh
+tools**, confirm that one tool is cached, and then start a new Aside session.
+
+You do not have to guess which state you are in. `codemode --doctor` reports one per Aside
+account: `not-registered`, `registered-not-activated`, `activated`, or `stale-entry` when the
+entry still points at an older installation. Anything but `activated` comes with the exact next
+step. The installer never writes Aside's inventory cache by hand; doing so would go stale when
+the tool definition changes.
+
+The agent then calls `mcp__aside-codemode__execute_code` directly. Its **1,984-byte** tool
 description is always resident in every MCP session. That is less resident context than the CLI
 route's 3,808-byte account block, one reason MCP is the first-class route.
 
@@ -168,6 +178,29 @@ The agent reaches code mode with one `bash` call to that absolute node/CLI pair.
 `AGENTS.md` block costs **3,808 bytes** of always-resident context; the **8,973-byte** installed
 user skill is loaded on demand. This remains a supported route for hosts that do not attach MCP
 servers and for people who prefer account guidance and a visible bash call.
+
+### Remove the CLI-route artifacts after moving to MCP
+
+Once native MCP is working, remove the Route 2 payload for one account with:
+
+```sh
+node scripts/install-codemode.mjs uninstall --account 0 --json
+```
+
+The uninstaller removes the managed `aside-codemode` marker block from `AGENTS.md`, the installed
+user skill and its references, `codemode/cm.js`, `codemode/catalog.json`, and the manifest. For
+payload files, it removes only those whose hashes still match; modified files stay behind and are
+reported in `preserved`, while the manifest itself is removed after that ownership check. It
+leaves the rest of `AGENTS.md`, credentials, sessions, memory, other
+skills, `settings.json`, and every MCP setting or inventory untouched. Native MCP therefore stays
+registered. The package installed by npm, the repository checkout, `codemode.config.json`,
+user-modified files, and non-empty user directories also stay behind.
+
+If you would rather ask Aside to clean up conversationally, paste this prompt:
+
+```text
+Remove the CLI-route artifacts for aside-codemode from account ~/.aside/u/<n>/. Remove only the managed aside-codemode marker block, from <!-- aside-codemode:start --> through <!-- aside-codemode:end -->, in AGENTS.md and leave everything outside that block unchanged. Remove the installed skills/user/aside-codemode skill and its references, codemode/cm.js, codemode/catalog.json, and codemode/manifest.json only when they belong to this install; preserve modified or user-owned files. Do not touch settings.json or any MCP configuration.
+```
 
 ### Who uses the PATH command
 
@@ -305,7 +338,7 @@ an unfamiliar page, a single click, one file, a fresh visual judgement, or anyth
 an account or an approval. Keep work native when the user should watch it happen too: a batch
 does not produce file cards in the Aside UI.
 
-**Resident context cost, measured.** The MCP route keeps its **1,793-byte** tool description
+**Resident context cost, measured.** The MCP route keeps its **1,984-byte** tool description
 resident in every MCP session. The CLI route keeps the **3,808-byte** account `AGENTS.md` block
 resident and loads the **8,973-byte** user skill only on demand. The smaller always-resident
 footprint favours MCP as the first-class route. The CLI route remains supported where MCP does

@@ -22,7 +22,8 @@ import { fileURLToPath } from 'node:url';
 import { helperSource, helperLoadPathFor, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
 import { createActions } from '../src/host/actions.js';
 import {
-  listAccountRoots, upsertAgents, fillTemplate, MCP_ACTIVATION_REQUIRED,
+  configureMcpActivation, listAccountRoots, upsertAgents, fillTemplate,
+  MCP_ACTIVATION_REQUIRED,
 } from '../src/register.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -172,6 +173,10 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     filesInstalled: Boolean(manifest),
     serverEntry: mcpServerEntryState(accountRoot),
     mcpActivated: false,
+    activationPending: false,
+    activationPendingReason: null,
+    discoveryQueued: false,
+    atRiskServers: [],
     activationRequired: MCP_ACTIVATION_REQUIRED,
   };
 
@@ -316,8 +321,15 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
     previous: outgoing,
   };
   if (!dryRun) writeFile(manifestPath, JSON.stringify(next, null, 2) + '\n', dryRun);
+  const activation = configureMcpActivation({
+    settingsPath: path.join(accountRoot, 'settings.json'),
+    execPath: node,
+    repoRoot: REPO_ROOT,
+    dryRun,
+  });
   return {
     ...base,
+    ...activation,
     filesInstalled: dryRun ? Boolean(manifest) : true,
     written: written.map((w) => w.path),
     preserved: preserved.map((p) => p.rel),
@@ -372,7 +384,14 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1] === fileU
     }
     if (!result.dryRun && ['install', 'upgrade', 'repair'].includes(result.verb) && result.ok !== false) {
       console.log('Route 1 (CLI): ready immediately.');
-      console.log('Route 2 (native MCP): ' + result.activationRequired);
+      if (result.activationPending) {
+        console.log('Route 2 (native MCP): activation pending.');
+        console.log('  1. The normalized server entry is written with discovery migration keys omitted.');
+        console.log('  2. Make the Aside daemon re-read settings: restart it when safe, or use Refresh tools in Aside Settings > Plugins & MCPs > MCPs. This installer does not restart it.');
+        console.log('  3. Start a new Aside session; that session performs tool discovery.');
+      } else {
+        console.log('Route 2 (native MCP): ' + (result.activationRequired || 'already activated.'));
+      }
     }
   }
   process.exit(result.ok === false ? 1 : 0);

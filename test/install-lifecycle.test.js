@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync, existsSync,
+  mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, rmSync, existsSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -220,19 +220,18 @@ test('rollback leaves an added file the user edited', (t) => {
   assert.equal(read(f.root, added), mine, 'rollback deleted a file the user had edited');
 });
 
-test('install, upgrade, and uninstall leave Aside-owned settings byte-for-byte unchanged', (t) => {
+test('installer queues discovery when aside-codemode is the only uncached server', (t) => {
   const base = mkdtempSync(path.join(os.tmpdir(), 'acm-settings-'));
   const home = path.join(base, '.aside');
   const root = path.join(home, 'u', '0');
   const settingsPath = path.join(root, 'settings.json');
+  const unrelated = { keep: ['these', 'bytes'] };
   const settingsBody = JSON.stringify({
-    custom: { keep: true },
+    unrelated,
     mcp: {
-      servers: {
-        unrelated: { command: '/opt/other', args: ['serve'] },
-        'aside-codemode': { command: '/configured/node', enabled: false, transport: 'stdio' },
-      },
-      inventories: { unrelated: { tools: [{ name: 'other-tool' }] } },
+      servers: {},
+      inventories: {},
+      toolInventoryMigrationVersion: 1,
     },
   }, null, 4) + '\n';
   t.after(() => rmSync(base, { recursive: true, force: true }));
@@ -241,15 +240,90 @@ test('install, upgrade, and uninstall leave Aside-owned settings byte-for-byte u
 
   const installed = runInstaller({ verb: 'install', asideHome: home, account: '0' });
   assert.equal(installed.filesInstalled, true);
-  assert.equal(installed.serverEntry, 'unchanged');
+  assert.equal(installed.serverEntry, 'written');
   assert.equal(installed.mcpActivated, false);
-  assert.match(installed.activationRequired, /start a new Aside session/);
-  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
+  assert.equal(installed.activationPending, true);
+  assert.equal(installed.activationPendingReason, 'daemon-settings-reread-required');
+  assert.equal(installed.discoveryQueued, true);
+  assert.match(installed.activationRequired, /daemon re-read settings/);
+  assert.match(installed.activationRequired, /Then start a new Aside session/);
+  assert.match(installed.activationRequired, /does not restart the daemon/);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.deepEqual(settings.unrelated, unrelated);
+  assert.deepEqual(settings.mcp.servers['aside-codemode'], {
+    enabled: true,
+    transport: 'stdio',
+    command: process.execPath,
+    args: [path.join(path.dirname(installerPath), '..', 'src', 'server.js'), '--config', path.join(path.dirname(installerPath), '..', 'codemode.config.json')],
+    env: {},
+  });
+  assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false);
+  assert.equal(Object.hasOwn(settings.mcp, 'toolInventoryMigrationVersion'), false);
+  assert.ok(readdirSync(root).some((name) => name.startsWith('settings.json.bak-')), 'settings write was not backed up');
+});
 
-  runInstaller({ verb: 'upgrade', asideHome: home, account: '0' });
-  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
-  runInstaller({ verb: 'uninstall', asideHome: home, account: '0' });
-  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
+test('installer refuses automatic discovery when another enabled server is uncached', (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-risk-'));
+  const home = path.join(base, '.aside');
+  const root = path.join(home, 'u', '0');
+  const settingsPath = path.join(root, 'settings.json');
+  const unrelated = { theme: 'custom', nested: { keep: true } };
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify({
+    unrelated,
+    mcp: {
+      toolInventoryMigrationVersion: 1,
+      inventories: {},
+      servers: { 'other-server': { enabled: true, command: '/opt/other', args: [] } },
+    },
+  }, null, 2) + '\n');
+
+  const out = runInstaller({ verb: 'install', asideHome: home, account: '0' });
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(out.activationPending, false);
+  assert.equal(out.activationPendingReason, 'manual-refresh-required');
+  assert.equal(out.discoveryQueued, false);
+  assert.deepEqual(out.atRiskServers, ['other-server']);
+  assert.match(out.activationRequired, /other-server/);
+  assert.match(out.activationRequired, /Refresh tools/);
+  assert.equal(settings.mcp.toolInventoryMigrationVersion, 1);
+  assert.deepEqual(settings.mcp.inventories, {});
+  assert.deepEqual(settings.mcp.servers['other-server'], { enabled: true, command: '/opt/other', args: [] });
+  assert.deepEqual(settings.unrelated, unrelated);
+});
+
+test('an already activated account is idempotent and keeps Aside migration state', (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-activated-'));
+  const home = path.join(base, '.aside');
+  const root = path.join(home, 'u', '0');
+  const settingsPath = path.join(root, 'settings.json');
+  const repoRoot = path.join(path.dirname(installerPath), '..');
+  const body = JSON.stringify({
+    unrelated: { keep: 'exactly' },
+    mcp: {
+      toolInventoryMigrationVersion: 1,
+      inventories: { 'aside-codemode': { tools: [{ name: 'execute_code' }] } },
+      servers: {
+        'aside-codemode': {
+          enabled: true, transport: 'stdio', command: process.execPath,
+          args: [path.join(repoRoot, 'src', 'server.js'), '--config', path.join(repoRoot, 'codemode.config.json')],
+          env: {},
+        },
+      },
+    },
+  }, null, 2) + '\n';
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  writeFileSync(settingsPath, body);
+
+  const out = runInstaller({ verb: 'install', asideHome: home, account: '0' });
+  assert.equal(out.serverEntry, 'unchanged');
+  assert.equal(out.mcpActivated, true);
+  assert.equal(out.activationPending, false);
+  assert.equal(out.activationPendingReason, null);
+  assert.equal(out.activationRequired, null);
+  assert.equal(readFileSync(settingsPath, 'utf8'), body);
 });
 
 test('installer never creates an mcp inventories cache', (t) => {
@@ -263,7 +337,8 @@ test('installer never creates an mcp inventories cache', (t) => {
 
   const out = runInstaller({ verb: 'install', asideHome: home, account: '0' });
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  assert.equal(out.serverEntry, 'absent');
+  assert.equal(out.serverEntry, 'written');
+  assert.equal(out.activationPending, true);
   assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false);
 });
 
@@ -271,6 +346,8 @@ test('successful install prints both routes and the MCP activation requirements'
   const base = mkdtempSync(path.join(os.tmpdir(), 'acm-output-'));
   const home = path.join(base, '.aside');
   t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(path.join(home, 'u', '0'), { recursive: true });
+  writeFileSync(path.join(home, 'u', '0', 'settings.json'), JSON.stringify({ mcp: { servers: {} } }));
 
   const out = spawnSync(process.execPath, [installerPath, 'install', '--aside-home', home, '--account', '0'], {
     encoding: 'utf8',
@@ -278,7 +355,8 @@ test('successful install prints both routes and the MCP activation requirements'
   assert.equal(out.status, 0, out.stderr + out.stdout);
   assert.match(out.stdout, /Route 1 \(CLI\): ready immediately/);
   assert.match(out.stdout, /Route 2 \(native MCP\)/);
-  assert.match(out.stdout, /Refresh tools/);
-  assert.match(out.stdout, /start a new Aside session/);
-  assert.match(out.stdout, /absolute rgPath or CODEMODE_RG/);
+  assert.match(out.stdout, /Make the Aside daemon re-read settings/);
+  assert.match(out.stdout, /restart it when safe, or use Refresh tools/);
+  assert.match(out.stdout, /This installer does not restart it/);
+  assert.match(out.stdout, /Start a new Aside session; that session performs tool discovery/);
 });

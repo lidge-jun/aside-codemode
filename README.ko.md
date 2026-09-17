@@ -100,24 +100,33 @@ codemode --doctor
 
 ### 경로 1: 네이티브 MCP
 
-Aside에는 MCP 클라이언트가 들어 있습니다. **Settings > Plugins & MCPs > MCPs**에서 이 패키지의
-`aside-codemode` 서버를 추가하고, codemode 설정의 `rgPath`나 `CODEMODE_RG`에 ripgrep 절대경로를
-지정합니다. 계정별 MCP 설정은 `~/.aside/u/<n>/settings.json`의 `mcp.servers`와
-`mcp.inventories`에 저장됩니다.
+Aside에는 MCP 클라이언트가 들어 있습니다. 패키지 체크아웃에서 명령 하나를 실행하면 계정용 파일을
+설치하고 네이티브 MCP용 `aside-codemode` 서버도 등록합니다. `0`은 `~/.aside/u/<n>/`에서 확인한
+계정 번호로 바꿉니다.
 
-서버 등록만으로는 켜지지 않습니다. 서버에서 **Refresh tools**를 실행하고 도구 한 개가 캐시에
-들어왔는지 확인하세요. GUI의 **Add**가 정상 완료되면 이 캐시도 채웁니다. 손으로
-`mcp.servers`만 적으면 `0 tools cached`로 남을 수 있고, 그 상태에서는 도구가 붙지 않습니다.
-새 Aside 세션을 열면 데몬을 다시 시작하지 않아도 갱신된 목록을 읽습니다. 이미 실행 중인 세션에
+```sh
+node scripts/install-codemode.mjs install --account 0 --json
+```
+
+codemode 설정의 `rgPath`나 `CODEMODE_RG`에는 ripgrep 절대경로를 지정합니다. 이 명령은 Aside가
+자체 도구 목록을 찾도록 준비할 뿐, 목록을 임의로 만들어 넣지 않습니다. **MCP는 설치 명령을
+실행하는 순간이 아니라 다음 Aside 세션을 열 때 활성화됩니다.** 새 세션이 서버에 연결해
+`execute_code`를 캐시에 넣고 `mcp__aside-codemode__execute_code`를 붙입니다. 이미 실행 중인 세션에
 즉시 붙는지는 확인하지 않았습니다.
+
+도구 목록 찾기는 캐시가 없는 등록 서버를 모두 대상으로 삼습니다. 그중 연결할 수 없는 서버는
+Aside가 끄고 마이그레이션 버전까지 올리므로 자동으로 다시 시도하지 않습니다. 다른 서버에도 캐시가
+없으면 설치기가 자동 찾기를 시작하지 않는 이유입니다. 이때는 직접 처리하거나, 손으로 처리하고
+싶을 때와 마찬가지로 **Settings > Plugins & MCPs > MCPs**에서 `aside-codemode`를 고른 뒤
+**Refresh tools**를 실행합니다. 도구 한 개가 캐시에 들어왔는지 확인하고 새 Aside 세션을 엽니다.
 
 지금 어느 상태인지는 직접 짐작하지 않아도 됩니다. `codemode --doctor`가 계정마다 하나씩
 알려줍니다. `not-registered`, `registered-not-activated`, `activated`, 그리고 예전 설치를
 가리키고 있으면 `stale-entry`입니다. `activated`가 아니면 다음에 할 일을 같이 적어줍니다.
-설치 스크립트가 대신 켜주는 방법은 없습니다. 데몬의 갱신 절차는 인증 뒤에 있고 공개된 계약이
-없으며, 캐시를 손으로 적으면 도구 정의가 바뀌는 순간 조용히 낡습니다.
+설치기는 Aside의 도구 목록 캐시를 손으로 쓰지 않습니다. 그렇게 만든 캐시는 도구 정의가 바뀌는
+순간 조용히 낡습니다.
 
-이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **1,793바이트**짜리 도구
+이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **1,984바이트**짜리 도구
 설명은 모든 MCP 세션의 문맥에 항상 들어갑니다. CLI의 3,808바이트짜리 계정 블록보다 상주 문맥이
 작다는 점도 MCP를 주 경로로 삼은 이유입니다.
 
@@ -161,6 +170,28 @@ AGENTS.md  <!-- aside-codemode:start … end -->     매 턴 읽히는 블록
 들어가는 계정 `AGENTS.md` 블록은 **3,808바이트**이고, 설치된 사용자 스킬 **8,973바이트**는
 필요할 때만 읽습니다. MCP 서버를 붙이지 못하는 호스트나 계정 안내와 화면에 보이는 bash 호출을
 선호하는 사용자를 위한 지원 경로입니다.
+
+### MCP로 옮긴 뒤 CLI 경로 파일 지우기
+
+네이티브 MCP가 정상 동작하면 계정 하나의 경로 2 파일을 다음 명령으로 지웁니다.
+
+```sh
+node scripts/install-codemode.mjs uninstall --account 0 --json
+```
+
+제거기는 `AGENTS.md`의 관리 대상 `aside-codemode` 마커 블록, 설치된 사용자 스킬과 참조 문서,
+`codemode/cm.js`, `codemode/catalog.json`, manifest를 지웁니다. 설치 파일은 당시 해시와 같은 것만
+지우며, 사용자가 고친 파일은 `preserved`에 이름을 남기고 보존합니다. 소유권 확인이 끝나면
+manifest 자체는 지웁니다. `AGENTS.md`의 나머지 내용,
+자격증명, 세션, 메모리, 다른 스킬, `settings.json`, MCP 설정과 도구 목록은 건드리지 않습니다.
+네이티브 MCP 등록도 그대로 남습니다. npm으로 설치한 패키지, 저장소 체크아웃,
+`codemode.config.json`, 사용자가 고친 파일, 비어 있지 않은 사용자 디렉터리도 남습니다.
+
+명령 대신 Aside에 부탁하려면 아래 문장을 그대로 붙여 넣습니다.
+
+```text
+~/.aside/u/<n>/ 계정에서 aside-codemode의 CLI 경로 파일을 정리하세요. AGENTS.md에서는 관리 대상 aside-codemode 마커 블록인 <!-- aside-codemode:start -->부터 <!-- aside-codemode:end -->까지만 지우고 블록 밖의 내용은 모두 그대로 두세요. 설치된 skills/user/aside-codemode 스킬과 참조 문서, codemode/cm.js, codemode/catalog.json, codemode/manifest.json은 이 설치가 소유한 파일일 때만 지우고 사용자가 고친 파일은 보존하세요. settings.json과 모든 MCP 설정은 건드리지 마세요.
+```
 
 ### PATH의 명령은 누가 쓰나
 
@@ -288,7 +319,7 @@ return { hits, excerpts };
 계정이나 승인이 필요한 일은 네이티브 도구가 낫습니다. 사용자가 진행 과정을 봐야 하는 작업도 마찬가지입니다.
 묶음 작업은 Aside 화면에 파일 카드를 만들지 않습니다.
 
-**상주 문맥 비용, 실측값.** MCP 경로는 **1,793바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
+**상주 문맥 비용, 실측값.** MCP 경로는 **1,984바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
 CLI 경로는 **3,808바이트**짜리 계정 `AGENTS.md` 블록을 계속 두고, **8,973바이트**짜리 사용자 스킬은
 필요할 때만 읽습니다. 상주 문맥이 더 작은 MCP가 주 경로에 유리합니다. MCP를 붙이지 못하거나 bash
 카드를 선호할 때는 지원되는 CLI 경로를 씁니다. 이 비용은 작업을 묶어 줄인 왕복 횟수와 별개입니다.

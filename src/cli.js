@@ -91,6 +91,7 @@ const globals = signal => createHostGlobals(config, assertInside, signal);
 const MCP_SERVER = 'aside-codemode';
 const MCP_ACCOUNT_LIMIT = 32;
 const MCP_NEXT = 'Open Aside Settings > Plugins & MCPs > MCPs, select the aside-codemode server, use Refresh tools, then start a NEW Aside session.';
+const MCP_FAILED_DISCOVERY_NEXT = 'Fix the aside-codemode command or config and re-run install. Aside has advanced the migration version, so discovery will not retry on its own.';
 
 function sameResolvedPath(actual, expected) {
   return typeof actual === 'string' && actual.length > 0
@@ -149,7 +150,10 @@ function mcpAccountReport({ id, root }) {
     .map((tool) => typeof tool === 'string' ? tool : tool && tool.name)
     .filter((name) => typeof name === 'string');
   const current = pointsToThisInstallation(entry);
-  const state = !current
+  const disabledAfterFailedDiscovery = entry.enabled === false && !inventory;
+  const state = disabledAfterFailedDiscovery
+    ? 'disabled-after-failed-discovery'
+    : !current
     ? 'stale-entry'
     : tools.length > 0 ? 'activated' : 'registered-not-activated';
   const result = {
@@ -160,13 +164,14 @@ function mcpAccountReport({ id, root }) {
     cachedToolNames,
     state,
   };
-  if (state !== 'activated') result.next = MCP_NEXT;
+  if (state !== 'activated') {
+    result.next = disabledAfterFailedDiscovery ? MCP_FAILED_DISCOVERY_NEXT : MCP_NEXT;
+  }
   return result;
 }
 
 function mcpDoctorReport(env = process.env) {
   const asideHome = env.ASIDE_HOME || path.join(os.homedir(), '.aside');
-  const rgPathAbsolute = typeof config.rgPath === 'string' && path.isAbsolute(config.rgPath);
   let roots = [];
   let discoveryError = null;
   try {
@@ -180,10 +185,14 @@ function mcpDoctorReport(env = process.env) {
   const accountsTruncated = roots.length > MCP_ACCOUNT_LIMIT;
   if (accountsTruncated) roots = roots.slice(0, MCP_ACCOUNT_LIMIT);
   return {
-    rgPathAbsolute,
-    rgPathConsequence: rgPathAbsolute
-      ? null
-      : 'A relative or unset rgPath cannot be found by the Aside daemon\'s minimal environment.',
+    rgResolution: {
+      configuredPath: config.rgPath,
+      configuredPathKind: typeof config.rgPath !== 'string'
+        ? 'unset' : path.isAbsolute(config.rgPath) ? 'absolute' : 'relative-to-package',
+      resolvedPath: null,
+      ok: null,
+      warning: null,
+    },
     discoveryError,
     accountsTruncated,
     accounts: roots.map((id) => mcpAccountReport({ id, root: path.join(asideHome, 'u', id) })),
@@ -208,10 +217,16 @@ if (has('--doctor')) {
   };
   try {
     report.rgResolved = await rgResolver();
+    report.mcp.rgResolution.resolvedPath = report.rgResolved;
+    report.mcp.rgResolution.ok = true;
   } catch (e) {
     report.ok = false;
     report.rgResolved = null;
     report.rgError = e.message;
+    report.mcp.rgResolution.ok = false;
+    report.mcp.rgResolution.warning = typeof config.rgPath === 'string'
+      ? 'The configured rgPath could not be resolved to an executable ripgrep binary.'
+      : 'rgPath is unset and no executable ripgrep binary was discoverable in the daemon environment.';
     if (e.candidates) report.rgCandidates = e.candidates;
   }
   // `--doctor --browse` answers "what will Aside actually do" from measurements rather

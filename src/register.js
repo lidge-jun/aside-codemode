@@ -19,6 +19,7 @@ const START = '<!-- aside-codemode:start -->';
 const END = '<!-- aside-codemode:end -->';
 
 export const MCP_ACTIVATION_REQUIRED = 'Open Aside Settings > Plugins & MCPs > MCPs, ensure the aside-codemode server is present, use Refresh tools so its inventory is cached, then start a new Aside session. For MCP search actions, set an absolute rgPath or CODEMODE_RG because the Aside daemon starts the server with a minimal environment.';
+export const MCP_ACTIVATION_PENDING = 'Activation is pending. First make the Aside daemon re-read settings by restarting it when safe or by using Refresh tools in Aside Settings > Plugins & MCPs > MCPs. Then start a new Aside session; that session performs discovery and caches the aside-codemode inventory. The installer does not restart the daemon.';
 
 // One filler for both writers. The installer and register both hand an account the same
 // markered block, and 001 found them drifting: a rule fixed in one was still broken in the
@@ -183,6 +184,98 @@ function mergeSettings({ settingsPath, execPath, repoRoot }) {
     return { settingsOk: true, settingsError: null, serverEntry: 'written' };
   } catch (e) {
     return { settingsOk: false, settingsError: msg(e), serverEntry: 'absent' };
+  }
+}
+
+/**
+ * Register the normalized MCP server and queue Aside's measured legacy discovery path.
+ * Discovery is not queued when doing so could disable another enabled, uncached server.
+ */
+export function configureMcpActivation({ settingsPath, execPath, repoRoot, dryRun = false }) {
+  const absent = {
+    settingsOk: false,
+    settingsError: 'settings.json not found at ' + settingsPath,
+    serverEntry: 'absent',
+    mcpActivated: false,
+    activationPending: false,
+    activationPendingReason: null,
+    discoveryQueued: false,
+    atRiskServers: [],
+    activationRequired: MCP_ACTIVATION_REQUIRED,
+  };
+  if (!existsSync(settingsPath)) return absent;
+
+  try {
+    const settings = readJson(settingsPath);
+    const mcp = settings.mcp && typeof settings.mcp === 'object' ? settings.mcp : {};
+    const servers = mcp.servers && typeof mcp.servers === 'object' ? mcp.servers : {};
+    const inventories = mcp.inventories && typeof mcp.inventories === 'object'
+      ? mcp.inventories : {};
+    const previous = servers['aside-codemode'];
+    const inventory = inventories['aside-codemode'];
+    const activated = Boolean(inventory && typeof inventory === 'object'
+      && Array.isArray(inventory.tools) && inventory.tools.length > 0);
+    const atRiskServers = Object.entries(servers)
+      .filter(([name, entry]) => name !== 'aside-codemode'
+        && entry && typeof entry === 'object' && entry.enabled === true
+        && !inventories[name])
+      .map(([name]) => name)
+      .sort();
+    const unrelatedInventories = Object.keys(inventories)
+      .filter((name) => name !== 'aside-codemode');
+    const normalized = {
+      enabled: true,
+      transport: 'stdio',
+      command: execPath,
+      args: [path.join(repoRoot, 'src', 'server.js'), '--config', path.join(repoRoot, 'codemode.config.json')],
+      env: {},
+    };
+
+    settings.mcp = mcp;
+    mcp.servers = servers;
+    servers['aside-codemode'] = normalized;
+
+    // The proven migration requires both keys to be absent. Never delete another
+    // server's cached inventory merely to reach that state; manual Refresh tools is
+    // the safe path for an account that already owns such caches.
+    const canQueue = !activated && atRiskServers.length === 0 && unrelatedInventories.length === 0;
+    if (canQueue) {
+      delete mcp.toolInventoryMigrationVersion;
+      delete mcp.inventories;
+    }
+
+    const changed = JSON.stringify(settings) !== JSON.stringify(readJson(settingsPath));
+    if (changed && !dryRun) {
+      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      copyFileSync(settingsPath, settingsPath + '.bak-' + stamp);
+      writeJson(settingsPath, settings);
+    }
+    const serverEntry = previous && JSON.stringify(previous) === JSON.stringify(normalized)
+      ? 'unchanged' : 'written';
+    let activationRequired = null;
+    if (canQueue) {
+      activationRequired = MCP_ACTIVATION_PENDING;
+    } else if (!activated) {
+      const risk = atRiskServers.length
+        ? ' Triggering automatic discovery could disable these enabled servers: ' + atRiskServers.join(', ') + '.'
+        : ' Automatic discovery was not queued because existing MCP inventories must be preserved.';
+      activationRequired = MCP_ACTIVATION_REQUIRED + risk;
+    }
+    return {
+      settingsOk: true,
+      settingsError: null,
+      serverEntry,
+      mcpActivated: activated,
+      activationPending: canQueue,
+      activationPendingReason: canQueue
+        ? 'daemon-settings-reread-required'
+        : !activated ? 'manual-refresh-required' : null,
+      discoveryQueued: canQueue,
+      atRiskServers,
+      activationRequired,
+    };
+  } catch (e) {
+    return { ...absent, settingsError: msg(e) };
   }
 }
 

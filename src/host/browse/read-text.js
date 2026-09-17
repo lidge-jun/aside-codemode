@@ -77,6 +77,22 @@ export function needsBrowser(html, extracted) {
   return { needed: false, reason: null };
 }
 
+// Pulled out so discovery can refuse what the call refuses. actions.check typed url as a
+// string and approved a file:// url that readText has always rejected.
+export function validateReadTextUrl(url) {
+  if (typeof url !== 'string' || !url) {
+    const e = new Error("readText needs a url: readText('https://example.com') or readText({ url: 'https://example.com' })");
+    e.code = 'EBADVAL';
+    throw e;
+  }
+  if (/^file:/i.test(url)) {
+    const e = new Error('file:// urls are refused; Aside cannot navigate them and readText will not special-case a local read');
+    e.code = 'ENOTSUP';
+    throw e;
+  }
+  return url;
+}
+
 export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, cache = null, accountRoot = '' } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   return async function readText(url, opts = {}) {
@@ -88,16 +104,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       url = inner;
       opts = { ...rest, ...opts };
     }
-    if (typeof url !== 'string' || !url) {
-      const e = new Error("readText needs a url: readText('https://example.com') or readText({ url: 'https://example.com' })");
-      e.code = 'EBADVAL';
-      throw e;
-    }
-    if (/^file:/i.test(url)) {
-      const e = new Error('file:// urls are refused; Aside cannot navigate them and readText will not special-case a local read');
-      e.code = 'ENOTSUP';
-      throw e;
-    }
+    validateReadTextUrl(url);
     if (!doFetch) {
       const e = new Error('no fetch implementation is available (Node >= 18 provides one)');
       e.code = 'ENOTSUP';

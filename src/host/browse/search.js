@@ -95,6 +95,16 @@ export function applyDateFilter(rows, since) {
   };
 }
 
+// The engine list is the runtime's, and discovery has to ask it rather than repeat it: the
+// catalog described engine as a plain string, so actions.check approved engine: 'bing' that
+// the call refuses with EBADOPT.
+export function validateSearchMany(queries, opts = {}) {
+  if (!Array.isArray(queries) || queries.length === 0) throw new SearchError('searchMany requires a non-empty array of queries', 'EBADVAL');
+  const engine = opts.engine || 'duckduckgo';
+  if (!ENGINES[engine]) throw new SearchError(`unknown engine "${engine}"; valid: ${Object.keys(ENGINES).join(', ')}`, 'EBADOPT');
+  return engine;
+}
+
 export function createSearchMany({ fetchImpl, session, cache = null, accountRoot = '' } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
 
@@ -145,9 +155,7 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
   }
 
   return async function searchMany(queries, opts = {}) {
-    if (!Array.isArray(queries) || queries.length === 0) throw new SearchError('searchMany requires a non-empty array of queries', 'EBADVAL');
-    const engine = opts.engine || 'duckduckgo';
-    if (!ENGINES[engine]) throw new SearchError(`unknown engine "${engine}"; valid: ${Object.keys(ENGINES).join(', ')}`, 'EBADOPT');
+    const engine = validateSearchMany(queries, opts);
     const settled = await Promise.allSettled(queries.map((q) => one(q, engine, opts.since)));
     const rawItems = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : {
       query: queries[i], engine, ok: false,

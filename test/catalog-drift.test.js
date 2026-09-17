@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createActions } from '../src/host/actions.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
-import { createCaptureMany } from '../src/host/browse/capture.js';
+import { createCaptureMany, planCaptureMany } from '../src/host/browse/capture.js';
 import { validateJob } from '../src/host/browse/schema.js';
 
 const actions = createActions();
@@ -124,22 +124,51 @@ test('check accepts the batch-capture options the runtime honours', () => {
 });
 
 // A type that admits a value the runtime refuses is the same lie as a missing option, told the
-// other way. captureMany's screenshot has to be typed boolean|object so a pdf-only capture can
-// pass `screenshot: false`, and that made check() approve `screenshot: true`, which the job
-// validator refuses. The runtime half of this test is what keeps it honest.
-test('the one screenshot boolean the runtime refuses is refused by check too', () => {
+// other way, and the types could not express these rules: screenshot is boolean|object because
+// false means capture a pdf instead, pdf is an object whose one forbidden key is format, and
+// engine is a string out of a list the runtime owns. An audit measured nine such calls being
+// approved by discovery and refused by the call. Each case below is asserted twice, against
+// the real validator and against check, so agreement is what the test proves.
+const RUNTIME_REFUSALS = [
+  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: true }, 'screenshot', /screenshot must be an object/],
+  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false }, 'screenshot', /nothing to bring back/],
+  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { maxWidth: 640 } }, 'screenshot', /maxWidth/],
+  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', pdf: { format: 'A4' } }, 'pdf', /format is ENOTSUP/],
+  ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', waitUntil: 'networkidle' }, 'waitUntil', /networkidle/],
+  ['browse.searchMany', { queries: ['x'], engine: 'bing' }, 'engine', /unknown engine/],
+  ['browse.readText', { url: 'file:///etc/hosts' }, 'url', /file:\/\/ urls are refused/],
+];
+
+test('every value the runtime refuses is refused by discovery, with the runtime reason', () => {
+  for (const [path, args, option, why] of RUNTIME_REFUSALS) {
+    const r = actions.check(path, args);
+    assert.equal(r.ok, false, path + ' accepted ' + JSON.stringify(args));
+    assert.equal(r.invalid.length, 1, JSON.stringify(r.invalid));
+    assert.equal(r.invalid[0].name, option, JSON.stringify(r.invalid));
+    assert.match(r.invalid[0].why, why);
+  }
+});
+
+test('the shapes the runtime does accept are still accepted', () => {
+  const accepted = [
+    ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false, pdf: { paperWidth: 8.27, paperHeight: 11.69 } }],
+    ['browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { type: 'jpeg' }, snapshot: true, timeoutMs: 8000, waitUntil: 'load', concurrency: 1 }],
+    ['browse.searchMany', { queries: ['x'], engine: 'duckduckgo', since: '2026-01-01' }],
+    ['browse.readText', { url: 'https://example.com', timeoutMs: 9000 }],
+  ];
+  for (const [path, args] of accepted) {
+    const r = actions.check(path, args);
+    assert.equal(r.ok, true, path + ' refused ' + JSON.stringify(r.invalid || r));
+  }
+});
+
+// The pre-flight is shared rather than copied. If captureMany stopped calling planCaptureMany
+// the two would drift apart again without any test noticing.
+test('the capture plan discovery runs is the plan the call runs', () => {
+  assert.throws(() => planCaptureMany(['data:text/html,ok'], { pdf: { format: 'A4' } }), /format is ENOTSUP/);
   assert.throws(() => validateJob({ urls: ['data:text/html,ok'], timeoutMs: 8000, screenshot: true }), /screenshot must be an object/);
-
-  const refused = actions.check('browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: true });
-  assert.equal(refused.ok, false, JSON.stringify(refused));
-  assert.equal(refused.invalid[0].name, 'screenshot');
-  assert.equal(refused.invalid[0].code, 'EBADVAL');
-
-  // false is the pdf-only shape and stays acceptable.
-  const pdfOnly = actions.check('browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: false, pdf: { paperWidth: 8.27 } });
-  assert.equal(pdfOnly.ok, true, JSON.stringify(pdfOnly));
-  const shot = actions.check('browse.captureMany', { urls: ['data:text/html,ok'], outDir: 'out', screenshot: { type: 'jpeg' } });
-  assert.equal(shot.ok, true, JSON.stringify(shot));
+  const { job } = planCaptureMany(['data:text/html,ok'], { screenshot: { type: 'jpeg' } });
+  assert.deepEqual(job.screenshot, { type: 'jpeg' });
 });
 
 test('check accepts report.build title and timeoutMs, which report.js reads', () => {

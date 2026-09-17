@@ -8,41 +8,43 @@
 
 import { validateJob } from './schema.js';
 import { validateAttach } from './attach-schema.js';
+import { planCaptureMany } from './capture.js';
+import { validateSearchMany } from './search.js';
+import { validateReadTextUrl } from './read-text.js';
 
 // Discovery answers with the RUNTIME validator rather than a second opinion. The two used to
 // disagree in both directions: check refused a snapshot the job accepted, and accepted a
 // waitUntil the job refused with ENOTSUP.
 //
-// Only these two paths own a whole-object validator. Every other browse action parses its
-// arguments inside browse.js, and putting one of those through the job schema reported each
-// of its real options - engine, since, urlIncludes, maxBytes - as an unknown job option.
+// A path appears here when it can be asked the question the real call asks. exec and attach
+// own whole-object validators; the other three had their pre-flight pulled out of the call
+// path so discovery can run it instead of guessing from types. An audit measured what the
+// guessing cost: check approved screenshot:true, pdf:{format}, waitUntil:'networkidle',
+// engine:'bing' and a file:// url, all of which the call refuses. What is NOT here parses
+// its arguments inside browse.js, and putting one of those through the job schema reported
+// each of its real options - urlIncludes, maxBytes - as an unknown job option.
 const RUNTIME_VALIDATED = Object.freeze({
   'browse.exec': (args) => validateJob({ timeoutMs: 8000, ...args }),
   'browse.attach': (args) => validateAttach(args),
+  // planCaptureMany owns the pdf and screenshot combinations; the job schema owns the shape
+  // of each option, which is where maxWidth and networkidle are refused.
+  'browse.captureMany': (args) => {
+    const { urls, outDir, ...rest } = args;
+    const { job } = planCaptureMany(urls, rest);
+    return validateJob({ timeoutMs: 8000, ...job });
+  },
+  'browse.searchMany': (args) => validateSearchMany(args.queries, args),
+  'browse.readText': (args) => validateReadTextUrl(args.url),
 });
 
 const VALUE_CODES = Object.freeze(['EBADVAL', 'ENOTSUP', 'EBADOPT', 'EINVAL']);
-
-// browse.captureMany has no whole-object validator to ask. It parses its own arguments and
-// then hands a JOB to validateJob, which is where `screenshot: true` is refused. The catalog
-// has to type that option as boolean|object so `screenshot: false` - a pdf-only capture -
-// is accepted, and that typing made check() approve the one boolean the runtime rejects.
-const VALUE_RULES = Object.freeze({
-  'browse.captureMany': (args) => (args.screenshot === true
-    ? [{
-      name: 'screenshot',
-      why: 'screenshot must be an object such as { type: "jpeg" }; false is the only boolean the runtime takes, and it means capture a pdf instead',
-      code: 'EBADVAL',
-    }]
-    : []),
-});
 
 // The whole argument object goes in at once. One option at a time could not see a rule that
 // spans two of them, so snapshotAfter: 'diff' came back invalid standing right next to the
 // snapshot: 'tree' that makes it legal.
 export function checkBrowseArgs(path, args = {}) {
   const run = RUNTIME_VALIDATED[path];
-  if (!run) return VALUE_RULES[path] ? VALUE_RULES[path](args) : [];
+  if (!run) return [];
   try {
     run(args);
     return [];

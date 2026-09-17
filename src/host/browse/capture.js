@@ -43,49 +43,61 @@ export async function containedRead(sessionPwd, name, { realpathImpl = realpath,
   return readFileImpl(target);
 }
 
-export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
-  return async function captureMany(urls, opts = {}) {
-    if (!Array.isArray(urls) || urls.length === 0) {
-      throw new ArtifactError('captureMany requires urls as the first positional argument: browse.captureMany([url], options)', 'EBADVAL');
-    }
+/**
+ * Everything captureMany decides before it runs anything, as one pure function.
+ *
+ * It is separate so discovery can ask the same question the call will: actions.check used to
+ * answer from the catalog's types alone and approved `screenshot: true`, `pdf: { format }` and
+ * a screenshot: false with nothing to bring back - three calls this function refuses.
+ */
+export function planCaptureMany(urls, opts = {}) {
+  if (!Array.isArray(urls) || urls.length === 0) {
+    throw new ArtifactError('captureMany requires urls as the first positional argument: browse.captureMany([url], options)', 'EBADVAL');
+  }
     // A pdf had no way out of here. browse.exec produced the bytes and counted them and
     // then dropped them, because the branch that writes a file runs only when the host
     // issued a name for it, and report.build was the only caller that ever issued one. The
     // machinery that brings a screenshot back is the same machinery a printed page needs:
     // a host-issued name, a read jailed under the session, verification against what was
     // asked for, and one write. So it serves both now.
-    let paper = null;
-    if (opts.pdf !== undefined) {
-      if (!opts.pdf || typeof opts.pdf !== 'object' || Array.isArray(opts.pdf)) {
-        throw new ArtifactError('pdf must be an object of paper dimensions in inches', 'EBADVAL');
-      }
-      // Same refusal report.build makes: the format shortcut was measured to produce US
-      // Letter while claiming A4, so the only accepted spelling is inches.
-      if ('format' in opts.pdf) {
-        throw new ArtifactError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches', 'ENOTSUP');
-      }
-      paper = { ...A4_INCHES, ...opts.pdf };
+  let paper = null;
+  if (opts.pdf !== undefined) {
+    if (!opts.pdf || typeof opts.pdf !== 'object' || Array.isArray(opts.pdf)) {
+      throw new ArtifactError('pdf must be an object of paper dimensions in inches', 'EBADVAL');
     }
-    // Asking for a pdf and saying nothing about a screenshot means a pdf, not both. Saying
-    // screenshot: false with nothing to bring back instead is a call that cannot answer.
-    const wantShot = opts.screenshot === false ? false : !(paper !== null && opts.screenshot === undefined);
-    if (!wantShot && paper === null) {
-      throw new ArtifactError('captureMany with screenshot: false has nothing to bring back; add a pdf', 'EBADVAL');
+    // Same refusal report.build makes: the format shortcut was measured to produce US
+    // Letter while claiming A4, so the only accepted spelling is inches.
+    if ('format' in opts.pdf) {
+      throw new ArtifactError('pdf format is ENOTSUP: it was measured to yield US Letter. Pass paperWidth/paperHeight in inches', 'ENOTSUP');
     }
-    const screenshot = wantShot ? (opts.screenshot === undefined ? {} : opts.screenshot) : null;
-    const names = wantShot ? urls.map((_, i) => artifactNameFor(i, screenshot)) : null;
-    const pdfNames = paper === null ? null : urls.map((_, i) => pdfNameFor(i));
-    const job = {
-      urls,
-      screenshot: wantShot ? screenshot : undefined,
-      pdf: paper === null ? undefined : paper,
-      snapshot: opts.snapshot === true,
-      timeoutMs: opts.timeoutMs,
-      waitUntil: opts.waitUntil,
-      waitSelector: opts.waitSelector,
-      concurrency: opts.concurrency,
-    };
-    for (const k of Object.keys(job)) if (job[k] === undefined) delete job[k];
+    paper = { ...A4_INCHES, ...opts.pdf };
+  }
+  // Asking for a pdf and saying nothing about a screenshot means a pdf, not both. Saying
+  // screenshot: false with nothing to bring back instead is a call that cannot answer.
+  const wantShot = opts.screenshot === false ? false : !(paper !== null && opts.screenshot === undefined);
+  if (!wantShot && paper === null) {
+    throw new ArtifactError('captureMany with screenshot: false has nothing to bring back; add a pdf', 'EBADVAL');
+  }
+  const screenshot = wantShot ? (opts.screenshot === undefined ? {} : opts.screenshot) : null;
+  const names = wantShot ? urls.map((_, i) => artifactNameFor(i, screenshot)) : null;
+  const pdfNames = paper === null ? null : urls.map((_, i) => pdfNameFor(i));
+  const job = {
+    urls,
+    screenshot: wantShot ? screenshot : undefined,
+    pdf: paper === null ? undefined : paper,
+    snapshot: opts.snapshot === true,
+    timeoutMs: opts.timeoutMs,
+    waitUntil: opts.waitUntil,
+    waitSelector: opts.waitSelector,
+    concurrency: opts.concurrency,
+  };
+  for (const k of Object.keys(job)) if (job[k] === undefined) delete job[k];
+  return { job, names, pdfNames, paper, screenshot, wantShot };
+}
+
+export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
+  return async function captureMany(urls, opts = {}) {
+    const { job, names, pdfNames, paper, screenshot, wantShot } = planCaptureMany(urls, opts);
 
     const res = await session.run(job, {
       browseCaps: opts.browseCaps || {},

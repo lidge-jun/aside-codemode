@@ -153,12 +153,18 @@ test('--doctor reports actual rg resolution for relative, absolute, and missing 
     return { run, report: JSON.parse(run.stdout) };
   };
 
+  // On a Windows CI runner the checkout is on D: and node is on C:, and path.relative across
+  // drives hands back an ABSOLUTE path. Asserting the label we wanted rather than the one the
+  // path actually has made this fail on exactly one of the five matrix combinations. Derive the
+  // expected kind from the path itself; the genuinely-relative resolution is covered without a
+  // real filesystem in test/rg-resolution.test.js.
   const relative = path.relative(checkout, process.execPath);
+  const relativeKind = path.isAbsolute(relative) ? 'absolute' : 'relative-to-package';
   const relativeResult = runWith(relative);
   assert.equal(relativeResult.run.status, 0, relativeResult.run.stderr + relativeResult.run.stdout);
   assert.deepEqual(relativeResult.report.mcp.rgResolution, {
     configuredPath: relative,
-    configuredPathKind: 'relative-to-package',
+    configuredPathKind: relativeKind,
     asideBundledPath: getAsideBundledRgPath(),
     resolvedPath: process.execPath,
     resolvedSource: 'explicit',

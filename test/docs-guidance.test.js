@@ -5,8 +5,13 @@
 // detour is a session nobody has run, and a string match must never stand in for it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { plannedFiles, agentsBody } from '../scripts/install-codemode.mjs';
 import { TOOL_DEF } from '../src/tools.js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const ACCOUNT = '/Users/someone/.aside/u/0';
 const rendered = () => {
@@ -193,4 +198,25 @@ test('reading describe is a step before the first call, not a recovery from a re
   const flat = agents.replace(/\s+/g, ' ');
   assert.match(flat, /actions\.describe.? before the first call/i);
   assert.match(flat, /actions\.check/);
+});
+
+// A budget is not a measurement. Both READMEs quote the size of this description as a reason
+// to prefer the MCP route, and that quote sat at 1,984 bytes while the description was 2,042:
+// inside the budget the suite enforces, and wrong in the document a reader trusts. The prose
+// is now recomputed from the code.
+test('the description size the READMEs quote is the size the code has', () => {
+  const bytes = Buffer.byteLength(TOOL_DEF.description).toLocaleString('en-US');
+  for (const name of ['README.md', 'README.ko.md']) {
+    // Flattened first: the quote and the words it modifies are split across a line break in
+    // one of the two places each README mentions it, and a line-anchored pattern silently
+    // matched only the other one.
+    const text = readFileSync(path.join(repoRoot, name), 'utf8').replace(/\s+/g, ' ');
+    const resident = [...text.matchAll(/\*\*([\d,]+)(?:-byte|바이트)\*\*[^*]{0,12}?(?:tool description|도구 설명)/g)]
+      .map((m) => m[1]);
+    assert.ok(resident.length > 0, name + ' no longer quotes the resident description size');
+    assert.equal(resident.length, 2, name + ' should quote it in both the route section and the cost section');
+    for (const quoted of resident) {
+      assert.equal(quoted, bytes, name + ' quotes ' + quoted + ' bytes for a description that is ' + bytes);
+    }
+  }
 });

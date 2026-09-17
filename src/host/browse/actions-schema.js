@@ -23,12 +23,26 @@ const RUNTIME_VALIDATED = Object.freeze({
 
 const VALUE_CODES = Object.freeze(['EBADVAL', 'ENOTSUP', 'EBADOPT', 'EINVAL']);
 
+// browse.captureMany has no whole-object validator to ask. It parses its own arguments and
+// then hands a JOB to validateJob, which is where `screenshot: true` is refused. The catalog
+// has to type that option as boolean|object so `screenshot: false` - a pdf-only capture -
+// is accepted, and that typing made check() approve the one boolean the runtime rejects.
+const VALUE_RULES = Object.freeze({
+  'browse.captureMany': (args) => (args.screenshot === true
+    ? [{
+      name: 'screenshot',
+      why: 'screenshot must be an object such as { type: "jpeg" }; false is the only boolean the runtime takes, and it means capture a pdf instead',
+      code: 'EBADVAL',
+    }]
+    : []),
+});
+
 // The whole argument object goes in at once. One option at a time could not see a rule that
 // spans two of them, so snapshotAfter: 'diff' came back invalid standing right next to the
 // snapshot: 'tree' that makes it legal.
 export function checkBrowseArgs(path, args = {}) {
   const run = RUNTIME_VALIDATED[path];
-  if (!run) return [];
+  if (!run) return VALUE_RULES[path] ? VALUE_RULES[path](args) : [];
   try {
     run(args);
     return [];
@@ -143,7 +157,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.attach',
     description: 'Route for "this page" or an already-open tab: read its session, scroll position and current screen without opening or closing a tab.',
-    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, actionBudgetMs? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
+    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, extract?, snapshotAfter? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
@@ -160,18 +174,21 @@ export const BROWSE_ACTIONS = [
       approveWrites: { type: 'boolean', required: false, description: "Say that this call may change things. Required for the same verbs browse.exec gates, and for a stronger reason: this is the tab the person is signed into and looking at. Naming a targetId chose WHERE, not what may be done there. Without it nothing is sent and the answer is {ok:false, code:'EWRITEAPPROVAL', wants:[...]}." },
       stopOnError: { type: 'boolean', required: false, description: 'Default true' },
       allowStaleRefs: { type: 'boolean', required: false, description: 'Default false. It cannot be combined with a step aimed by ref, because every verb that can be aimed by ref is one that could change something, and this turns off the check that such a step depends on. It is left for jobs whose steps are aimed by selector or at the page.' },
+      refsFingerprint: { type: 'string', required: false, description: 'snapshot.fingerprint or snapshotId from the observation that produced the refs. Required for an action aimed by ref and for every extract read by ref.' },
       actionBudgetMs: { type: 'number', required: false, description: 'Shared deadline for the whole step list, default 20000' },
+      extract: { type: 'object', required: false, description: 'Read fields by ref only: { field: { ref, attr?, text? } }. Requires refsFingerprint and cannot share a call with actions.' },
+      snapshotAfter: { type: 'boolean', required: false, description: 'True returns the interactive observation left after actions as snapshotId, fingerprint, refCount and url.' },
     },
     notes: 'Pick exactly one selector; with none it takes the active tab, and that is the ONLY branch that chooses for you - a targetId that is not there never becomes the tab beside it. It answers ETABGONE, separately from ENOTAB for a urlIncludes or titleIncludes that matched nothing, and separately again from ENOACTIVE. ETABGONE carries the targetId you asked for, the tabs that ARE open so you can choose without a second call, lastUrl and boundAt when this tool is what opened that tab (null when it did not, and null when the same id was seen at two different pages, because a wrong page given confidently is worse than none), and effectsUnknown - if your actions went out before the tab vanished, their outcome is not known and ok:false does not mean nothing happened. attachActiveBrowserTab fails with ENOACTIVE when no browser window is focused, which is normal over ssh, so pass targetId or urlIncludes from a headless run. The address is read with location.href because page.url() drops the fragment: the same tab answered "http://localhost:10100/" and "http://localhost:10100/#providers" on one run, and fragmentDropped reports that. contentVerified is null unless you asked for minTextChars or requireSelector. The tab is NEVER closed - it is the user\'s.',
   },
   {
     path: 'browse.captureMany',
     description: 'Batch screenshot or pdf capture; artifacts are written to outDir and verified against the request.',
-    signature: 'browse.captureMany(urls, { outDir, screenshot?, pdf?, snapshot?, timeoutMs?, waitUntil?, waitSelector?, concurrency? }) => Promise<{ok,items}>',
+    signature: 'browse.captureMany(urls, { outDir?, screenshot?, pdf?, snapshot?, timeoutMs?, waitUntil?, waitSelector?, concurrency? }) => Promise<{ok,items}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
-      outDir: { type: 'string', required: false, description: 'Directory inside the configured roots; files are host-named' },
-      screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality? }. clip is honoured exactly.' },
+      outDir: { type: 'string', required: false, description: 'When present, write host-named files in this directory inside the configured roots' },
+      screenshot: { type: 'boolean|object', required: false, description: '{ clip?, type?, quality?, fullPage? }. clip is honoured exactly. False suppresses the screenshot and requires pdf.' },
       pdf: { type: 'object', required: false, description: '{ paperWidth?, paperHeight?, printBackground?, preferCSSPageSize?, margin? } in INCHES, defaulting to A4. margin keys are top/right/bottom/left and accept numbers or unit-labelled strings. Prints the url to a file in outDir. A format name is refused: it was measured producing US Letter while reporting A4. Passing pdf without naming screenshot means a pdf and no screenshot; screenshot: false with no pdf is refused because nothing would come back.' },
       snapshot: { type: 'boolean', required: false, description: 'Also return the accessibility tree for each page' },
       timeoutMs: { type: 'number', required: false, description: 'Per-page deadline' },
@@ -182,7 +199,7 @@ export const BROWSE_ACTIONS = [
     outputs: {
       items: { description: 'When outDir was passed, each item may include artifact and pdf records. item.artifact contains the host-issued path and measured image fields; item.pdf is { path, bytes, pageBox } under a host-issued file name.' },
     },
-    notes: 'Each item.artifact reports the REAL width/height read from the file, not the requested size, and item.pdf.pageBox reports the real MediaBox and the rule applied. A page that came back the wrong size is EPAGEBOX in requested-paper-size mode; css-page-size mode accepts a parseable CSS-selected size. A file that exists is not by itself a verified page.',
+    notes: 'The real call shape is positional: browse.captureMany(urls, options). actions.check takes one flat catalog-shaped object instead: actions.check("browse.captureMany", { urls, ...options }). Each item.artifact reports the REAL width/height read from the file, not the requested size, and item.pdf.pageBox reports the real MediaBox and the rule applied. A page that came back the wrong size is EPAGEBOX in requested-paper-size mode; css-page-size mode accepts a parseable CSS-selected size. A file that exists is not by itself a verified page.',
   },
   {
     path: 'browse.readText',

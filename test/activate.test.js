@@ -9,11 +9,37 @@ import {
   normalizedServerEntry, normalizeAccount, DISCOVERY_PROMPT,
 } from '../src/activate.js';
 
-const entry = normalizedServerEntry({ execPath: '/opt/node/bin/node', repoRoot: '/Users/someone/aside-codemode' });
+const entry = normalizedServerEntry({ execPath: '/opt/node/bin/node', repoRoot: '/Users/someone/aside-codemode', exists: () => true });
 
 function replOk(extra = {}) {
-  return JSON.stringify({ ok: true, wrote: 'aside-codemode', servers: ['aside-codemode'], version: 0, inventories: [], ...extra });
+  return JSON.stringify({ codemodeActivation: 1, ok: true, wrote: 'aside-codemode', servers: ['aside-codemode'], version: null, inventories: [], ...extra });
 }
+
+// The daemon is a JavaScript host, so the honest way to test the script we send it is to run
+// it against a stub of the one object it touches. Asserting on the script's TEXT proved
+// nothing about its behaviour: the guard could be deleted and a text test would still pass.
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+async function runInFakeDaemon(script, mcp) {
+  const state = { mcp: JSON.parse(JSON.stringify(mcp)) };
+  const sets = [];
+  const aside = {
+    settings: {
+      getAll: async () => JSON.parse(JSON.stringify(state)),
+      get: async (k) => JSON.parse(JSON.stringify(state[k])),
+      set: async (k, v) => { sets.push([k, v]); state[k] = JSON.parse(JSON.stringify(v)); },
+    },
+  };
+  const logs = [];
+  await new AsyncFunction('aside', 'console', script)(aside, { log: (m) => logs.push(String(m)) });
+  return { state, sets, printed: logs.map((l) => { try { return JSON.parse(l); } catch { return l; } }) };
+}
+
+const oneServer = {
+  toolInventoryMigrationVersion: 1,
+  servers: { 'aside-codemode': { enabled: true, transport: 'stdio', command: 'old', args: [], env: {} } },
+  inventories: { 'aside-codemode': { tools: [{ name: 'execute_code' }] } },
+};
 
 test('the entry names this installation, not a guess about where it lives', () => {
   assert.equal(entry.transport, 'stdio');
@@ -23,15 +49,76 @@ test('the entry names this installation, not a guess about where it lives', () =
   assert.equal(entry.args[1], '--config');
 });
 
+test('a config file that is not there is not named in the entry', () => {
+  // Measured on Windows: a global npm install ships only the example config, and the server
+  // treats a --config it cannot read as fatal, so discovery cached nothing while the write
+  // itself had succeeded.
+  const bare = normalizedServerEntry({ execPath: '/opt/node/bin/node', repoRoot: '/Users/someone/aside-codemode', exists: () => false });
+  assert.equal(bare.args.length, 1);
+  assert.ok(!bare.args.includes('--config'));
+  assert.match(bare.args[0], /server\.js$/);
+});
+
 test('the script sets the mcp key and omits exactly the two keys that reset discovery', () => {
   const script = renderActivationScript({ server: 'aside-codemode', entry });
-  assert.match(script, /aside\.settings\.set\("mcp", \{ servers \}\)/);
-  // The value handed to set() is { servers } and nothing else. Naming either key here -
-  // even as 0 - was measured NOT to queue discovery; only absence does.
-  const setCall = script.slice(script.indexOf('servers[NAME] = ENTRY'));
-  assert.ok(!setCall.includes('toolInventoryMigrationVersion = '), setCall);
-  assert.ok(!/set\("mcp", \{ servers, /.test(script));
+  assert.match(script, /aside\.settings\.set\("mcp", next\)/);
   assert.ok(script.includes(JSON.stringify(entry)));
+});
+
+test('running the script in a stub daemon stores our entry with both keys gone', async () => {
+  const script = renderActivationScript({ server: 'aside-codemode', entry });
+  const { state, sets, printed } = await runInFakeDaemon(script, oneServer);
+  assert.equal(sets.length, 1);
+  assert.equal(sets[0][0], 'mcp');
+  // Absence is the mechanism: naming either key, even as 0, was measured not to queue
+  // discovery.
+  assert.ok(!('toolInventoryMigrationVersion' in state.mcp), JSON.stringify(state.mcp));
+  assert.ok(!('inventories' in state.mcp));
+  assert.deepEqual(state.mcp.servers['aside-codemode'], entry);
+  assert.equal(printed[0].ok, true);
+  assert.equal(printed[0].version, null);
+  assert.deepEqual(printed[0].inventories, []);
+});
+
+test('the script keeps every other key under mcp, because they are not ours', async () => {
+  const script = renderActivationScript({ server: 'aside-codemode', entry });
+  const { state } = await runInFakeDaemon(script, { ...oneServer, somethingAsideOwns: { a: 1 }, credentialCleanup: [] });
+  assert.deepEqual(state.mcp.somethingAsideOwns, { a: 1 });
+  assert.deepEqual(state.mcp.credentialCleanup, []);
+});
+
+test('the real guard, not a mock, refuses when another server would be rediscovered', async () => {
+  const withOther = {
+    ...oneServer,
+    servers: { ...oneServer.servers, other: { command: 'other' } },
+  };
+  const script = renderActivationScript({ server: 'aside-codemode', entry });
+  const blocked = await runInFakeDaemon(script, withOther);
+  assert.equal(blocked.sets.length, 0, 'a refusal must not write settings');
+  assert.equal(blocked.printed[0].ok, false);
+  // No `enabled` field at all is not proof of disabled, and the earlier predicate read it
+  // that way.
+  assert.deepEqual(blocked.printed[0].atRisk, ['other']);
+
+  const forced = await runInFakeDaemon(renderActivationScript({ server: 'aside-codemode', entry, force: true }), withOther);
+  assert.equal(forced.sets.length, 1);
+  assert.equal(forced.printed[0].ok, true);
+
+  const disabled = await runInFakeDaemon(script, {
+    ...oneServer,
+    servers: { ...oneServer.servers, other: { enabled: false, command: 'other' } },
+  });
+  assert.equal(disabled.printed[0].ok, true, 'an explicitly disabled server is not at risk');
+});
+
+test("another server's cached inventory also stops the write", async () => {
+  const script = renderActivationScript({ server: 'aside-codemode', entry });
+  const { sets, printed } = await runInFakeDaemon(script, {
+    servers: { 'aside-codemode': { enabled: true } },
+    inventories: { other: { tools: [{ name: 'x' }] } },
+  });
+  assert.equal(sets.length, 0);
+  assert.deepEqual(printed[0].cached, ['other']);
 });
 
 test('the script decides about other servers inside the daemon, where settings are current', () => {
@@ -75,7 +162,7 @@ test('a discovery run that cached nothing is not reported as activated', async (
   });
   assert.equal(r.activated, false);
   assert.equal(r.ok, false);
-  assert.match(r.next, /cached no tools/);
+  assert.match(r.next, /not in the cached inventory/);
 });
 
 test("another enabled server stops the write and the session never runs", async () => {
@@ -84,7 +171,7 @@ test("another enabled server stops the write and the session never runs", async 
     entry,
     run: async () => {
       runs += 1;
-      return { code: 0, stdout: JSON.stringify({ ok: false, reason: 'at-risk-servers', atRisk: ['other'], cached: ['other'] }), stderr: '' };
+      return { code: 0, stdout: JSON.stringify({ codemodeActivation: 1, ok: false, reason: 'at-risk-servers', atRisk: ['other'], cached: ['other'] }), stderr: '' };
     },
     readInventory: () => ['execute_code'],
   });
@@ -114,6 +201,37 @@ test("aside's own timing line does not hide the result it printed", async () => 
   });
   assert.equal(r.ok, true);
   assert.equal(r.steps[0].parsed.wrote, 'aside-codemode');
+});
+
+test('another program printing json is not mistaken for our answer', async () => {
+  const r = await activateMcp({
+    entry,
+    run: async () => ({ code: 0, stdout: '{"ok":true,"wrote":"aside-codemode"}\n', stderr: '' }),
+    readInventory: () => ['execute_code'],
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /no parseable result/);
+});
+
+test('a migration version that survived the write is not activation', async () => {
+  const r = await activateMcp({
+    entry,
+    run: async () => ({ code: 0, stdout: replOk({ version: 1 }), stderr: '' }),
+    readInventory: () => ['execute_code'],
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /migration was not reset/);
+});
+
+test('someone else\'s cached tool is not our activation', async () => {
+  const r = await activateMcp({
+    entry,
+    run: async () => ({ code: 0, stdout: replOk(), stderr: '' }),
+    readInventory: () => ['some_other_tool'],
+  });
+  assert.equal(r.activated, false);
+  assert.equal(r.ok, false);
+  assert.match(r.next, /execute_code is not in the cached inventory/);
 });
 
 test('--no-discovery registers and says so instead of claiming an inventory', async () => {

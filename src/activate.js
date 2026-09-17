@@ -16,6 +16,7 @@
 // An unchanged value is a no-op: the first measured set re-sent the existing servers map
 // and the file kept its version and inventories, which is why activation has to change the
 // entry (or be forced) to mean anything.
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 export const SETTINGS_KEY = 'mcp';
@@ -43,22 +44,29 @@ export function renderActivationScript({ server, entry, force = false }) {
     'const mcp = (s && s.mcp) || {};',
     'const servers = Object.assign({}, mcp.servers || {});',
     'const inventories = mcp.inventories || {};',
-    // set() replaces the whole mcp object, so every other server's cached inventory goes
-    // with it and has to be rediscovered. Aside's migration disables a server it cannot
-    // reach and never retries, so a server that is merely offline right now would be
-    // switched off by our install. That is somebody else's tool, not ours to spend.
-    'const atRisk = Object.keys(servers).filter((n) => n !== NAME && servers[n] && servers[n].enabled === true);',
+    // Dropping the two keys makes Aside rediscover every registered server, and a server it
+    // cannot reach during that pass is disabled and never retried. So the risk is any other
+    // server that is not explicitly switched off: absent `enabled` is not proof of disabled,
+    // and treating it as such would have let our install silently kill someone else's tool.
+    'const atRisk = Object.keys(servers).filter((n) => n !== NAME && servers[n] && servers[n].enabled !== false);',
     'const cached = Object.keys(inventories).filter((n) => n !== NAME);',
     'if ((atRisk.length || cached.length) && !FORCE) {',
-    '  console.log(JSON.stringify({ ok: false, reason: "at-risk-servers", atRisk, cached }));',
+    '  console.log(JSON.stringify({ codemodeActivation: 1, ok: false, reason: "at-risk-servers", atRisk, cached }));',
     '} else {',
     '  servers[NAME] = ENTRY;',
-    '  await aside.settings.set("mcp", { servers });',
+    // Everything else under mcp belongs to Aside or to the user. An earlier version of this
+    // script sent { servers } and nothing else, which would have deleted any other key the
+    // object carried; only the two discovery keys are ours to remove.
+    '  const next = Object.assign({}, mcp);',
+    '  next.servers = servers;',
+    '  delete next.toolInventoryMigrationVersion;',
+    '  delete next.inventories;',
+    '  await aside.settings.set("mcp", next);',
     '  const after = await aside.settings.getAll();',
     '  const m = (after && after.mcp) || {};',
-    '  console.log(JSON.stringify({ ok: true, wrote: NAME, servers: Object.keys(m.servers || {}),',
+    '  console.log(JSON.stringify({ codemodeActivation: 1, ok: true, wrote: NAME, servers: Object.keys(m.servers || {}),',
     '    version: Object.prototype.hasOwnProperty.call(m, "toolInventoryMigrationVersion") ? m.toolInventoryMigrationVersion : null,',
-    '    inventories: Object.keys(m.inventories || {}) }));',
+    '    inventories: Object.keys(m.inventories || {}), keys: Object.keys(m).sort() }));',
     '}',
   ].join('\n');
 }
@@ -78,27 +86,40 @@ export function normalizeAccount(account) {
   return /^u/.test(id) ? id : 'u' + id;
 }
 
-/** The entry this installation should be registered as, from the paths it actually runs from. */
-export function normalizedServerEntry({ execPath, repoRoot }) {
+/**
+ * The entry this installation should be registered as, from the paths it actually runs from.
+ *
+ * `--config` is only named when that file is there. A globally installed package ships
+ * codemode.config.example.json and no codemode.config.json, and the server treats a config
+ * it was told to read but cannot as fatal: measured on Windows, the entry pointing at the
+ * missing file made every discovery pass cache nothing while the daemon reported success.
+ * Without the flag the server falls back to the user config and then to built-in defaults,
+ * where an empty roots list becomes the home directory.
+ */
+export function normalizedServerEntry({ execPath, repoRoot, configPath = null, exists = existsSync }) {
+  const config = configPath ?? path.join(repoRoot, 'codemode.config.json');
+  const args = [path.join(repoRoot, 'src', 'server.js')];
+  if (exists(config)) args.push('--config', config);
   return {
     enabled: true,
     transport: 'stdio',
     command: execPath,
-    args: [path.join(repoRoot, 'src', 'server.js'), '--config', path.join(repoRoot, 'codemode.config.json')],
+    args,
     env: {},
   };
 }
 
 function parseReplJson(stdout) {
-  // aside repl prints a timing line of its own, and console.log output is what we asked for,
-  // so the answer is the last line that parses as the object we printed.
+  // aside repl prints a timing line of its own, and the repl is a general JavaScript host, so
+  // "some line that parses as JSON with an ok field" is not identification. The script tags
+  // its own answer and nothing else is accepted as one.
   const lines = String(stdout ?? '').split(/\r?\n/).reverse();
   for (const line of lines) {
     const text = line.trim();
     if (!text.startsWith('{')) continue;
     try {
       const value = JSON.parse(text);
-      if (value && typeof value === 'object' && 'ok' in value) return value;
+      if (value && typeof value === 'object' && value.codemodeActivation === 1 && 'ok' in value) return value;
     } catch { /* not our line */ }
   }
   return null;
@@ -110,7 +131,7 @@ function parseReplJson(stdout) {
  */
 export async function activateMcp({
   server = 'aside-codemode', entry, account = null, asideCli = 'aside',
-  force = false, discover = true, run, readInventory = null,
+  force = false, discover = true, run, readInventory = null, requireTool = 'execute_code',
 }) {
   if (typeof run !== 'function') throw new TypeError('activateMcp needs a run(cmd, args) function');
   const steps = [];
@@ -128,6 +149,15 @@ export async function activateMcp({
       atRisk: parsed.atRisk ?? [], cached: parsed.cached ?? [], blocked: true,
     });
   }
+  // The daemon's own read-back is the only evidence that the write did what it was for. A
+  // migration version still present means discovery was not reset, and a session started on
+  // that state would report success while attaching nothing new.
+  if (parsed.wrote !== server || !(Array.isArray(parsed.servers) && parsed.servers.includes(server))) {
+    return fail(steps, 'the daemon did not read back the server we registered', JSON.stringify(parsed), {});
+  }
+  if (!(parsed.version === null || parsed.version === 0)) {
+    return fail(steps, 'the tool-inventory migration was not reset, so discovery will not run', 'version=' + String(parsed.version), {});
+  }
 
   if (!discover) {
     return { ok: true, activated: false, registered: true, discoveryRan: false, steps, tools: null,
@@ -141,7 +171,11 @@ export async function activateMcp({
   }
 
   const tools = typeof readInventory === 'function' ? await readInventory() : null;
-  const activated = Array.isArray(tools) ? tools.length > 0 : null;
+  // A cached inventory is not the same as ours being in it. Counting any tool as success
+  // would call an install activated because some other server answered.
+  const activated = Array.isArray(tools)
+    ? (requireTool ? tools.includes(requireTool) : tools.length > 0)
+    : null;
   return {
     ok: activated !== false,
     registered: true,
@@ -150,7 +184,7 @@ export async function activateMcp({
     steps,
     tools,
     next: activated === false
-      ? 'Discovery ran but cached no tools. Check that the command in the entry starts and speaks MCP.'
+      ? 'Discovery ran but ' + (requireTool || 'no tool') + ' is not in the cached inventory. Check that the command in the entry starts and speaks MCP.'
       : null,
   };
 }

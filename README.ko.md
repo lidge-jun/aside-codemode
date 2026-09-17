@@ -115,8 +115,10 @@ codemode --install-mcp --account u1
 단계가 종료 코드 0으로 끝났고, 마이그레이션 버전 0과 빈 도구 목록 맵을 다시 읽었습니다. 이어진 찾기
 세션도 종료 코드 0이었고, `settings.json`에는
 `inventories["aside-codemode"].tools = ["execute_code"]`가 남았습니다. 설정 창이나 데몬 재시작 없이
-[17초가 걸렸습니다](evidence/aside-mcp-activation-260918.md). 이 활성화 경로는 Windows에서는
-측정하지 않았습니다.
+[처음 실측한 실행은 17초](evidence/aside-mcp-activation-260918.md)였고, 이미 등록된 서버를 상대로
+다시 실행했을 때는 3초였습니다. 두 경우 모두 설정 창을 열거나 데몬을 재시작하지 않았습니다.
+같은 명령을 Windows에서 전역 설치로도 실측했고, `activated: true`와 `execute_code` 캐시까지
+같은 결과가 나왔습니다.
 
 MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. 다른 바이너리를
 쓰고 싶을 때만 codemode 설정의 절대 `rgPath`나 `CODEMODE_RG`로 재정의합니다. CLI가 도구 목록을
@@ -142,7 +144,7 @@ MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동
 CLI는 Aside의 도구 목록 캐시를 손으로 쓰지 않습니다. 그렇게 만든 캐시는 도구 정의가 바뀌는
 순간 조용히 낡습니다.
 
-이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **1,984바이트**짜리 도구
+이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **2,042바이트**짜리 도구
 설명은 모든 MCP 세션의 문맥에 항상 들어갑니다. CLI의 3,808바이트짜리 계정 블록보다 상주 문맥이
 작다는 점도 MCP를 주 경로로 삼은 이유입니다.
 
@@ -344,7 +346,7 @@ TODO, all, every, each, across, repository, project라는 말은 검색 결과�
 `search.content`, `search.files`, `search.count` 가운데 하나를 한 번 부르고, 같은 코드 본문에서
 결과를 거른 뒤 적중한 파일만 읽습니다.
 
-**상주 문맥 비용, 실측값.** MCP 경로는 **1,984바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
+**상주 문맥 비용, 실측값.** MCP 경로는 **2,042바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
 CLI 경로는 **3,808바이트**짜리 계정 `AGENTS.md` 블록을 계속 두고, **8,973바이트**짜리 사용자 스킬은
 필요할 때만 읽습니다. 상주 문맥이 더 작은 MCP가 주 경로에 유리합니다. MCP를 붙이지 못하거나 bash
 카드를 선호할 때는 지원되는 CLI 경로를 씁니다. 이 비용은 작업을 묶어 줄인 왕복 횟수와 별개입니다.

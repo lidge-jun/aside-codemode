@@ -81,3 +81,79 @@ test('normalization search does not claim completeness when either form is parti
   assert.deepEqual(files.scope.normalization.formsSearched, ['NFC', 'NFD']);
   assert.deepEqual(files.partial, ['normalization form was not fully searched']);
 });
+
+test('normalization count searches every query and glob form and labels the scalar floor', async () => {
+  const calls = [];
+  const counts = [
+    { matches: 4, files: 3 },
+    { matches: 3, files: 2 },
+    { matches: 7, files: 4 },
+    { matches: 5, files: 5 },
+  ];
+  const rgRunner = {
+    async count(opts) {
+      const value = counts[calls.length];
+      calls.push({ query: opts.query, glob: opts.glob });
+      return decorateSearchResult({ ...value }, {
+        complete: true,
+        scope: { kind: 'count', query: opts.query, glob: opts.glob },
+      });
+    },
+  };
+  const search = createSearch({
+    rgRunner,
+    assertInside: (value) => value,
+    caps: { files: 5000, content: 500 },
+  });
+  const glob = `**/*${NFC}*.md`;
+
+  const count = await search.count({ path: '.', query: NFC, glob });
+
+  assert.deepEqual(calls, [
+    { query: NFC, glob },
+    { query: NFC, glob: glob.normalize('NFD') },
+    { query: NFD, glob },
+    { query: NFD, glob: glob.normalize('NFD') },
+  ]);
+  assert.deepEqual(count, { matches: 7, files: 5 });
+  assert.equal(count.complete, false);
+  assert.equal(count.scope.query, NFC);
+  assert.equal(count.scope.glob, glob);
+  assert.deepEqual(count.scope.normalization.fields, ['query', 'glob']);
+  assert.deepEqual(count.scope.normalization.formsSearched, ['NFC', 'NFD']);
+  assert.equal(count.scope.normalization.countAccuracy, 'lower-bound');
+  assert.equal(count.scope.normalization.complete, false);
+  assert.equal(JSON.parse(JSON.stringify(count)).complete, false);
+});
+
+test('normalization count preserves partial warnings while returning its strongest floor', async () => {
+  const calls = [];
+  const rgRunner = {
+    async count(opts) {
+      calls.push(opts.query);
+      const complete = opts.query === NFC;
+      return decorateSearchResult(
+        complete ? { matches: 2, files: 1 } : { matches: 4, files: 3 },
+        {
+          complete,
+          partial: complete ? [] : ['normalization count was partial'],
+          scope: { kind: 'count', query: opts.query },
+        },
+      );
+    },
+  };
+  const search = createSearch({
+    rgRunner,
+    assertInside: (value) => value,
+    caps: { files: 5000, content: 500 },
+  });
+
+  const count = await search.count({ path: '.', query: NFC });
+
+  assert.deepEqual(calls, [NFC, NFD]);
+  assert.deepEqual(count, { matches: 4, files: 3 });
+  assert.deepEqual(count.partial, ['normalization count was partial']);
+  assert.equal(count.complete, false);
+  assert.equal(count.scope.normalization.countAccuracy, 'lower-bound');
+  assert.equal(count.scope.normalization.complete, false);
+});

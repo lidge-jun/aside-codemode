@@ -111,7 +111,9 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     let contentType = null;
     // A warm entry is only worth reusing if it was a real observation. Failures are not
     // cached at all, so a hit is always something we were willing to call an answer.
-    const cacheKeyParts = { namespace: 'readText', subject: url, accountRoot, locale: opts.locale || null };
+    // 0.7.0 entries predate HTTP-status refusal and truthful body formats. A readText-only
+    // namespace generation retires those observations without invalidating other features.
+    const cacheKeyParts = { namespace: 'readText-v2', subject: url, accountRoot, locale: opts.locale || null };
     if (cache && opts.fresh !== true) {
       const hit = await cache.get(cacheKeyParts);
       // Reuse only a complete, successful observation, and only one at least as long as this

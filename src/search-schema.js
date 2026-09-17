@@ -185,7 +185,7 @@ export const SEARCH_ACTIONS = [
     path: 'search.count',
     description: 'First call to size any directory or project content search. Returns match and matching-file counts without returning rows.',
     signature: 'search.count({ query, path, glob?, ignoreCase?, fixedStrings?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{matches,files}>',
-    notes: 'Stays a plain {matches,files} object; `.complete`, `.truncated`, `.partial` and `.scope` are non-enumerable, and JSON serialization emits them alongside the counts. An unreadable path makes the count partial instead of silently smaller.',
+    notes: 'Stays a plain {matches,files} object; `.complete`, `.truncated`, `.partial` and `.scope` are non-enumerable, and JSON serialization emits them alongside the counts. An unreadable path makes the count partial instead of silently smaller. Non-ASCII queries and globs search both NFC and NFD. Because each run returns only scalar totals, the result uses the component-wise maximum as a lower bound instead of adding possibly overlapping counts; `.scope.normalization.countAccuracy` is `lower-bound`, and both the result and `.scope.normalization` remain incomplete because an exact union cannot be proved.',
     inputs: inputsFor(COUNT_ORDER),
   },
 ];

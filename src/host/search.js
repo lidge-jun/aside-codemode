@@ -110,7 +110,34 @@ export function createSearch({ rgRunner, assertInside, caps }) {
     async count(opts = {}) {
       validateSearchOptions('search.count', opts);
       const dir = assertInside(opts.path);
-      return rgRunner.count({ ...opts, path: dir });
+      const normalization = normalizationCases(opts, ['query', 'glob']);
+      if (!normalization) return rgRunner.count({ ...opts, path: dir });
+      const results = [];
+      for (const normalized of normalization.cases) {
+        results.push(await rgRunner.count({ ...opts, ...normalized, path: dir }));
+      }
+      // Each runner result exposes scalar totals, not match identities. The
+      // maximum is therefore the strongest guaranteed floor; adding the runs
+      // would double-count overlap and would invent a total that was not measured.
+      const matches = Math.max(...results.map((result) => result.matches));
+      const files = Math.max(...results.map((result) => result.files));
+      const partial = [...new Set(results.flatMap((result) => result.partial))];
+      const truncated = results.some((result) => result.truncated);
+      return decorateSearchResult({ matches, files }, {
+        truncated,
+        partial,
+        complete: false,
+        scope: {
+          ...results[0].scope,
+          ...normalization.original,
+          normalization: {
+            fields: normalization.fields,
+            formsSearched: ['NFC', 'NFD'],
+            countAccuracy: 'lower-bound',
+            complete: false,
+          },
+        },
+      });
     },
   });
 }

@@ -11,7 +11,7 @@
 // call HANGS. (PowerShell does not hang; it mangles the argument into a parse error
 // instead.) Both were observed from a real Aside agent on 2026-09-14. Anything with a quote
 // in it should go through --code-file or stdin.
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,7 +79,15 @@ if (has('--install-mcp')) {
   const { spawnSync } = await import('node:child_process');
   const repoRoot = fileURLToPath(new URL('..', import.meta.url));
   const asideHome = process.env.ASIDE_HOME ?? path.join(os.homedir(), '.aside');
-  const requested = flag('--account');
+  // An unusable --account used to be ignored, and listAccountRoots then fell back to the
+  // current profile: "codemode --install-mcp --account nope" reported success against an
+  // account the caller never named. A flag whose value is the next flag is the same trap.
+  let requested = null;
+  if (has('--account')) {
+    requested = flag('--account');
+    if (!requested || requested.startsWith('--')) fail('--account needs an account id, for example --account u1');
+    if (!/^u?\d+$/.test(requested)) fail('--account must be an Aside profile id like u1, not ' + JSON.stringify(requested));
+  }
   const { roots } = listAccountRoots({
     asideHome,
     only: requested ? [String(requested).replace(/^u/, '')] : undefined,
@@ -87,13 +95,21 @@ if (has('--install-mcp')) {
   const target = roots[0];
   const entry = normalizedServerEntry({ execPath: process.execPath, repoRoot });
   const settingsPath = path.join(target.root, 'settings.json');
+  // Aside writes settings.json for every profile it has opened, so its absence means this
+  // is not a profile the daemon can activate. Naming one explicitly deserves that answer
+  // rather than a daemon round trip that quietly configures a different account.
+  if (requested && !existsSync(settingsPath)) {
+    fail('account u' + target.id + ' has no settings.json at ' + settingsPath + '; open that profile in Aside once, or drop --account to use the current one');
+  }
 
   const run = (cmd, args) => {
     const res = spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     return {
       code: res.status,
       stdout: res.stdout ?? '',
-      stderr: res.stderr ?? '',
+      // A spawn that never started has no stderr, and dropping res.error left the caller
+      // with "aside repl failed" and no way to learn the CLI was not on PATH.
+      stderr: res.error ? String(res.error.message) : (res.stderr ?? ''),
       cliMissing: Boolean(res.error && res.error.code === 'ENOENT'),
     };
   };

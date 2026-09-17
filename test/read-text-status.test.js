@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createCache } from '../src/host/browse/cache.js';
 import { createReadText } from '../src/host/browse/read-text.js';
 
 async function localServer(t, handler) {
@@ -95,4 +99,42 @@ test('BUG-R29 returns non-HTML bodies byte-for-byte with truthful formats', asyn
   assert.equal(plainOut.ok, true);
   assert.equal(plainOut.format, 'text');
   assert.equal(plainOut.text, plain);
+});
+
+test('BUG-R32 refuses a 0.7.0 readText entry that predates status and format validation', async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'codemode-read-text-cache-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cache = createCache({ dir });
+  const url = 'https://a.test/legacy';
+  const legacyBody = '{"error":"not found","markup":"<b>missing</b>"}';
+
+  // 0.7.0 called HTTP errors successful and stored every body under markdown. This fixture
+  // uses the real cache writer so the filesystem key and envelope are production-shaped.
+  await cache.put(
+    { namespace: 'readText', subject: url, accountRoot: '', locale: null },
+    { ok: true, source: 'fetch', status: 404, markdown: legacyBody, chars: legacyBody.length },
+  );
+
+  let fetches = 0;
+  const freshBody = '{"available":true,"markup":"<b>literal</b>"}';
+  const readText = createReadText({
+    cache,
+    fetchImpl: async () => {
+      fetches += 1;
+      return {
+        status: 200,
+        url,
+        headers: { get: () => 'application/json; charset=utf-8' },
+        text: async () => freshBody,
+      };
+    },
+  });
+
+  const out = await readText(url);
+
+  assert.equal(fetches, 1, 'the legacy success must not suppress a current fetch');
+  assert.equal(out.cached, undefined);
+  assert.equal(out.status, 200);
+  assert.equal(out.format, 'json');
+  assert.equal(out.text, freshBody);
 });

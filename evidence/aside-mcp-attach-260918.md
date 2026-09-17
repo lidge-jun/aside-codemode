@@ -71,6 +71,12 @@ The same release then moved the per-action synopses out of that description and 
 existing on-demand action catalog, leaving the cross-cutting warnings resident. Measured
 after the change with `Buffer.byteLength(TOOL_DEF.description)`: **1,793 bytes**.
 
+Later releases spent some of the remaining budget on warnings that were measured to be worth
+it: the search envelope, the symlink rule, and the instruction to reach for code mode first.
+Re-measured the same way at 0.8.0: **2,042 bytes**, under the 2,048-byte budget the suite
+enforces. The READMEs quote this number, and a test recomputes it from `TOOL_DEF` so the
+prose cannot drift away from the code again - which it had, at 1,984 bytes.
+
 What that number does and does not mean. It is a byte measurement of the description, not
 a measurement of agent behaviour. The relocation was checked three ways: the suite pins the
 call-shape tokens that had to survive, a byte budget now fails the suite above 2,048 bytes,

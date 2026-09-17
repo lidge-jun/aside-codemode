@@ -5,7 +5,7 @@
 //     `noIgnore: true`, got the same ignored-file result set back, and had no
 //     way to tell the option did nothing. Unknown keys are a hard error that
 //     names the valid ones.
-//  2. `.gitignore` silently removed 126 of 356 matching files from a repo-wide
+//  2. `.gitignore` silently removed most of the matching files from a repo-wide
 //     search, including the target repo's own README, because a parent
 //     .gitignore listed the whole project dir. `noIgnore`/`hidden` are
 //     first-class, and the effective policy is reported on `.scope`.

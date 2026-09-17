@@ -12,6 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +52,67 @@ test('no tracked file carries a real home directory', () => {
   }
   assert.deepEqual(found, [],
     'a real account name reached a tracked file. Use one of: ' + [...PLACEHOLDERS].join(', ') + String.fromCharCode(10) + found.join(String.fromCharCode(10)));
+});
+
+// Hostnames were the half of the rule nobody could check. Three shipped source comments named
+// two of this fleet's machines for weeks, inside the npm payload, while this suite passed:
+// the scan above only knows what a home directory looks like, and a device name looks like an
+// ordinary word. So the names come from the machine running the test - its own hostname, and
+// the hosts its ssh config can reach - which is knowledge the test has and the repository must
+// not. On a CI runner that list is short, and this check simply has less to say there.
+function knownMachineNames() {
+  const names = new Set();
+  // Only distinctive names are usable. Several aliases on a developer's machine are ordinary
+  // words - mini, codex, a bare number - and scanning for those would fail on prose that has
+  // nothing to do with any machine. A name counts when it carries a hyphen or a digit, or is
+  // long enough that its appearance in source is not a coincidence. That is a filter, not a
+  // proof: a host called "server" still gets past it, and a human still has to look.
+  const add = (value) => {
+    const name = String(value || '').trim().toLowerCase().split('.')[0];
+    if (/[*?!]/.test(name)) return;
+    if (!/^[a-z][a-z0-9._-]*$/.test(name)) return;
+    if (['localhost', 'runner', 'ubuntu', 'macos', 'windows'].includes(name)) return;
+    const distinctive = /[-]/.test(name) || /[0-9]/.test(name) || name.length >= 7;
+    if (distinctive) names.add(name);
+  };
+  add(os.hostname());
+  try {
+    const config = readFileSync(path.join(os.homedir(), '.ssh', 'config'), 'utf8');
+    for (const line of config.split(String.fromCharCode(10))) {
+      const m = /^\s*Host\s+(.+)$/i.exec(line);
+      if (!m) continue;
+      for (const alias of m[1].split(/\s+/)) add(alias);
+    }
+  } catch { /* no ssh config here, and none is required */ }
+  return [...names];
+}
+
+test('no tracked file names a machine this one can reach', () => {
+  const names = knownMachineNames();
+  const found = [];
+  for (const rel of tracked) {
+    // This file lists the generic words it allows, and the scan would read them as evidence.
+    if (rel === 'test/no-machine-identity.test.js') continue;
+    const text = readIfText(rel);
+    if (text === null) continue;
+    const lower = text.toLowerCase();
+    for (const name of names) {
+      let at = lower.indexOf(name);
+      while (at !== -1) {
+        const before = lower[at - 1] || ' ';
+        const after = lower[at + name.length] || ' ';
+        // A name inside a longer word is a different word, and the package's own name appears
+        // in paths everywhere.
+        if (!/[a-z0-9]/.test(before) && !/[a-z0-9-]/.test(after)) {
+          const line = text.slice(0, at).split(String.fromCharCode(10)).length;
+          found.push(rel + ':' + line + ' names a host this machine knows');
+          break;
+        }
+        at = lower.indexOf(name, at + name.length);
+      }
+    }
+  }
+  assert.deepEqual(found, [], found.join(String.fromCharCode(10)));
 });
 
 // The regex has to keep catching what it was written for. A pattern that quietly stops matching

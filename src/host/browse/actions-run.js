@@ -1,6 +1,6 @@
 // Drive the page by accessibility ref instead of a guessed CSS selector.
 //
-// Measured on macbookpro-2, Aside CLI 1.26.906.1630, 2026-09-14
+// Measured on one macOS host, Aside CLI 1.26.906.1630, 2026-09-14
 // (devlog/_plan/260914_a11y-actions/010_probe_evidence.md): every verb below is present on
 // page.locator(target) and absent on the page object, a locator enumerates as [] while all
 // of its methods work, and a child frame's element is addressable from the top-level page

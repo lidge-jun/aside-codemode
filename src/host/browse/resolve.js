@@ -70,7 +70,8 @@ export function asideCandidates(config = {}, env = process.env, platform = proce
     // Order matters, and it was measured. On a real mac the CLI lives in ~/.local/bin.
     //
     // /Applications/Aside.app/Contents/MacOS/aside is deliberately NOT a candidate: that
-    // binary is the GUI launcher, not the CLI. Resolving to it on macmini printed
+    // binary is the GUI launcher, not the CLI. Resolving to it on a mac with the app
+    // installed printed
     // "기존 브라우저 세션에서 여는 중입니다." and exited without ever emitting a marker, so
     // every browse call failed with ENOMARKER while the file plainly existed. An existence
     // check cannot tell those two binaries apart, which is why verifyAside below proves a

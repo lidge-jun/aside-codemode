@@ -4,7 +4,7 @@
 // can reuse the account's cookies but never the page the user is actually looking at: not
 // their scroll position, not a half-filled form, not a modal they just opened. That was a
 // real limitation, but it was never a hard one - the Aside REPL already exposes the live
-// browser. Measured on macbookpro-2, CLI 1.26.906.1630, 2026-09-14:
+// browser. Measured on one macOS host, CLI 1.26.906.1630, 2026-09-14:
 //
 //   listBrowserTabs()            -> 7 live tabs, each { active, faviconUrl, id, targetId,
 //                                   title, url, windowId, focusedWindow }

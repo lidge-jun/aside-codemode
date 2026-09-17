@@ -180,7 +180,7 @@ export const EXTRACT_SRC = String.raw`    if (JOB.extract) {
       /*__REF_SPLIT__*/
       out.data = Object.keys(selectorSchema).length === 0 ? { data: {}, missing: [] } : await page.evaluate((schema) => {
         // textContent includes the text inside <script>, which is how extracting 'body' on
-        // Threads returned 530KB of server bootstrap JSON and still reported success.
+        // Threads returned the server's bootstrap JSON and still reported success.
         // innerText is the rendered, visible text; scripts and styles are stripped either way.
         const readText = (n) => {
           if (!n) return null;

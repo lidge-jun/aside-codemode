@@ -22,6 +22,33 @@ test('find ranks by token coverage', () => {
   assert.equal(rows[0].path, 'search.content');
 });
 
+test('file action namespace aliases resolve without duplicating list rows', () => {
+  const aliases = {
+    'fs.read_file': 'read_file',
+    'fs.write_file': 'write_file',
+    'fs.edit_file': 'edit_file',
+  };
+  const listed = actions.list().map((row) => row.path);
+
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    assert.equal(actions.describe(alias), actions.describe(canonical));
+    assert.equal(actions.find(alias)[0].path, canonical);
+    assert.equal(listed.includes(alias), false, alias + ' is a spelling of one action, not another action');
+  }
+
+  assert.equal(actions.check('fs.read_file', { path: 'a.txt', offset: 1, limit: 1 }).ok, true);
+  assert.equal(actions.check('fs.write_file', { file_path: 'new.txt', content: '' }).ok, true);
+  assert.equal(actions.check('fs.edit_file', { path: 'a.txt', appendText: 'x' }).ok, true);
+});
+
+test('browse.searchMany catalog declares Date and discovery accepts it', () => {
+  const date = new Date('2026-01-01T00:00:00Z');
+  const described = actions.describe('browse.searchMany');
+  assert.equal(described.inputs.since.type, 'string|date');
+  assert.match(described.signature, /Date/);
+  assert.equal(actions.check('browse.searchMany', { queries: ['q'], since: date }).ok, true);
+});
+
 test('check reports missing, unknown and type errors without calling', () => {
   const r = actions.check('search.content', {});
   assert.equal(r.ok, false);

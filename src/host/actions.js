@@ -17,6 +17,23 @@ import {
   checkBrowseArgs,
 } from './browse/actions-schema.js';
 import { validateRecipeRun } from './browse/watch.js';
+import { parseApplyPatch } from './patch.js';
+
+// The guest manifest exposes these same functions twice: once as globals and once through
+// the fs object. They remain one catalog row because listing aliases as separate actions
+// would make one implementation look like six independent capabilities.
+const ACTION_ALIASES = new Map([
+  ['fs.read_file', 'read_file'],
+  ['fs.write_file', 'write_file'],
+  ['fs.edit_file', 'edit_file'],
+]);
+
+const ALIASES_BY_ACTION = new Map();
+for (const [alias, canonical] of ACTION_ALIASES) {
+  const aliases = ALIASES_BY_ACTION.get(canonical) || [];
+  aliases.push(alias);
+  ALIASES_BY_ACTION.set(canonical, aliases);
+}
 
 const REGISTRY = [
   ...SEARCH_ACTIONS.map((entry) => {
@@ -43,8 +60,8 @@ const REGISTRY = [
     signature: 'read_file({ path, offset?, limit? }) => Promise<string>',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots; relative to --cwd)' },
-      offset: { type: 'number', required: false, description: '1-indexed start line' },
-      limit: { type: 'number', required: false, description: 'Max lines to return' },
+      offset: { type: 'number', required: false, description: '1-indexed positive safe-integer start line' },
+      limit: { type: 'number', required: false, description: 'Positive safe-integer maximum lines to return' },
     },
   },
   {
@@ -52,7 +69,7 @@ const REGISTRY = [
     description: 'Create a new file (Aside write_file). Fails if the file already exists.',
     signature: 'write_file({ file_path, content }) => Promise<{wrote,bytes}>',
     inputs: {
-      file_path: { type: 'string', required: true, description: 'Target path (create-only)' },
+      file_path: { type: 'string', required: true, description: 'Non-empty target path (create-only)' },
       content: { type: 'string', required: true, description: 'File contents' },
     },
   },
@@ -61,7 +78,7 @@ const REGISTRY = [
     description: 'Unique oldText→newText replacements on the original file, optional appendText.',
     signature: 'edit_file({ path, appendText?, edits:[{oldText,newText}] }) => Promise<{path,replacements,appended,diff}>',
     inputs: {
-      path: { type: 'string', required: true, description: 'File to edit' },
+      path: { type: 'string', required: true, description: 'Non-empty path of the file to edit' },
       appendText: { type: 'string', required: false, description: 'Appended after edits' },
       edits: { type: 'array', required: false, description: 'Replacements against the original text' },
     },
@@ -82,8 +99,8 @@ const REGISTRY = [
     signature: 'fs.read(path, { maxBytes?, offset? }?) => Promise<string>',
     inputs: {
       path: { type: 'string', required: true, description: 'File path (inside roots)' },
-      maxBytes: { type: 'number', required: false, description: 'Read cap (default 256 KiB)' },
-      offset: { type: 'number', required: false, description: 'Start byte offset' },
+      maxBytes: { type: 'number', required: false, description: 'Read cap (default 256 KiB). Positive values must be safe integers; Infinity reads all bytes; non-positive values clamp to zero.' },
+      offset: { type: 'number', required: false, description: 'Non-negative safe-integer start byte offset' },
     },
   },
   {
@@ -154,7 +171,8 @@ const REGISTRY = [
 ];
 
 function score(candidate, tokens) {
-  const hay = (candidate.path + ' ' + candidate.description).toLowerCase();
+  const aliases = ALIASES_BY_ACTION.get(candidate.path) || [];
+  const hay = (candidate.path + ' ' + aliases.join(' ') + ' ' + candidate.description).toLowerCase();
   let s = 0;
   for (const t of tokens) {
     if (hay.includes(t)) s += t.length;
@@ -174,8 +192,86 @@ function didYouMean(path) {
 function typeOf(v) {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
+  if (utilTypes.isDate(v)) return 'date';
   if (utilTypes.isRegExp(v)) return 'regexp';
   return typeof v;
+}
+
+function problem(name, why) {
+  return { name, why };
+}
+
+// These are only the argument-only refusals measured at the call boundary. File existence,
+// uniqueness and root checks need I/O, so discovery does not guess about them.
+function checkFileArgs(path, args) {
+  if (path === 'read_file') {
+    if (args.path.length === 0) return [problem('path', 'read_file: path (non-empty string) is required')];
+    for (const name of ['offset', 'limit']) {
+      if (!(name in args)) continue;
+      const value = args[name];
+      if (!Number.isInteger(value) || value < 1) {
+        return [problem(name, 'read_file: offset/limit must be a positive integer')];
+      }
+      if (!Number.isSafeInteger(value)) {
+        return [problem(name, 'readLines: offset/limit must be a positive integer')];
+      }
+    }
+    return [];
+  }
+
+  if (path === 'write_file') {
+    return args.file_path.length === 0
+      ? [problem('file_path', 'write_file: file_path (non-empty string) is required')]
+      : [];
+  }
+
+  if (path === 'edit_file') {
+    if (args.path.length === 0) return [problem('path', 'edit_file: path (non-empty string) is required')];
+    const edits = args.edits ?? [];
+    if (edits.length === 0 && (typeof args.appendText !== 'string' || args.appendText.length === 0)) {
+      return [problem('edits', 'edit_file: empty edits only allowed with appendText')];
+    }
+    for (const edit of edits) {
+      if (!edit || typeof edit.oldText !== 'string' || typeof edit.newText !== 'string') {
+        return [problem('edits', 'edit_file: each edit needs oldText and newText strings')];
+      }
+      if (edit.oldText === '') {
+        return [problem('edits', 'edit_file: oldText must not be empty (use appendText to add text without an anchor)')];
+      }
+    }
+    return [];
+  }
+
+  if (path === 'apply_patch') {
+    if (!args.text.trim()) return [problem('text', 'apply_patch: freeform string required')];
+    try {
+      const hunks = parseApplyPatch(args.text);
+      const emptyPath = hunks.find((hunk) => !hunk.path);
+      if (emptyPath) {
+        const why = emptyPath.type === 'add'
+          ? 'write_file: file_path (non-empty string) is required'
+          : 'edit_file: path (non-empty string) is required';
+        return [problem('text', why)];
+      }
+      return [];
+    } catch (error) {
+      return [problem('text', String(error && error.message || error))];
+    }
+  }
+
+  if (path === 'fs.read') {
+    if ('offset' in args && (!Number.isSafeInteger(args.offset) || args.offset < 0)) {
+      return [problem('offset', 'offset must be a non-negative integer')];
+    }
+    if ('maxBytes' in args) {
+      const value = args.maxBytes;
+      // fs.read clamps every non-positive number before readBounded validates it. Keeping
+      // that measured coercion here avoids advertising a stricter API than the call has.
+      const accepted = value === Infinity || value <= 0 || Number.isSafeInteger(value);
+      if (!accepted) return [problem('maxBytes', 'maxBytes must be a non-negative integer')];
+    }
+  }
+  return [];
 }
 
 /**
@@ -204,7 +300,8 @@ export function createActions({ recipes = null } = {}) {
       if (path === undefined) {
         throw new Error("actions.describe takes an exact action path, for example actions.describe('fs.read'); use actions.list() or actions.find(query) to get paths");
       }
-      const rec = REGISTRY.find((r) => r.path === path);
+      const canonicalPath = ACTION_ALIASES.get(path) || path;
+      const rec = REGISTRY.find((r) => r.path === canonicalPath);
       if (!rec) {
         const cands = didYouMean(String(path));
         throw new Error(`unknown action: ${path}` + (cands.length ? `. did you mean: ${cands.join(', ')}?` : ''));
@@ -212,7 +309,8 @@ export function createActions({ recipes = null } = {}) {
       return rec;
     },
     check(path, args = {}) {
-      const rec = REGISTRY.find((r) => r.path === path);
+      const canonicalPath = ACTION_ALIASES.get(path) || path;
+      const rec = REGISTRY.find((r) => r.path === canonicalPath);
       if (!rec) {
         const cands = didYouMean(String(path));
         throw new Error(`unknown action: ${path}` + (cands.length ? `. did you mean: ${cands.join(', ')}?` : ''));
@@ -258,6 +356,7 @@ export function createActions({ recipes = null } = {}) {
       // call. Asking it about arguments already reported as missing, unknown or mistyped
       // would return that same problem a second time in different words.
       if (missing.length === 0 && unknown.length === 0 && typeErrors.length === 0) {
+        invalid.push(...checkFileArgs(rec.path, args));
         invalid.push(...checkBrowseArgs(rec.path, args));
         // The one rule that cannot live in the path table with the others, because it needs
         // this host's registry rather than only the arguments.

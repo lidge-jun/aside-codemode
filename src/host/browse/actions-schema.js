@@ -236,11 +236,11 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.searchMany',
     description: 'Run several queries in parallel with url dedupe and an optional date filter.',
-    signature: "browse.searchMany(queries, { engine?, since? }) => Promise<{engine,items,ok}>",
+    signature: "browse.searchMany(queries, { engine?, since?: string|Date }) => Promise<{engine,items,ok}>",
     inputs: {
       queries: { type: 'array', required: true, description: 'Array of query strings' },
       engine: { type: 'string', required: false, description: 'duckduckgo (default) | youtube | google' },
-      since: { type: 'string', required: false, description: 'ISO date; rows older than this are dropped and counted' },
+      since: { type: 'string|date', required: false, description: 'ISO date string or Date; rows older than this are dropped and counted' },
     },
     notes: 'google is callable but answers with a bot challenge, so it returns EBLOCKED with the url to open rather than an empty result set.',
   },

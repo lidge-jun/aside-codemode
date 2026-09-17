@@ -12,6 +12,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createActions } from '../src/host/actions.js';
 import { createFs } from '../src/host/fs.js';
+import { createApplyPatch } from '../src/host/patch.js';
 import { makeRootGuard } from '../src/paths.js';
 import { validateAttach } from '../src/host/browse/attach-schema.js';
 import { createCaptureMany, planCaptureMany } from '../src/host/browse/capture.js';
@@ -162,6 +163,56 @@ test('grepFile discovery follows measured runtime pattern and line-cap semantics
   );
 });
 
+test('file action discovery reports every measured value refusal from the runtime', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'codemode-catalog-files-'));
+  writeFileSync(path.join(root, 'a.txt'), 'alpha\nbeta\n');
+  const fs = createFs({ assertInside: makeRootGuard([root], { cwd: root }) });
+  const applyPatch = createApplyPatch({ write_file: fs.write_file, edit_file: fs.edit_file });
+
+  const refused = [
+    ['read_file', { path: '', offset: 1, limit: 1 }, () => fs.read_file({ path: '', offset: 1, limit: 1 })],
+    ['read_file', { path: 'a.txt', offset: 0, limit: 1 }, () => fs.read_file({ path: 'a.txt', offset: 0, limit: 1 })],
+    ['read_file', { path: 'a.txt', offset: 1, limit: 0 }, () => fs.read_file({ path: 'a.txt', offset: 1, limit: 0 })],
+    ['read_file', { path: 'a.txt', offset: Number.MAX_SAFE_INTEGER + 1, limit: 1 }, () => fs.read_file({ path: 'a.txt', offset: Number.MAX_SAFE_INTEGER + 1, limit: 1 })],
+    ['write_file', { file_path: '', content: '' }, () => fs.write_file({ file_path: '', content: '' })],
+    ['edit_file', { path: '', appendText: 'x' }, () => fs.edit_file({ path: '', appendText: 'x' })],
+    ['edit_file', { path: 'a.txt' }, () => fs.edit_file({ path: 'a.txt' })],
+    ['edit_file', { path: 'a.txt', edits: [{}] }, () => fs.edit_file({ path: 'a.txt', edits: [{}] })],
+    ['edit_file', { path: 'a.txt', edits: [{ oldText: '', newText: 'x' }] }, () => fs.edit_file({ path: 'a.txt', edits: [{ oldText: '', newText: 'x' }] })],
+    ['apply_patch', { text: '   ' }, () => applyPatch('   ')],
+    ['apply_patch', { text: '*** Begin Patch\n*** End Patch' }, () => applyPatch('*** Begin Patch\n*** End Patch')],
+    ['apply_patch', { text: '*** Begin Patch\n*** Add File:   \n+x\n*** End Patch' }, () => applyPatch('*** Begin Patch\n*** Add File:   \n+x\n*** End Patch')],
+    ['fs.read', { path: 'a.txt', offset: -1, maxBytes: 1 }, () => fs.read('a.txt', { offset: -1, maxBytes: 1 })],
+    ['fs.read', { path: 'a.txt', offset: 1.5, maxBytes: 1 }, () => fs.read('a.txt', { offset: 1.5, maxBytes: 1 })],
+    ['fs.read', { path: 'a.txt', offset: Number.MAX_SAFE_INTEGER + 1, maxBytes: 1 }, () => fs.read('a.txt', { offset: Number.MAX_SAFE_INTEGER + 1, maxBytes: 1 })],
+    ['fs.read', { path: 'a.txt', maxBytes: 1.5 }, () => fs.read('a.txt', { maxBytes: 1.5 })],
+    ['fs.read', { path: 'a.txt', maxBytes: Number.MAX_SAFE_INTEGER + 1 }, () => fs.read('a.txt', { maxBytes: Number.MAX_SAFE_INTEGER + 1 })],
+    ['fs.read', { path: 'a.txt', maxBytes: NaN }, () => fs.read('a.txt', { maxBytes: NaN })],
+  ];
+
+  for (const [action, args, call] of refused) {
+    let runtimeError = null;
+    try { await call(); } catch (error) { runtimeError = error; }
+    assert.ok(runtimeError, action + ' runtime accepted ' + JSON.stringify(args));
+
+    const checked = actions.check(action, args);
+    assert.equal(checked.ok, false, action + ' discovery accepted ' + JSON.stringify(args));
+    assert.ok(
+      checked.invalid.some((problem) => problem.why === runtimeError.message),
+      action + ' did not report runtime refusal ' + JSON.stringify(runtimeError.message) + ': ' + JSON.stringify(checked),
+    );
+  }
+});
+
+test('fs.read discovery preserves the runtime byte-range values that are accepted', () => {
+  for (const maxBytes of [0, -1, -0.5, -Infinity, Infinity, Number.MAX_SAFE_INTEGER]) {
+    const checked = actions.check('fs.read', { path: 'a.txt', maxBytes });
+    assert.equal(checked.ok, true, 'discovery refused maxBytes=' + String(maxBytes) + ': ' + JSON.stringify(checked));
+  }
+  assert.equal(actions.check('fs.read', { path: 'a.txt', offset: 0, maxBytes: 1 }).ok, true);
+  assert.equal(actions.check('read_file', { path: 'a.txt', offset: 1, limit: Number.MAX_SAFE_INTEGER }).ok, true);
+});
+
 // The fixture names every runtime pre-flight, not selected incidents. A new dispatch-table
 // row therefore has to bring one refusal and one accepted call with it. The expected reason
 // comes from the owner validator at test time; copying message text here would let the test
@@ -195,7 +246,7 @@ const RUNTIME_PREFLIGHTS = {
   'browse.searchMany': {
     run: (args) => validateSearchMany(args.queries, args),
     refused: [{ args: { queries: ['x'], engine: 'bing' }, name: 'engine' }],
-    accepted: { queries: ['x'], engine: 'duckduckgo', since: '2026-01-01' },
+    accepted: { queries: ['x'], engine: 'duckduckgo', since: new Date('2026-01-01T00:00:00Z') },
   },
   'browse.readText': {
     run: (args) => validateReadTextUrl(args.url),

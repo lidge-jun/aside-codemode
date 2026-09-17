@@ -17,6 +17,58 @@
 // The option contract itself is owned by ../search-schema.js so this file, the
 // discovery catalog and the runner cannot drift.
 import { validateSearchOptions } from '../search-schema.js';
+import { decorateSearchResult } from '../search-result.js';
+import { hasNonAscii } from '../unicode.js';
+
+function normalizationCases(opts, fields) {
+  const normalizedFields = fields.filter((field) => hasNonAscii(opts[field]));
+  if (normalizedFields.length === 0) return null;
+  let cases = [{}];
+  for (const field of normalizedFields) {
+    cases = cases.flatMap((entry) => ['NFC', 'NFD'].map((form) => ({
+      ...entry,
+      [field]: opts[field].normalize(form),
+    })));
+  }
+  const unique = [...new Map(cases.map((entry) => [JSON.stringify(entry), entry])).values()];
+  return {
+    fields: normalizedFields,
+    original: Object.fromEntries(normalizedFields.map((field) => [field, opts[field]])),
+    cases: unique,
+  };
+}
+
+function mergeRows(results, max, rowKey, normalization) {
+  const rows = [];
+  const seen = new Set();
+  for (const result of results) {
+    for (const row of result) {
+      const key = rowKey(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  const capped = rows.length > max;
+  if (capped) rows.length = max;
+  const partial = [...new Set(results.flatMap((result) => result.partial))];
+  const truncated = capped || results.some((result) => result.truncated);
+  const normalizationComplete = results.every((result) => result.complete);
+  return decorateSearchResult(rows, {
+    truncated,
+    partial,
+    complete: !truncated && partial.length === 0 && normalizationComplete,
+    scope: {
+      ...results[0].scope,
+      ...normalization.original,
+      normalization: {
+        fields: normalization.fields,
+        formsSearched: ['NFC', 'NFD'],
+        complete: normalizationComplete,
+      },
+    },
+  });
+}
 
 export function createSearch({ rgRunner, assertInside, caps }) {
   return Object.freeze({
@@ -26,13 +78,32 @@ export function createSearch({ rgRunner, assertInside, caps }) {
       // spawned for an unsupported request.
       validateSearchOptions('search.files', opts);
       const dir = assertInside(opts.path);
-      return rgRunner.files({ ...opts, path: dir, max: opts.max ?? caps.files });
+      const max = opts.max ?? caps.files;
+      const normalization = normalizationCases(opts, ['pattern', 'glob']);
+      if (!normalization) return rgRunner.files({ ...opts, path: dir, max });
+      const results = [];
+      for (const normalized of normalization.cases) {
+        results.push(await rgRunner.files({ ...opts, ...normalized, path: dir, max }));
+      }
+      return mergeRows(results, max, (file) => file, normalization);
     },
 
     async content(opts = {}) {
       validateSearchOptions('search.content', opts);
       const dir = assertInside(opts.path);
-      return rgRunner.content({ ...opts, path: dir, max: opts.max ?? caps.content });
+      const max = opts.max ?? caps.content;
+      const normalization = normalizationCases(opts, ['query', 'glob']);
+      if (!normalization) return rgRunner.content({ ...opts, path: dir, max });
+      const results = [];
+      for (const normalized of normalization.cases) {
+        results.push(await rgRunner.content({ ...opts, ...normalized, path: dir, max }));
+      }
+      return mergeRows(
+        results,
+        max,
+        (hit) => JSON.stringify([hit.file, hit.line, hit.text, hit.context]),
+        normalization,
+      );
     },
 
     // Pre-flight sizing: returns {matches, files} without materializing rows.

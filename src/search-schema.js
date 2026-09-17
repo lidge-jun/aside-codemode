@@ -76,7 +76,7 @@ const OPTS = {
   glob: {
     type: 'string',
     required: false,
-    description: "ripgrep -g glob, e.g. '**/*.ts'. Inclusive globs can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep glob precedence, not a root escape, and not -uuu).",
+    description: "ripgrep -g glob, e.g. '**/*.ts'. A non-ASCII glob is searched in both NFC and NFD forms and the paths are unioned. Inclusive globs can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep glob precedence, not a root escape, and not -uuu).",
     validate: (v) => nonEmptyString('glob', v),
   },
   max: {
@@ -171,14 +171,14 @@ export const SEARCH_ACTIONS = [
     path: 'search.files',
     description: 'First call for any directory or project filename search. Returns file paths and streams to the `max` cap, so a large tree is safe.',
     signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
-    notes: "Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. `pattern` is a substring filter and `glob` is the glob: pattern:'*.pdf' is rejected with the glob you probably meant, instead of returning zero rows. Paths come back as the bytes on disk; the pattern comparison is NFC-folded so a decomposed macOS filename still matches. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).",
+    notes: "Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. `pattern` is a substring filter and `glob` is the glob: pattern:'*.pdf' is rejected with the glob you probably meant, instead of returning zero rows. Non-ASCII patterns and globs search both NFC and NFD and union paths without changing the bytes returned. `.scope.normalization` reports the forms searched and whether both finished completely. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).",
     inputs: inputsFor(FILES_ORDER),
   },
   {
     path: 'search.content',
     description: 'First call for any directory or project content search. Searches file contents and returns matching lines with file, line number and optional context.',
     signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text,context?}[]>',
-    notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Unknown options and invalid values are rejected rather than ignored. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
+    notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Non-ASCII queries and globs search both NFC and NFD and union hits by path/line/content; `.scope.normalization` reports whether both forms finished completely. Unknown options and invalid values are rejected rather than ignored. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
     inputs: inputsFor(CONTENT_ORDER),
   },
   {

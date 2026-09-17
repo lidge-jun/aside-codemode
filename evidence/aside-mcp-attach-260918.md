@@ -62,10 +62,21 @@ agent used `mcp__aside-codemode__execute_code` once. That one MCP call ran
 
 ## Resident description size
 
-The attached `execute_code` tool description measured **6,775 bytes**. It is resident
-in every MCP session. For comparison only, the account `AGENTS.md` block measured
-3,808 bytes and the installed user skill measured 8,973 bytes and is loaded on demand.
-These measurements do not establish a prompt-size reduction.
+The attached `execute_code` tool description measured **6,775 bytes** when the MCP route
+was first proven. It is resident in every MCP session. For comparison only, the account
+`AGENTS.md` block measured 3,808 bytes and the installed user skill measured 8,973 bytes
+and is loaded on demand.
+
+The same release then moved the per-action synopses out of that description and into the
+existing on-demand action catalog, leaving the cross-cutting warnings resident. Measured
+after the change with `Buffer.byteLength(TOOL_DEF.description)`: **1,793 bytes**.
+
+What that number does and does not mean. It is a byte measurement of the description, not
+a measurement of agent behaviour. The relocation was checked three ways: the suite pins the
+call-shape tokens that had to survive, a byte budget now fails the suite above 2,048 bytes,
+and `actions.describe('search.content')` was run live to confirm the completeness envelope
+and `scope.skippedSymlinks` are reachable on demand. The paired A/B trial that would show a
+slimmed description is not WORSE for an agent was not run, so no usability claim is made here.
 
 ## What this does not claim
 
@@ -74,6 +85,7 @@ These measurements do not establish a prompt-size reduction.
   `mcp.inventories`.
 - Hot-attach behavior for an already running session is unverified. Start a new
   session after refreshing the inventory.
-- No reduction of the **6,775-byte** resident tool description has been made yet.
+- The 6,775 -> 1,793 byte reduction is a size measurement only. No trial established that an
+  agent performs as well with the shorter description.
 - The result does not make native MCP the default and does not deprecate the CLI
   route. They are two supported installation paths.

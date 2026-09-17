@@ -147,7 +147,7 @@ remain at `0 tools cached`; in that state the tool never attaches. After refresh
 new Aside session. A newly created session picks up the inventory without a daemon restart;
 hot-attachment to an already running session has not been verified.
 
-The agent then calls `mcp__aside-codemode__execute_code` directly. Its **6,775-byte** tool
+The agent then calls `mcp__aside-codemode__execute_code` directly. Its **1,793-byte** tool
 description is always resident in every MCP session. Pick this route when a direct MCP tool is
 preferable to a bash card and that resident context cost is acceptable.
 
@@ -285,11 +285,19 @@ Migration: callers parsing a directly returned search array must now read `resul
 
 ### Choosing when to batch
 
-For a single interactive action, Aside's built-in tools are the right answer more often than not.
-Reach for a batch only when all three hold: the steps repeat, the items do not share state with each other,
-and you can say in one sentence what a finished item looks like. A first look at an unfamiliar
-page, a single click, a fresh visual judgement, or anything that needs an account or an
-approval stays native — batching those trades a correct answer for a faster wrong one.
+Make the decision on two separate axes.
+
+**Round-trip cost.** Batch when the structure repeats, the items do not share state, and you
+can say in one sentence what a finished item looks like. Native tools win for a first look at
+an unfamiliar page, a single click, one file, a fresh visual judgement, or anything that needs
+an account or an approval. Keep work native when the user should watch it happen too: a batch
+does not produce file cards in the Aside UI.
+
+**Resident context cost, measured.** The MCP route keeps its **1,793-byte** tool description
+resident in every MCP session. The CLI route keeps the **3,808-byte** account `AGENTS.md` block
+resident and loads the **8,973-byte** user skill only on demand. These are route costs, separate
+from the round trips saved by a particular batch; neither route is the default, legacy, or
+deprecated choice.
 
 When the work does qualify, the cost of doing it by hand is real — but how much depends
 entirely on what there is to batch, and the four workloads measured here batch different

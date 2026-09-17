@@ -1,7 +1,8 @@
 # code mode
 
-Native is the default. A page you have not seen, a single click, a fresh visual
-judgement: work the way you normally do and ignore this block.
+Native is the default. A page you have not seen, a single click, one file or a fresh
+visual judgement: ignore this block. Keep work native when it needs an account, an
+approval or a result the user should watch; a batch makes no Aside file cards.
 
 Batch when the structure repeats and the items do not depend on each other's state. A
 signed-in site is the exception that looks like the rule: every item shares one session,

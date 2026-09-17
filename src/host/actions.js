@@ -10,8 +10,21 @@ import { SEARCH_ACTIONS, checkOptionValue, checkEntryOptionValue } from '../sear
 import { BROWSE_ACTIONS, REPORT_ACTIONS, API_ACTIONS, RECIPE_ACTIONS, checkBrowseArgs } from './browse/actions-schema.js';
 
 const REGISTRY = [
-  ...SEARCH_ACTIONS,
-  ...BROWSE_ACTIONS,
+  ...SEARCH_ACTIONS.map((entry) => {
+    if (entry.path !== 'search.content') return entry;
+    return {
+      ...entry,
+      notes: entry.notes + ' Array ergonomics are unchanged; JSON serialization emits {rows,complete,truncated,partial,scope}. scope.skippedSymlinks is {dirs,files,examples,capped}; a skipped directory makes complete:false because an unseen subtree may be behind it. Returned file paths are the bytes on disk, so hand-filter names by comparing both sides with .normalize("NFC"); otherwise decomposed (NFD) macOS names can be missed.',
+    };
+  }),
+  ...BROWSE_ACTIONS.map((entry) => {
+    if (entry.path !== 'browse.readText') return entry;
+    return {
+      ...entry,
+      signature: 'browse.readText(urlString) OR browse.readText({ url, timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>',
+      notes: entry.notes + " Direct calls accept either a URL string or one options object containing url. actions.check validates the catalog-shaped object, so check with actions.check('browse.readText', { url, ...options }).",
+    };
+  }),
   ...REPORT_ACTIONS,
   ...API_ACTIONS,
   ...RECIPE_ACTIONS,
@@ -47,7 +60,7 @@ const REGISTRY = [
   {
     path: 'apply_patch',
     description: 'Apply a Codex-shaped freeform patch string. Add/Update only. Success {}. No rollback.',
-    notes: 'Guest call is apply_patch(string). inputs.text is catalog-only, not an object argument. Update hunks are line-based; a substring that is not a whole line does not match. CRLF files keep CRLF.',
+    notes: "actions.check validates CATALOG-shaped argument objects, which can differ from direct positional calls: check with actions.check('apply_patch', { text }), but call apply_patch(text). Update hunks are line-based; a substring that is not a whole line does not match. CRLF files keep CRLF.",
     signature: 'apply_patch(text) => Promise<{}>',
     inputs: {
       text: { type: 'string', required: true, description: 'Freeform *** Begin Patch … *** End Patch string' },
@@ -119,6 +132,7 @@ const REGISTRY = [
   {
     path: 'fs.list',
     description: 'List directory entries with type and size; optionally recursive to a depth.',
+    notes: 'Returned names are the bytes on disk. When hand-filtering them, compare both sides with .normalize("NFC"); otherwise decomposed (NFD) macOS filenames can be missed even though they render identically.',
     signature: 'fs.list(path, { max?, recursive?, depth? }?) => Promise<{name,type,size}[]>',
     inputs: {
       path: { type: 'string', required: true, description: 'Directory path (inside roots)' },

@@ -84,6 +84,7 @@ test('the guest sandbox is described before it refuses, in both the block and th
 
 test('readText and attach are in the tool description, with the field readText answers with', () => {
   const doc = TOOL_DEF.description;
+  assert.ok(Buffer.byteLength(doc) <= 2048, `execute_code description is ${Buffer.byteLength(doc)} bytes; budget is 2048`);
   assert.match(doc, /browse\.readText/);
   assert.match(doc, /browse\.attach/);
   assert.match(doc, /treeNodes/);

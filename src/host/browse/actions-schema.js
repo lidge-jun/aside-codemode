@@ -70,7 +70,10 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.exec',
     description: 'Rendered-extraction path for 2+ independent URLs in ONE Aside REPL session. On by default; refused when browseCaps.enabled is false.',
-    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, snapshot?, screenshot?, pdf?, extract?, concurrency?, detect? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
+    // The signature named ten of twenty-seven implemented options and omitted both `actions`
+    // and `approveWrites`, so the first thing a reader saw described browse.exec as a
+    // read-only fetcher. An action that can write has to say so where the reader looks first.
+    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, concurrency?, snapshot?, maxTreeChars?, treeNodes?, snapshotAfter?, screenshot?, pdf?, extract?, fullText?, maxTextChars?, requireSelector?, requireContent?, minTextChars?, loggedInMarker?, stopWhenLoggedOut?, detect?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, helper? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       timeoutMs: { type: 'number', required: false, description: 'Inner deadline, clamped to browseCaps.timeoutMs (default 25000)' },
@@ -140,7 +143,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.attach',
     description: 'Route for "this page" or an already-open tab: read its session, scroll position and current screen without opening or closing a tab.',
-    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, approveWrites?, requireSelector?, minTextChars?, includeText?, maxTextChars?, sampleChars? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
+    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, actionBudgetMs? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
@@ -164,12 +167,17 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.captureMany',
     description: 'Batch screenshot or pdf capture; artifacts are written to outDir and verified against the request.',
-    signature: 'browse.captureMany(urls, { outDir, screenshot?, pdf?, snapshot?, timeoutMs?, concurrency? }) => Promise<{ok,items}>',
+    signature: 'browse.captureMany(urls, { outDir, screenshot?, pdf?, snapshot?, timeoutMs?, waitUntil?, waitSelector?, concurrency? }) => Promise<{ok,items}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       outDir: { type: 'string', required: false, description: 'Directory inside the configured roots; files are host-named' },
       screenshot: { type: 'object', required: false, description: '{ clip?, type?, quality? }. clip is honoured exactly.' },
       pdf: { type: 'object', required: false, description: '{ paperWidth?, paperHeight?, printBackground?, preferCSSPageSize?, margin? } in INCHES, defaulting to A4. margin keys are top/right/bottom/left and accept numbers or unit-labelled strings. Prints the url to a file in outDir. A format name is refused: it was measured producing US Letter while reporting A4. Passing pdf without naming screenshot means a pdf and no screenshot; screenshot: false with no pdf is refused because nothing would come back.' },
+      snapshot: { type: 'boolean', required: false, description: 'Also return the accessibility tree for each page' },
+      timeoutMs: { type: 'number', required: false, description: 'Per-page deadline' },
+      waitUntil: { type: 'string', required: false, description: 'Navigation wait condition forwarded to the page' },
+      waitSelector: { type: 'string', required: false, description: 'Wait for this selector before capturing' },
+      concurrency: { type: 'number', required: false, description: 'How many pages are open at once' },
     },
     outputs: {
       items: { description: 'When outDir was passed, each item may include artifact and pdf records. item.artifact contains the host-issued path and measured image fields; item.pdf is { path, bytes, pageBox } under a host-issued file name.' },
@@ -188,7 +196,7 @@ export const BROWSE_ACTIONS = [
       fresh: { type: 'boolean', required: false, description: 'Skip the cache and read the page now. watch always sets this.' },
       locale: { type: 'string', required: false, description: 'Separates cache entries for pages that answer differently per locale' },
     },
-    notes: "source is 'fetch' or 'browser'; fallbackReason says why a browser was needed. ok is false for an http refusal (blockKind auth | rate-limited | upstream), for a login wall (blockKind login-wall), and for a browser fallback that came back empty (degraded, with degradedReason). Only an ok read is cached.",
+    notes: "source is 'fetch' or 'browser'; fallbackReason says why a browser was needed. ok is false for EVERY http status in the 400-599 family: blockKind is auth for 401/403, rate-limited for 429, upstream for 5xx, and blocked for any other client error including 404. format names what the body is - markdown when html was converted, json for a json content type returned byte-for-byte, text for any other non-html body. A login wall is blockKind login-wall, and a browser fallback that came back empty is degraded with degradedReason. Only an ok read is cached, so a refusal can never be replayed as a page.",
   },
   {
     path: 'browse.searchMany',
@@ -216,14 +224,22 @@ export const BROWSE_ACTIONS = [
     path: 'browse.watch',
     description: 'Hash each url and return a diff only for the ones that changed.',
     signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{items,changed}>',
-    inputs: { urls: { type: 'array', required: true, description: 'Array of urls to watch' } },
+    inputs: {
+      urls: { type: 'array', required: true, description: 'Array of urls to watch' },
+      timeoutMs: { type: 'number', required: false, description: 'Per-url deadline for the read' },
+      locale: { type: 'string', required: false, description: 'Separates entries for pages that answer differently per locale' },
+    },
     notes: "An unchanged url returns changed:false with no body. First sight is first:true so it is not mistaken for a change. Every round reads the page itself rather than the shared cache, and a url that could not be observed returns code EOBSERVE with changed:null, leaving the baseline alone so the outage is not recorded as the page's new content.",
   },
   {
     path: 'browse.prefetch',
     description: 'Warm the shared cache for a watch list. Best effort; failures are reported, never thrown.',
-    signature: 'browse.prefetch(urls, { timeoutMs? }) => Promise<{items,warmed}>',
-    inputs: { urls: { type: 'array', required: true, description: 'Array of urls to warm' } },
+    signature: 'browse.prefetch(urls, { timeoutMs?, locale? }) => Promise<{items,warmed}>',
+    inputs: {
+      urls: { type: 'array', required: true, description: 'Array of urls to warm' },
+      timeoutMs: { type: 'number', required: false, description: 'Per-url deadline handed to the underlying read' },
+      locale: { type: 'string', required: false, description: 'Warms the locale-separated cache entry, so the reader that passes the same locale gets the hit' },
+    },
   },
 ];
 
@@ -235,7 +251,9 @@ export const REPORT_ACTIONS = [
     inputs: {
       items: { type: 'array', required: true, description: 'Rows: { url, title?, ok, data?, error?, figure? }' },
       outFile: { type: 'string', required: true, description: 'Destination pdf path inside the configured roots' },
+      title: { type: 'string', required: false, description: 'Document heading rendered into the report HTML' },
       paper: { type: 'object', required: false, description: '{ paperWidth, paperHeight } in INCHES; defaults to A4. format is ENOTSUP.' },
+      timeoutMs: { type: 'number', required: false, description: 'Deadline for the loopback print; defaults to 25000' },
     },
     notes: 'pageBox.matched is false when the produced MediaBox is not the requested size, and the item fails. A file that exists is not a report of the size you asked for.',
   },
@@ -245,7 +263,9 @@ export const API_ACTIONS = [
   {
     path: 'api.batch',
     description: 'Parallel API-first lookups with per-item isolation.',
-    signature: "api.batch([{ adapter, ...args }]) => Promise<{ok,items}>",
+    // The one positional argument had no name in the signature while the catalog called it
+    // `requests`, so a reader checking the two against each other found a phantom option.
+    signature: "api.batch(requests: [{ adapter, ...args }]) => Promise<{ok,items}>",
     inputs: { requests: { type: 'array', required: true, description: "[{ adapter: 'youtube', url }] or [{ adapter: 'itunes', term | id }]" } },
     notes: 'youtube and itunes are public no-key endpoints. play and slack return ENOTSUP because neither has an honest public path.',
   },

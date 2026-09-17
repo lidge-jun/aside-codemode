@@ -55,6 +55,11 @@ that host returned 25 rows with `complete: true`.
 This is also the measurement that the refusal guard was not exercised on either host: both
 accounts had `aside-codemode` as their only MCP server.
 
+Repeated once more after 0.8.0 was published, this time installing the package from the
+registry rather than from a local tarball: `npm i -g aside-codemode@0.8.0` followed by
+`codemode --install-mcp --json` on the Windows host returned `ok: true`, `activated: true`
+and `tools: ["execute_code"]`. That is the path a reader of the README actually takes.
+
 ## Refusal guard
 
 Deleting `inventories` drops every other server's cached inventory too, so those servers

@@ -46,6 +46,9 @@ test('missing settings.json still writes AGENTS and settingsOk is false', () => 
   const r = run(fx);
   assert.equal(r.ok, true);
   assert.equal(r.settingsOk, false);
+  assert.equal(r.serverEntry, 'absent');
+  assert.equal(r.mcpActivated, false);
+  assert.match(r.activationRequired, /Refresh tools/);
   assert.match(r.settingsError, /settings\.json not found/);
   assert.ok(existsSync(path.join(fx.asideHome, 'u', '0', 'AGENTS.md')));
 });
@@ -76,10 +79,53 @@ test('existing settings.json is retargeted; AGENTS still written', () => {
   const r = run(fx);
   assert.equal(r.ok, true);
   assert.equal(r.settingsOk, true);
+  assert.equal(r.serverEntry, 'written');
+  assert.equal(r.mcpActivated, false);
   const settings = JSON.parse(readFileSync(path.join(account, 'settings.json'), 'utf8'));
   assert.equal(settings.mcp.servers['aside-codemode'].command, fx.execPath);
   assert.ok(settings.mcp.servers['aside-codemode'].args[0].endsWith(`${path.sep}src${path.sep}server.js`));
+  assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false, 'registration must not synthesize Aside-owned inventory data');
   assert.ok(existsSync(r.agentsPath));
+});
+
+test('retargeting merges the named server and leaves Aside-owned settings intact', () => {
+  const fx = fixture();
+  const account = path.join(fx.asideHome, 'u', '0');
+  const settingsPath = path.join(account, 'settings.json');
+  const inventory = { tools: [{ name: 'unrelated-tool' }], refreshedAt: 'fixture' };
+  const otherServer = { command: '/opt/other', args: ['serve'], enabled: false };
+  mkdirSync(account, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify({
+    theme: 'custom',
+    mcp: {
+      customField: { ownedBy: 'aside' },
+      inventories: { unrelated: inventory },
+      servers: {
+        unrelated: otherServer,
+        'aside-codemode': {
+          command: '/stale/node', args: ['old'], enabled: false,
+          transport: 'stdio', env: { CODEMODE_RG: '/opt/rg' }, asideOwned: { keep: true },
+        },
+      },
+    },
+  }, null, 4) + '\n');
+
+  const first = run(fx);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(first.serverEntry, 'written');
+  assert.deepEqual(settings.mcp.servers.unrelated, otherServer);
+  assert.deepEqual(settings.mcp.inventories, { unrelated: inventory });
+  assert.deepEqual(settings.mcp.customField, { ownedBy: 'aside' });
+  assert.equal(settings.theme, 'custom');
+  assert.equal(settings.mcp.servers['aside-codemode'].enabled, false);
+  assert.equal(settings.mcp.servers['aside-codemode'].transport, 'stdio');
+  assert.deepEqual(settings.mcp.servers['aside-codemode'].env, { CODEMODE_RG: '/opt/rg' });
+  assert.deepEqual(settings.mcp.servers['aside-codemode'].asideOwned, { keep: true });
+
+  const afterFirst = readFileSync(settingsPath, 'utf8');
+  const second = run(fx);
+  assert.equal(second.serverEntry, 'unchanged');
+  assert.equal(readFileSync(settingsPath, 'utf8'), afterFirst, 'an unchanged entry must not rewrite the settings file');
 });
 
 test('user config lands under injected XDG/homedir, not os.homedir()', () => {
@@ -112,6 +158,9 @@ test('thin CLI exits 0 without settings.json and does not touch checkout config'
   const parsed = JSON.parse(r.stdout);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.settingsOk, false);
+  assert.equal(parsed.mcpActivated, false);
+  assert.match(r.stderr, /mcp-entry=absent/);
+  assert.match(r.stderr, /MCP activation is still required/);
   assert.ok(existsSync(path.join(fx.asideHome, 'u', '0', 'AGENTS.md')));
   if (before) {
     assert.equal(statSync(checkoutCfg).mtimeMs, before.mtime);

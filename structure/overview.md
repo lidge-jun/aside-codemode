@@ -7,17 +7,27 @@ evidence needed to judge it.
 
 ## The product boundary
 
-Aside exec does not attach MCP servers on current builds. The working path is one `bash` call to the
-`codemode` CLI plus a rule in the account's `AGENTS.md`. File cards in the Aside UI still come from
-native `read_file` / `write_file` / `edit_file`, and a guest write from the CLI is not one of those
-cards.
+aside-codemode supports two install paths. The CLI route uses one `bash` call to `codemode` plus a
+rule in the account's `AGENTS.md`. The native MCP route registers the server under
+`mcp.servers`; `aside exec` then attaches its tools as `mcp__aside-codemode__*` only after Aside has
+populated the matching `mcp.inventories` cache. Registration alone is not attachment: use the GUI
+Add or Refresh tools action, then start a new session. Hot-attachment to an already running session
+has not been measured. Neither install path is the default or a legacy compatibility route.
+
+The CLI route inherits the invoking shell's environment and working directory. The MCP route is
+spawned by the Aside daemon with a minimal environment and a working directory inside the daemon's
+bundle. Ripgrep can therefore resolve on the CLI route and fail on the MCP route from the same
+checkout; the MCP configuration needs an absolute `rgPath` that works in that environment.
+
+File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`, and a
+guest write through either route is not one of those cards.
 
 The package runs on Node 18 or later, on macOS and Windows, and needs ripgrep on PATH or a vendored
 binary. It has no runtime dependencies and no lockfile.
 
-## Three execution paths
+## Four execution paths
 
-Native Aside tools are the default: a first look, one file, anything the user should watch happen.
+Native Aside tools suit a first look, one file, or anything the user should watch happen.
 
 The Aside REPL runs Playwright-style JavaScript against the signed-in profile, with a 120 second
 ceiling. The batch helper `cm` runs there and owns the part a hand-written loop gets wrong: how many
@@ -27,6 +37,10 @@ was not.
 The CLI is this package. `bin/` holds the entry point, `bin/codemode.mjs`, and `src/cli.js` parses
 the invocation behind it. Guest code arrives as `--code-file`, as `--code -` on stdin, or as
 `--code` for a short expression with no quotes of its own.
+
+The MCP server exposes the same execution surface as `execute_code`. Aside launches it from the
+per-account server registration and attaches it to new sessions only when the tool inventory is
+cached.
 
 ## What the guest may reach
 

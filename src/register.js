@@ -18,6 +18,8 @@ export { helperLoadPathFor };
 const START = '<!-- aside-codemode:start -->';
 const END = '<!-- aside-codemode:end -->';
 
+export const MCP_ACTIVATION_REQUIRED = 'Open Aside Settings > Plugins & MCPs > MCPs, ensure the aside-codemode server is present, use Refresh tools so its inventory is cached, then start a new Aside session. For MCP search actions, set an absolute rgPath or CODEMODE_RG because the Aside daemon starts the server with a minimal environment.';
+
 // One filler for both writers. The installer and register both hand an account the same
 // markered block, and 001 found them drifting: a rule fixed in one was still broken in the
 // other. {{HELPER}} carries its own quotes because the block is pasted into code and an
@@ -159,22 +161,28 @@ function hasCodemodeServer(settingsPath) {
 
 function mergeSettings({ settingsPath, execPath, repoRoot }) {
   if (!existsSync(settingsPath)) {
-    return { settingsOk: false, settingsError: 'settings.json not found at ' + settingsPath };
+    return { settingsOk: false, settingsError: 'settings.json not found at ' + settingsPath, serverEntry: 'absent' };
   }
   try {
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-    copyFileSync(settingsPath, settingsPath + '.bak-' + stamp);
     const settings = readJson(settingsPath);
     settings.mcp = settings.mcp && typeof settings.mcp === 'object' ? settings.mcp : {};
     settings.mcp.servers = settings.mcp.servers && typeof settings.mcp.servers === 'object' ? settings.mcp.servers : {};
-    settings.mcp.servers['aside-codemode'] = {
+    const previous = settings.mcp.servers['aside-codemode'];
+    const next = {
+      ...(previous && typeof previous === 'object' ? previous : {}),
       command: execPath,
       args: [path.join(repoRoot, 'src', 'server.js'), '--config', path.join(repoRoot, 'codemode.config.json')],
     };
+    if (previous && JSON.stringify(previous) === JSON.stringify(next)) {
+      return { settingsOk: true, settingsError: null, serverEntry: 'unchanged' };
+    }
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    copyFileSync(settingsPath, settingsPath + '.bak-' + stamp);
+    settings.mcp.servers['aside-codemode'] = next;
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-    return { settingsOk: true, settingsError: null };
+    return { settingsOk: true, settingsError: null, serverEntry: 'written' };
   } catch (e) {
-    return { settingsOk: false, settingsError: msg(e) };
+    return { settingsOk: false, settingsError: msg(e), serverEntry: 'absent' };
   }
 }
 
@@ -282,6 +290,9 @@ export function applyRegister({
       cli,
       settingsOk: false,
       settingsError: null,
+      serverEntry: 'absent',
+      mcpActivated: false,
+      activationRequired: MCP_ACTIVATION_REQUIRED,
       userConfigPath: userPath,
       accounts: [],
       accountsWritten: 0,
@@ -297,6 +308,8 @@ export function applyRegister({
       id, root, agentsPath, current,
       agentsOk: false, agentsError: null, agentsBytes: 0,
       settingsOk: false, settingsError: null, settingsSkipped: false,
+      serverEntry: 'absent', mcpActivated: false,
+      activationRequired: MCP_ACTIVATION_REQUIRED,
     };
     try {
       mkdirSync(root, { recursive: true });
@@ -323,6 +336,7 @@ export function applyRegister({
     const merged = mergeSettings({ settingsPath, execPath, repoRoot });
     rec.settingsOk = merged.settingsOk;
     rec.settingsError = merged.settingsError;
+    rec.serverEntry = merged.serverEntry;
     return rec;
   });
 
@@ -338,6 +352,9 @@ export function applyRegister({
       cli,
       settingsOk: false,
       settingsError: primary ? primary.settingsError : null,
+      serverEntry: primary ? primary.serverEntry : 'absent',
+      mcpActivated: false,
+      activationRequired: MCP_ACTIVATION_REQUIRED,
       userConfigPath: userPath,
       accounts,
       accountsWritten,
@@ -354,6 +371,9 @@ export function applyRegister({
     cli,
     settingsOk: primary.settingsOk,
     settingsError: primary.settingsError,
+    serverEntry: primary.serverEntry,
+    mcpActivated: false,
+    activationRequired: MCP_ACTIVATION_REQUIRED,
     userConfigPath: userPath,
     accounts,
     accountsWritten,

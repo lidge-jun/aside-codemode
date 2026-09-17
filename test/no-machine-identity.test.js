@@ -89,6 +89,7 @@ test('the local-record trees are not tracked', () => {
 // side effect of running a probe.
 test('only the cited measurement notes are tracked under evidence/', () => {
   const allowed = [
+    'evidence/aside-mcp-attach-260918.md',
     'evidence/browse-compression-260915.md',
     'evidence/dev-folder-51x.md',
     'evidence/review-hardening-20260913.json',

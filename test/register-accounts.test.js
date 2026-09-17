@@ -121,13 +121,13 @@ test('register writes the block into every account root, current one first', () 
   }
 });
 
-test('the macmini shape: registering no longer lands on an unused profile', () => {
+test('a multi-profile install no longer lands on an unused profile', () => {
   const fx = fixture();
   // accounts.json says the live cloud account is id 1; u/0 is an anonymous local one.
   writeAccounts(fx, {
     currentAccountId: 1,
     accounts: [
-      { id: 1, name: 'bitkyc07', provider: 'google', mode: 'cloud' },
+      { id: 1, name: 'Cloud Account', provider: 'google', mode: 'cloud' },
       { id: 0, name: 'Local Account', provider: 'anonymous', mode: 'local' },
     ],
   });
@@ -172,12 +172,30 @@ test('a non-current root that already has an aside-codemode entry is refreshed',
   writeAccounts(fx, { currentAccountId: 1, accounts: [{ id: 0 }, { id: 1 }] });
   mkAccountDirs(fx, [0, 1]);
   writeFileSync(path.join(fx.asideHome, 'u', '0', 'settings.json'),
-    JSON.stringify({ mcp: { servers: { 'aside-codemode': { command: '/stale/node', args: [] } } } }));
+    JSON.stringify({
+      custom: 'keep',
+      mcp: {
+        inventories: { unrelated: { tools: ['leave-me-alone'] } },
+        servers: {
+          unrelated: { command: '/other', enabled: true },
+          'aside-codemode': {
+            command: '/stale/node', args: [], enabled: false,
+            transport: 'stdio', env: { CODEMODE_RG: '/opt/rg' },
+          },
+        },
+      },
+    }));
   const r = run(fx);
   const other = r.accounts.find((a) => a.id === '0');
   assert.equal(other.settingsOk, true);
   const s = JSON.parse(readFileSync(path.join(fx.asideHome, 'u', '0', 'settings.json'), 'utf8'));
   assert.equal(s.mcp.servers['aside-codemode'].command, fx.execPath);
+  assert.equal(s.mcp.servers['aside-codemode'].enabled, false);
+  assert.equal(s.mcp.servers['aside-codemode'].transport, 'stdio');
+  assert.deepEqual(s.mcp.servers['aside-codemode'].env, { CODEMODE_RG: '/opt/rg' });
+  assert.deepEqual(s.mcp.servers.unrelated, { command: '/other', enabled: true });
+  assert.deepEqual(s.mcp.inventories, { unrelated: { tools: ['leave-me-alone'] } });
+  assert.equal(s.custom, 'keep');
 });
 
 test('launcher renders an exec shim that survives spaces in either path', () => {

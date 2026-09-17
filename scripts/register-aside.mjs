@@ -33,9 +33,10 @@ const r = applyRegister({
 for (const a of r.accounts ?? []) {
   const marks = [a.current ? 'CURRENT' : 'other  '];
   marks.push(a.agentsOk ? 'agents=' + a.agentsBytes + 'B' : 'agents=FAILED(' + a.agentsError + ')');
-  if (a.settingsOk) marks.push('mcp=written');
-  else if (a.settingsSkipped) marks.push('mcp=skipped');
-  else marks.push('mcp=no(' + a.settingsError + ')');
+  if (a.settingsOk) marks.push('mcp-entry=' + a.serverEntry);
+  else if (a.settingsSkipped) marks.push('mcp-entry=absent(skipped)');
+  else marks.push('mcp-entry=absent(' + a.settingsError + ')');
+  marks.push('mcp-activation=required');
   console.error('account u/' + a.id + '  ' + marks.join('  '));
 }
 if (r.accountsTruncated) {
@@ -50,5 +51,6 @@ if (r.launcher) {
 if (r.settingsError && !r.settingsOk) {
   console.error('warning: MCP settings not updated (' + r.settingsError + ')');
 }
+if (r.ok) console.error('MCP activation is still required: ' + r.activationRequired);
 console.log(JSON.stringify(r, null, 2));
 process.exit(r.ok ? 0 : 2);

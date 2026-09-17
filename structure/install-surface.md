@@ -1,21 +1,35 @@
 # Install surface
 
-An install writes three artifacts into one Aside account and owns exactly one region of one file it
-did not create. `scripts/install-codemode.mjs` is the whole of that behaviour.
+aside-codemode has two supported install paths. Neither is the default, legacy, or deprecated. The
+CLI route writes three artifact groups into one Aside account and owns exactly one region of one
+file it did not create; `scripts/install-codemode.mjs` is the whole of that behaviour. The native
+MCP route adds one project-owned server entry to the account settings, while Aside owns the tool
+inventory that makes the registered tool attachable.
 
 ## What an install writes
 
-| Path | Role | Owner |
-|---|---|---|
-| `codemode/cm.js` | the REPL batch helper | the installer |
-| `skills/user/aside-codemode/SKILL.md` | full usage, failure handling, recovery | the installer |
-| a marked region inside `AGENTS.md` | the always-injected summary | the installer owns the region, the user owns the file |
+| Route | Path | Role | Owner |
+|---|---|---|---|
+| CLI | `codemode/` | the REPL helper, catalogue, and install manifest | the installer |
+| CLI | `skills/user/aside-codemode/` | full usage, failure handling, recovery, and references | the installer |
+| CLI | a marked region inside `AGENTS.md` | the always-injected summary | the installer owns the region, the user owns the file |
+| MCP | `settings.json` -> `mcp.servers.aside-codemode` | command, server arguments, and configuration path | this project owns only this entry; the user and Aside own the file |
+| MCP | `settings.json` -> `mcp.inventories` | Aside's cached discovery result used for tool attachment | Aside; this project must not write or synthesize it |
 
 The region is delimited by `<!-- aside-codemode:start -->` and its closing marker. Everything
 outside it is left exactly as found, so a user's own `AGENTS.md` survives an upgrade.
 
 `src/register.js` resolves which account roots exist and `src/paths.js` resolves the paths inside
-one. The account is whichever profile Aside calls current, not a hardcoded `u/0`.
+one. The account is whichever profile Aside calls current, not a hardcoded `u/0`. Its MCP work ends
+after merging the `mcp.servers.aside-codemode` entry. A hand-written entry remains at zero cached
+tools until Aside fills `mcp.inventories` through Settings > Plugins & MCPs > MCPs, using Add or
+Refresh tools. Start a new session after refresh; whether an already running session hot-attaches
+the tool has not been measured.
+
+The MCP child is launched by the Aside daemon with a minimal environment and a working directory
+inside the daemon's bundle, unlike the CLI route's normal shell environment. Its server
+configuration therefore needs an absolute `rgPath`; finding `rg` on the invoking shell's `PATH`
+does not prove that the MCP route can find it.
 
 ## Why the paths are absolute
 

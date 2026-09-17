@@ -15,7 +15,7 @@ What code mode is, what the guest may reach, and the invariants nothing may brea
 
 | Doc | Scope |
 | --- | --- |
-| [`overview.md`](overview.md) | The product boundary, the three execution paths, and the guest sandbox surface. |
+| [`overview.md`](overview.md) | The product boundary, the four execution paths, their environments, and the guest sandbox surface. |
 
 ### Tier 2 — Result contract
 
@@ -41,7 +41,7 @@ What an install writes into an account, and the budget it spends there.
 
 | Doc | Scope |
 | --- | --- |
-| [`install-surface.md`](install-surface.md) | The three artifacts an install writes per account, the marker contract, and the always-injected budget. |
+| [`install-surface.md`](install-surface.md) | The equal CLI and native MCP install paths, their ownership boundaries, the marker contract, and the always-injected budget. |
 
 ## Source to document
 

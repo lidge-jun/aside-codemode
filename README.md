@@ -71,17 +71,17 @@ and, once browsing is turned on, to run twenty pages through one session and com
 instead of screenshots. Keep intermediate data out of the model context; return the answer and the
 evidence needed to judge it.
 
-Aside exec does not attach MCP servers on current builds. The working path is one `bash` call to the `codemode` CLI plus a rule in `~/.aside/u/0/AGENTS.md`. File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`. Guest JavaScript uses those same shapes.
+Aside supports two equal routes to code mode. The CLI route teaches an account to make one `bash` call to `codemode`; the native MCP route attaches `mcp__aside-codemode__execute_code` directly after its tool inventory has been cached. File cards in the Aside UI still come from native `read_file` / `write_file` / `edit_file`. Guest JavaScript uses those same shapes.
 
 ## Requirements
 
 - Node.js >= 18
-- ripgrep (`rg`) on PATH, or `CODEMODE_RG` / `rgPath`. Windows may use vendored `bin/rg.exe`
+- ripgrep (`rg`) on PATH for the CLI route, or an absolute `CODEMODE_RG` / `rgPath`. The MCP route needs the absolute pin because the daemon's minimal environment does not carry the normal PATH. Windows may use vendored `bin/rg.exe`
 - macOS and Windows
 
 ## Install
 
-Two steps. The first puts the CLI on your PATH; the second tells an Aside account it exists.
+Install the package once, then choose either Route 1 or Route 2. Neither route is the default or a compatibility fallback.
 
 ```sh
 npm install -g aside-codemode
@@ -97,10 +97,10 @@ npm install -g .        # or: npm link
 codemode --doctor
 ```
 
-### Then install it into an Aside account
+### Route 1: CLI and account guidance
 
-The CLI alone does nothing for an agent: Aside has to be told the absolute node/CLI pair and
-given the skill that explains the call shapes. That is one command, and it names the account:
+For this route, the CLI alone does nothing for an agent. Aside must be told the absolute
+node/CLI pair and given the skill that explains the call shapes. One command names the account:
 
 ```sh
 node scripts/install-codemode.mjs install --account 0 --json
@@ -117,9 +117,9 @@ skills/user/aside-codemode/references/*.md         call shapes, execution paths,
 AGENTS.md  <!-- aside-codemode:start … end -->     the block read on every turn
 ```
 
-Nothing else in the account is touched. Settings, credentials, sessions, memory and other
-skills are not ours and are never opened. A file you edited is kept and named in `preserved`
-rather than overwritten, `doctor` tells you when a machine is behind a release, and
+The Route 1 payload owns only the files and markered block listed above. Credentials, sessions,
+memory and other skills are not ours and are never opened. A file you edited is kept and named
+in `preserved` rather than overwritten, `doctor` tells you when a machine is behind a release, and
 `uninstall` removes only the files whose hashes still match and takes its block back out of
 `AGENTS.md` while leaving the rest of that file alone.
 
@@ -129,11 +129,40 @@ guidance still leaves an account stale, and `doctor` will say so.
 
 Browsing needs no third step. It is on by default.
 
+The agent reaches code mode with one `bash` call to that absolute node/CLI pair. The account
+`AGENTS.md` block costs **3,808 bytes** of always-resident context; the **8,973-byte** installed
+user skill is loaded on demand. Pick this route when you want account guidance and a visible
+bash call, or when you do not want to configure MCP settings.
+
+### Route 2: native MCP
+
+Aside ships an MCP client. Open **Settings > Plugins & MCPs > MCPs**, add the
+`aside-codemode` server from this package, and pin ripgrep with an absolute `rgPath` in the
+codemode config or an absolute `CODEMODE_RG`. Per-account MCP configuration lives in
+`~/.aside/u/<n>/settings.json` under `mcp.servers` and `mcp.inventories`.
+
+Registration is not activation. **Refresh tools** for the server (the GUI **Add** flow does this
+when it succeeds) and confirm that one tool is cached. A hand-written `mcp.servers` entry can
+remain at `0 tools cached`; in that state the tool never attaches. After refreshing, start a
+new Aside session. A newly created session picks up the inventory without a daemon restart;
+hot-attachment to an already running session has not been verified.
+
+The agent then calls `mcp__aside-codemode__execute_code` directly. Its **6,775-byte** tool
+description is always resident in every MCP session. Pick this route when a direct MCP tool is
+preferable to a bash card and that resident context cost is acceptable.
+
+The daemon starts the server with only six environment variables and with its own application
+directory as cwd. Its PATH does not contain ripgrep. Without the absolute `rgPath` or
+`CODEMODE_RG`, search actions fail with `ERG404` even when the CLI route works on the same
+machine. Aside's bundled ripgrep 15.2.0 with PCRE2 is a natural absolute pin on a machine with
+no other `rg`.
+
 ### Who uses the PATH command
 
-`codemode` on PATH is for **you**, the operator. Aside agents must not look up `node` or
-`codemode` on PATH; they call the absolute pair the installer wrote into the AGENTS block
-(`process.execPath` plus this install's `bin/codemode.mjs`).
+On Route 1, `codemode` on PATH is for **you**, the operator. Aside agents must not look up
+`node` or `codemode` on PATH; they call the absolute pair the installer wrote into the AGENTS
+block (`process.execPath` plus this install's `bin/codemode.mjs`). Route 2 calls the configured
+MCP server instead.
 
 ```sh
 codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
@@ -248,16 +277,16 @@ Migration: callers parsing a directly returned search array must now read `resul
 
 `apply_patch` supports Add and multi-hunk Update; Delete, Move and Environment remain unsupported. Add creates a newline-terminated text file. Update hunks match whole lines (not mid-line substrings), delete lines without leaving a blank, and keep the file's original newline (LF or CRLF). Successful application still returns `{}`. A later failure is a thrown error carrying `applied` and `failedFile`, also preserved by CLI error responses when they fit the output budget. Earlier files remain changed: this is **not a multi-file transaction**.
 
-## Dual path
+## Using code mode
 
 - Visible single-file cards in Aside: native `read_file` / `write_file` / `edit_file` (same schemas as the guest).
-- Search, multi-file read, summarize: one bash call to the CLI. That shows as a bash card.
+- Search, multi-file read, summarize: one code-mode call, either a Route 1 bash call or Route 2 `mcp__aside-codemode__execute_code`.
 - Do not call `rg`, `find`, `grep`, or `Get-ChildItem -Recurse` directly.
 
-### Choosing a path
+### Choosing when to batch
 
-Native is the default, and staying native is the right answer more often than not. Reach for a
-batch only when all three hold: the steps repeat, the items do not share state with each other,
+For a single interactive action, Aside's built-in tools are the right answer more often than not.
+Reach for a batch only when all three hold: the steps repeat, the items do not share state with each other,
 and you can say in one sentence what a finished item looks like. A first look at an unfamiliar
 page, a single click, a fresh visual judgement, or anything that needs an account or an
 approval stays native — batching those trades a correct answer for a faster wrong one.
@@ -283,20 +312,20 @@ was left open; `partial`, `indeterminate` and `needs_input` are answers too, and
 a different correct response. Rerunning an `indeterminate` side effect is how a second order
 gets placed.
 
-Agent recipe (absolute paths; replace with the values register printed):
+Route 1 agent recipe (absolute paths; replace with the values register printed):
 
 ```
 /abs/node /abs/aside-codemode/bin/codemode.mjs --cwd /abs/project --code "return await search.count({ query: 'TODO', path: '.' })"
 ```
 
-## Register
+## Route 1 registration
 
 ```sh
 # Safe form: the node that is already running
 node /abs/aside-codemode/scripts/register-aside.mjs
 ```
 
-This writes `<!-- aside-codemode:start -->` markers into `~/.aside/u/0/AGENTS.md` using `process.execPath` and this repo's `bin/codemode.mjs`. It does **not** require `settings.json` or MCP. Missing settings still exits 0 if AGENTS wrote (`settingsOk: false`).
+For Route 1, this writes `<!-- aside-codemode:start -->` markers into `~/.aside/u/0/AGENTS.md` using `process.execPath` and this repo's `bin/codemode.mjs`. This route does **not** require `settings.json` or MCP. Missing settings still exits 0 if AGENTS wrote (`settingsOk: false`).
 
 Windows: `pwsh -File scripts/register-aside.ps1`. macOS wrapper: `sh scripts/register-aside.sh` (uses `$NODE` if set, otherwise `command -v node` as a last resort).
 
@@ -308,11 +337,11 @@ aside exec --permission full-access -- "/abs/project 에서 README 가 들어있
 
 ## macOS
 
-Install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` is ignored on non-Windows. Noninteractive Aside PATH often has no `node` — that is why AGENTS stores the absolute `process.execPath` from the register run (issue #3).
+For Route 1, install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` is ignored on non-Windows. Noninteractive Aside PATH often has no `node` — that is why AGENTS stores the absolute `process.execPath` from the register run (issue #3). For Route 2, do not rely on the daemon PATH; pin an absolute `rgPath` or `CODEMODE_RG` as described above.
 
 ## Windows
 
-The repo vendors `bin/rg.exe`. Use `scripts/register-aside.ps1`. `.gitattributes` keeps `*.sh` as LF so a Windows checkout does not CRLF the macOS wrapper (issue #2).
+The repo vendors `bin/rg.exe`. For Route 1, use `scripts/register-aside.ps1`. `.gitattributes` keeps `*.sh` as LF so a Windows checkout does not CRLF the macOS wrapper (issue #2).
 
 Git Bash is the default Aside shell on Windows. PowerShell is allowed for the same absolute `node` + `bin/codemode.mjs --code` call. Aside has no Linux product.
 

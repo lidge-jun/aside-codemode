@@ -7,14 +7,17 @@
 // moment a release changes cm.js, and it is the state the three defects here needed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync, existsSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runInstaller, MANIFEST_RELPATH, sha256 } from '../scripts/install-codemode.mjs';
 
 const OLD = '// an older release wrote this\n';
+const installerPath = fileURLToPath(new URL('../scripts/install-codemode.mjs', import.meta.url));
 
 function installedByAnOlderRelease() {
   const base = mkdtempSync(path.join(os.tmpdir(), 'acm-life-'));
@@ -215,4 +218,67 @@ test('rollback leaves an added file the user edited', (t) => {
   const out = runInstaller({ verb: 'rollback', asideHome: f.home, account: '0' });
   assert.equal(out.dropped.includes(added), false);
   assert.equal(read(f.root, added), mine, 'rollback deleted a file the user had edited');
+});
+
+test('install, upgrade, and uninstall leave Aside-owned settings byte-for-byte unchanged', (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-settings-'));
+  const home = path.join(base, '.aside');
+  const root = path.join(home, 'u', '0');
+  const settingsPath = path.join(root, 'settings.json');
+  const settingsBody = JSON.stringify({
+    custom: { keep: true },
+    mcp: {
+      servers: {
+        unrelated: { command: '/opt/other', args: ['serve'] },
+        'aside-codemode': { command: '/configured/node', enabled: false, transport: 'stdio' },
+      },
+      inventories: { unrelated: { tools: [{ name: 'other-tool' }] } },
+    },
+  }, null, 4) + '\n';
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  writeFileSync(settingsPath, settingsBody, 'utf8');
+
+  const installed = runInstaller({ verb: 'install', asideHome: home, account: '0' });
+  assert.equal(installed.filesInstalled, true);
+  assert.equal(installed.serverEntry, 'unchanged');
+  assert.equal(installed.mcpActivated, false);
+  assert.match(installed.activationRequired, /start a new Aside session/);
+  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
+
+  runInstaller({ verb: 'upgrade', asideHome: home, account: '0' });
+  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
+  runInstaller({ verb: 'uninstall', asideHome: home, account: '0' });
+  assert.equal(readFileSync(settingsPath, 'utf8'), settingsBody);
+});
+
+test('installer never creates an mcp inventories cache', (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-no-inventory-'));
+  const home = path.join(base, '.aside');
+  const root = path.join(home, 'u', '0');
+  const settingsPath = path.join(root, 'settings.json');
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify({ mcp: { servers: {} } }, null, 2) + '\n');
+
+  const out = runInstaller({ verb: 'install', asideHome: home, account: '0' });
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(out.serverEntry, 'absent');
+  assert.equal(Object.hasOwn(settings.mcp, 'inventories'), false);
+});
+
+test('successful install prints both routes and the MCP activation requirements', (t) => {
+  const base = mkdtempSync(path.join(os.tmpdir(), 'acm-output-'));
+  const home = path.join(base, '.aside');
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+
+  const out = spawnSync(process.execPath, [installerPath, 'install', '--aside-home', home, '--account', '0'], {
+    encoding: 'utf8',
+  });
+  assert.equal(out.status, 0, out.stderr + out.stdout);
+  assert.match(out.stdout, /Route 1 \(CLI\): ready immediately/);
+  assert.match(out.stdout, /Route 2 \(native MCP\)/);
+  assert.match(out.stdout, /Refresh tools/);
+  assert.match(out.stdout, /start a new Aside session/);
+  assert.match(out.stdout, /absolute rgPath or CODEMODE_RG/);
 });

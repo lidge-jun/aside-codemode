@@ -19,7 +19,7 @@ codemode --doctor
 
 ### 브라우징: 1.87MB가 들어가고 4.4KB가 나옵니다
 
-페이지 다섯 개, 각각에 대해 알고 싶은 것 하나 — 제목과 첫 링크입니다.
+페이지 다섯 개에서 하나씩, 제목과 첫 링크를 찾습니다.
 
 |  | 페이지를 읽을 때 | `browse.exec` 한 번 |
 | --- | --- | --- |
@@ -68,17 +68,17 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 브라우징을 켜면 페이지 스무 개를 세션 하나로 도는 일도 같은 자리에서 합니다. 중간 데이터를 모델에
 다 넘기지 않고, 판단에 필요한 결과와 근거만 돌려줍니다.
 
-지금 Aside exec는 MCP 서버를 붙이지 않습니다. 되는 길은 bash 한 번으로 `codemode` CLI를 돌리고, `~/.aside/u/0/AGENTS.md`에 그 규칙을 적는 것입니다. 화면에 뜨는 파일 카드는 네이티브 `read_file` / `write_file` / `edit_file`이고, 게스트 JS도 같은 모양을 씁니다.
+Aside에서 코드 모드를 쓰는 길은 둘이며 어느 한쪽이 기본이거나 구형인 것은 아닙니다. CLI 경로는 `codemode`를 bash 한 번으로 부르는 규칙을 계정에 넣습니다. 네이티브 MCP 경로는 도구 목록을 캐시에 채운 뒤 `mcp__aside-codemode__execute_code`를 바로 붙입니다. 화면에 뜨는 파일 카드는 네이티브 `read_file` / `write_file` / `edit_file`이고, 게스트 JS도 같은 모양을 씁니다.
 
 ## Requirements
 
 - Node.js 18 이상
-- PATH의 ripgrep(`rg`), 또는 `CODEMODE_RG` / `rgPath`. Windows는 번들 `bin/rg.exe`를 쓸 수 있습니다
+- CLI 경로는 PATH의 ripgrep(`rg`)을 쓸 수 있습니다. MCP 경로는 데몬의 최소 환경에 평소 PATH가 없으므로 절대경로 `CODEMODE_RG` / `rgPath`를 지정해야 합니다. Windows는 번들 `bin/rg.exe`를 쓸 수 있습니다
 - macOS, Windows
 
 ## 설치
 
-두 단계입니다. 먼저 CLI를 PATH에 올리고, 그다음 Aside 계정에 그 존재를 알려줍니다.
+패키지는 한 번 설치하고, 아래 두 경로 중 하나를 고릅니다. 어느 쪽도 기본 경로나 호환용 우회로가 아닙니다.
 
 ```sh
 npm install -g aside-codemode
@@ -94,10 +94,10 @@ npm install -g .        # or: npm link
 codemode --doctor
 ```
 
-### 그다음 Aside 계정에 설치합니다
+### 경로 1: CLI와 계정 안내
 
-CLI만으로는 에이전트가 쓸 수 없습니다. Aside에 절대 node/CLI 경로 쌍을 알려주고 호출 모양을
-적은 스킬을 건네야 합니다. 명령 하나면 되고, 계정을 명시합니다.
+이 경로에서는 CLI만 설치해도 에이전트가 바로 쓰지는 못합니다. Aside에 절대 node/CLI 경로 쌍을
+알려주고 호출 모양을 적은 스킬을 건네야 합니다. 계정을 지정한 명령 하나로 설치합니다.
 
 ```sh
 node scripts/install-codemode.mjs install --account 0 --json
@@ -114,8 +114,8 @@ skills/user/aside-codemode/references/*.md         호출 모양, 실행 경로,
 AGENTS.md  <!-- aside-codemode:start … end -->     매 턴 읽히는 블록
 ```
 
-계정의 다른 것은 건드리지 않습니다. 설정, 자격증명, 세션, 메모리, 다른 스킬은 우리 것이 아니라
-열지도 않습니다. 사용자가 고친 파일은 덮어쓰지 않고 `preserved`에 이름을 적어 남기고,
+경로 1이 소유하는 것은 위에 적은 파일과 마커 블록뿐입니다. 자격증명, 세션, 메모리, 다른 스킬은
+우리 것이 아니라 열지도 않습니다. 사용자가 고친 파일은 덮어쓰지 않고 `preserved`에 이름을 적어 남기고,
 `doctor`는 기계가 릴리스보다 뒤처졌을 때 그렇게 말하며, `uninstall`은 해시가 여전히 맞는 파일만
 지우고 `AGENTS.md`에서 자기 블록만 빼며 나머지는 그대로 둡니다.
 
@@ -125,11 +125,38 @@ AGENTS.md  <!-- aside-codemode:start … end -->     매 턴 읽히는 블록
 
 브라우징에는 세 번째 단계가 없습니다. 기본으로 켜져 있습니다.
 
+에이전트는 절대 node/CLI 경로 쌍을 bash 한 번으로 불러 코드 모드에 들어갑니다. 항상 문맥에
+들어가는 계정 `AGENTS.md` 블록은 **3,808바이트**이고, 설치된 사용자 스킬 **8,973바이트**는
+필요할 때만 읽습니다. 계정 안내와 화면에 보이는 bash 호출이 필요하거나 MCP 설정을 손대고 싶지
+않을 때 이 경로가 맞습니다.
+
+### 경로 2: 네이티브 MCP
+
+Aside에는 MCP 클라이언트가 들어 있습니다. **Settings > Plugins & MCPs > MCPs**에서 이 패키지의
+`aside-codemode` 서버를 추가하고, codemode 설정의 `rgPath`나 `CODEMODE_RG`에 ripgrep 절대경로를
+지정합니다. 계정별 MCP 설정은 `~/.aside/u/<n>/settings.json`의 `mcp.servers`와
+`mcp.inventories`에 저장됩니다.
+
+서버 등록만으로는 켜지지 않습니다. 서버에서 **Refresh tools**를 실행하고 도구 한 개가 캐시에
+들어왔는지 확인하세요. GUI의 **Add**가 정상 완료되면 이 캐시도 채웁니다. 손으로
+`mcp.servers`만 적으면 `0 tools cached`로 남을 수 있고, 그 상태에서는 도구가 붙지 않습니다.
+새 Aside 세션을 열면 데몬을 다시 시작하지 않아도 갱신된 목록을 읽습니다. 이미 실행 중인 세션에
+즉시 붙는지는 확인하지 않았습니다.
+
+이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **6,775바이트**짜리 도구
+설명은 모든 MCP 세션의 문맥에 항상 들어갑니다. bash 카드 대신 MCP 도구를 직접 쓰고, 이 상시
+문맥 비용을 받아들일 수 있을 때 고릅니다.
+
+데몬이 서버를 띄울 때 넘기는 환경 변수는 여섯 개뿐이고 cwd도 데몬의 앱 디렉터리입니다. PATH에는
+ripgrep이 없습니다. 절대경로 `rgPath`나 `CODEMODE_RG`를 지정하지 않으면 같은 기계에서 CLI 경로가
+정상이어도 검색 액션은 `ERG404`로 실패합니다. 다른 `rg`가 없는 기계라면 Aside에 번들된 PCRE2 지원
+ripgrep 15.2.0 바이너리를 절대경로로 지정하는 것이 자연스럽습니다.
+
 ### PATH의 명령은 누가 쓰나
 
-PATH의 `codemode`는 **운영자**용입니다. Aside 에이전트는 PATH에서 `node`나 `codemode`를
-찾지 않습니다. 설치가 AGENTS 블록에 적어 준 절대 경로 쌍(`process.execPath`과 이 설치의
-`bin/codemode.mjs`)을 씁니다.
+경로 1에서 PATH의 `codemode`는 **운영자**용입니다. Aside 에이전트는 PATH에서 `node`나
+`codemode`를 찾지 않습니다. 설치가 AGENTS 블록에 적어 준 절대 경로 쌍(`process.execPath`과
+이 설치의 `bin/codemode.mjs`)을 씁니다. 경로 2에서는 설정된 MCP 서버를 부릅니다.
 
 ```sh
 codemode --code "return (await search.files({ path: '/Users/me/proj', glob: '**/*.ts' })).length"
@@ -184,7 +211,7 @@ false로 두면 되고, 그러면 모든 호출이 `EDISABLED`와 함께 되돌�
 것을 직접 재서 확인했습니다. `format:'A4'`는 레터를 만들고 `maxWidth`는 원본 크기를 그대로
 돌려줍니다. 읽을 수 있는 거절이 믿을 수 없는 결과보다 낫습니다.
 
-아래 표면에 대해 두 가지를 더 알아 두면 좋습니다. Aside CLI는 실패해도 종료코드가 `0`이라,
+바탕에 깔린 동작도 두 가지 알아 두면 좋습니다. Aside CLI는 실패해도 종료코드가 `0`이라,
 성공 판정은 끝줄 `[ok | Nms]` 마커와 만들었다는 파일이 실제로 있는지 확인하는 것뿐입니다. 그리고
 CLI를 죽이면 그 탭이 영구히 남아 이후 세션에서도 닫을 수 없어서, 스크립트는 자기 데드라인이
 호스트 데드라인보다 먼저 끝나도록 잡습니다. 그래도 호스트가 죽이면 깨끗한 결과인 척하지 않고
@@ -235,25 +262,50 @@ return { hits, excerpts };
 
 `apply_patch`는 Add와 여러 hunk를 가진 Update를 지원합니다. Delete·Move·Environment는 지원하지 않습니다. Add는 마지막 개행이 있는 텍스트 파일을 생성합니다. Update hunk는 줄 단위로 맞추며(줄 중간 부분 문자열은 실패), 줄을 지울 때 빈 줄을 남기지 않고, 원래 줄바꿈(LF 또는 CRLF)을 유지합니다. 성공 응답은 기존과 같은 `{}`입니다. 중간 실패 시 오류의 `applied`·`failedFile`로 앞서 적용된 파일과 실패 대상을 알립니다. 출력 예산이 충분하면 CLI 오류에도 보존됩니다. 앞선 변경은 남으므로 **여러 파일 전체의 트랜잭션이나 rollback을 보장하지 않습니다.**
 
-## Dual path
+## 코드 모드 사용
 
 - 화면에 파일 카드가 필요하면 네이티브 `read_file` / `write_file` / `edit_file`입니다. 게스트와 스키마가 같습니다.
-- 검색, 여러 파일 읽기, 요약은 bash로 CLI를 한 번 부릅니다. 그건 bash 카드입니다.
+- 검색, 여러 파일 읽기, 요약은 코드 모드를 한 번 부릅니다. 경로 1이면 bash 호출이고, 경로 2이면 `mcp__aside-codemode__execute_code`입니다.
 - `rg`, `find`, `grep`, `Get-ChildItem -Recurse`를 직접 치지 마세요.
 
-에이전트 호출은 절대 경로입니다. register가 찍은 값으로 바꿉니다.
+### 언제 묶을까
+
+한 번의 대화형 작업에는 Aside 기본 도구가 더 잘 맞습니다. 같은 단계를 반복하고, 항목끼리 상태를 공유하지 않으며,
+끝난 항목의 모습을 한 문장으로 말할 수 있을 때만 묶으세요. 낯선 페이지를 처음 살피는 일, 클릭 한 번,
+새로운 화면 판단, 계정이나 승인이 필요한 일은 네이티브로 남겨야 합니다. 이런 작업을 묶으면 빠르게
+틀린 답을 내기 쉽습니다.
+
+묶을 만한 작업이라도 효과는 작업 모양마다 다릅니다. 아래 네 작업은 한 기계에서 실패 없이 차갑고
+따뜻한 실행을 섞어 각각 30쌍씩 측정했습니다.
+
+| 작업 | 직접 수행 | 묶어서 수행 | 줄어든 것 |
+|---|---|---|---|
+| 알고 있는 클릭 한 번 | 1249ms | 1244ms | 없음, 사실상 동률 |
+| 새 페이지에서 항목 찾기 | 3257ms, 3회 호출 | 1249ms, 1회 호출 | 페이지 로드 2회 |
+| 독립된 페이지 여섯 개 읽기 | 8413ms | 4429ms | 탭 두 개를 동시에 처리 |
+| 파일 여섯 개에서 일치 항목 세기 | 399ms, 6회 호출 | 82ms, 1회 호출 | 프로세스 5개 |
+
+이 수치를 하나로 합치지 마세요. 클릭 한 번은 묶어도 이득이 없습니다. 가운데 행의 62% 차이는 더
+영리한 탐색법이 아니라 `aside repl` 세션을 두 개 더 여는 비용입니다. 잘못된 셀렉터를 고치는 데는
+6ms가 걸렸습니다. 원본 실행 기록은 [eval/out](eval/out)에 있습니다.
+
+묶음 결과는 참·거짓이 아닙니다. `completed`는 요청한 항목이 모두 돌아왔고 열린 탭이 남지 않았다는
+뜻입니다. `partial`, `indeterminate`, `needs_input`도 각각 다른 대응이 필요한 결과입니다.
+`indeterminate`인 부수 효과를 다시 실행하면 주문이 두 번 들어갈 수 있습니다.
+
+경로 1의 에이전트 호출은 절대 경로입니다. register가 찍은 값으로 바꿉니다.
 
 ```
 /abs/node /abs/aside-codemode/bin/codemode.mjs --cwd /abs/project --code "return await search.count({ query: 'TODO', path: '.' })"
 ```
 
-## Register
+## 경로 1 등록
 
 ```sh
 node /abs/aside-codemode/scripts/register-aside.mjs
 ```
 
-`~/.aside/u/0/AGENTS.md`에 `<!-- aside-codemode:start -->` 마커를 씁니다. 노드는 `process.execPath`, CLI는 이 리포의 `bin/codemode.mjs`입니다. `settings.json`이나 MCP는 필요 없습니다. 설정 파일이 없어도 AGENTS만 쓰이면 종료 코드는 0이고 `settingsOk`는 false입니다.
+경로 1에서는 `~/.aside/u/0/AGENTS.md`에 `<!-- aside-codemode:start -->` 마커를 씁니다. 노드는 `process.execPath`, CLI는 이 리포의 `bin/codemode.mjs`입니다. 이 경로에는 `settings.json`이나 MCP가 필요 없습니다. 설정 파일이 없어도 AGENTS만 쓰이면 종료 코드는 0이고 `settingsOk`는 false입니다.
 
 Windows는 `pwsh -File scripts/register-aside.ps1`. macOS 래퍼는 `sh scripts/register-aside.sh`입니다. `$NODE`가 있으면 그걸 쓰고, 없으면 마지막에 `command -v node`를 찾습니다.
 
@@ -265,11 +317,11 @@ aside exec --permission full-access -- "/abs/project 에서 README 가 들어있
 
 ## macOS
 
-ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는 Windows가 아닌 곳에서 무시됩니다. 비대화형 Aside PATH에는 `node`가 없는 경우가 많습니다. 그래서 AGENTS에는 register 당시의 절대 `process.execPath`를 넣습니다 (이슈 #3).
+경로 1의 ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는 Windows가 아닌 곳에서 무시됩니다. 비대화형 Aside PATH에는 `node`가 없는 경우가 많습니다. 그래서 AGENTS에는 register 당시의 절대 `process.execPath`를 넣습니다 (이슈 #3). 경로 2에서는 데몬 PATH에 기대지 말고 위에서 설명한 절대경로 `rgPath`나 `CODEMODE_RG`를 지정하세요.
 
 ## Windows
 
-`bin/rg.exe`를 같이 둡니다. `scripts/register-aside.ps1`을 쓰세요. `.gitattributes`가 `*.sh`를 LF로 고정해서, Windows에서 받아도 macOS 래퍼가 CRLF로 깨지지 않게 합니다 (이슈 #2).
+`bin/rg.exe`를 같이 둡니다. 경로 1에서는 `scripts/register-aside.ps1`을 쓰세요. `.gitattributes`가 `*.sh`를 LF로 고정해서, Windows에서 받아도 macOS 래퍼가 CRLF로 깨지지 않게 합니다 (이슈 #2).
 
 Aside 기본 셸은 Git Bash입니다. 같은 절대 경로 `node`와 `bin/codemode.mjs --code` 호출은 PowerShell에서도 됩니다. Aside에는 Linux 제품이 없습니다.
 
@@ -289,7 +341,7 @@ Aside 기본 셸은 Git Bash입니다. 같은 절대 경로 `node`와 `bin/codem
 
 ## Trust model
 
-`node:vm`은 보안 경계가 아닙니다. Node 문서가 그렇게 말합니다. `--code`로 들어가는 게스트 JS는 이미 셸을 가진 Aside 에이전트가 씁니다. 신뢰 수준은 같습니다. 게스트 평가와 결과 직렬화는 별도 worker에서 실행하며, 바깥 watchdog이 비동기 무한루프와 멈춘 `toJSON`을 종료합니다. 파일·검색 함수는 부모 프로세스에서 허용된 RPC 이름을 통해 실행합니다. `actions.*`는 전용 RPC 채널을 통해 동기적으로 작동합니다.
+`node:vm`은 보안 경계가 아닙니다. Node 문서가 그렇게 말합니다. `--code`로 들어가는 게스트 JS는 이미 셸을 가진 Aside 에이전트가 씁니다. 신뢰 수준은 같습니다. 게스트 평가와 결과 직렬화는 별도 worker에서 실행하며, 바깥 watchdog이 비동기 무한루프와 멈춘 `toJSON`을 종료합니다. 파일·검색 함수는 부모 프로세스에서 허용된 RPC 이름으로 실행합니다. `actions.*`는 전용 RPC 채널에서 동기적으로 작동합니다.
 
 watchdog의 대상은 게스트 평가와 직렬화입니다. 임의의 동기 호스트 함수까지 중단시키지는 못합니다. 내용 검색은 ripgrep 기반 `search.content`를 권장합니다. `fs.grepFile`에 극단적으로 느린 JavaScript 정규식을 넘기면 호스트 이벤트 루프가 막힐 수 있습니다.
 

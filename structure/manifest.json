@@ -36,7 +36,7 @@
       "path": "overview.md",
       "tier": 1,
       "title": "Overview",
-      "scope": "The product boundary, the three execution paths, and the guest sandbox surface.",
+      "scope": "The product boundary, the four execution paths, their environments, and the guest sandbox surface.",
       "documents": [
         "bin/",
         "src/cli.js",
@@ -95,7 +95,7 @@
       "path": "install-surface.md",
       "tier": 4,
       "title": "Install surface",
-      "scope": "The three artifacts an install writes per account, the marker contract, and the always-injected budget.",
+      "scope": "The equal CLI and native MCP install paths, their ownership boundaries, the marker contract, and the always-injected budget.",
       "documents": [
         "scripts/install-codemode.mjs",
         "templates/",

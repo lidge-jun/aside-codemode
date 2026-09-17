@@ -21,7 +21,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { helperSource, helperLoadPathFor, HELPER_VERSION } from '../src/host/browse/helper-bundle.js';
 import { createActions } from '../src/host/actions.js';
-import { listAccountRoots, upsertAgents, fillTemplate } from '../src/register.js';
+import {
+  listAccountRoots, upsertAgents, fillTemplate, MCP_ACTIVATION_REQUIRED,
+} from '../src/register.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST_RELPATH = 'codemode/manifest.json';
@@ -107,6 +109,18 @@ function agentsBlockState(accountRoot, body) {
   return text.slice(start + START.length, end).trim() === body.trim() ? 'current' : 'stale';
 }
 
+function mcpServerEntryState(accountRoot) {
+  const settingsPath = path.join(accountRoot, 'settings.json');
+  if (!existsSync(settingsPath)) return 'absent';
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    return settings && settings.mcp && settings.mcp.servers
+      && settings.mcp.servers['aside-codemode'] ? 'unchanged' : 'absent';
+  } catch {
+    return 'absent';
+  }
+}
+
 function applyWrites(accountRoot, files, manifest, { dryRun, onlyMissing }) {
   const written = [];
   const preserved = [];
@@ -149,7 +163,17 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
   const manifest = readManifest(accountRoot);
   const manifestPath = path.join(accountRoot, MANIFEST_RELPATH);
 
-  const base = { verb, account: chosen.id, accountRoot, version: HELPER_VERSION, dryRun };
+  const base = {
+    verb,
+    account: chosen.id,
+    accountRoot,
+    version: HELPER_VERSION,
+    dryRun,
+    filesInstalled: Boolean(manifest),
+    serverEntry: mcpServerEntryState(accountRoot),
+    mcpActivated: false,
+    activationRequired: MCP_ACTIVATION_REQUIRED,
+  };
 
   if (verb === 'doctor') {
     return {
@@ -176,7 +200,7 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
   }
 
   if (verb === 'uninstall') {
-    if (!manifest) return { ...base, removed: [], preserved: [], note: 'nothing was installed here' };
+    if (!manifest) return { ...base, filesInstalled: false, removed: [], preserved: [], note: 'nothing was installed here' };
     const removed = [];
     const preserved = [];
     for (const known of manifest.files || []) {
@@ -208,7 +232,7 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       // the call that removes a directory, and it still refuses a non-empty one.
       try { if (!dryRun && existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir); } catch { /* leave it */ }
     }
-    return { ...base, removed, preserved, agentsBlock };
+    return { ...base, filesInstalled: dryRun, removed, preserved, agentsBlock };
   }
 
   if (verb === 'rollback') {
@@ -249,7 +273,7 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       files: previous.files.map(({ path: p, content }) => ({ path: p, sha256: sha256(content) })),
     };
     if (!dryRun) writeFile(manifestPath, JSON.stringify(rolled, null, 2) + '\n', dryRun);
-    return { ...base, ok: true, restored, dropped, version: previous.version };
+    return { ...base, filesInstalled: true, ok: true, restored, dropped, version: previous.version };
   }
 
   // install | upgrade | repair
@@ -294,6 +318,7 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
   if (!dryRun) writeFile(manifestPath, JSON.stringify(next, null, 2) + '\n', dryRun);
   return {
     ...base,
+    filesInstalled: dryRun ? Boolean(manifest) : true,
     written: written.map((w) => w.path),
     preserved: preserved.map((p) => p.rel),
     skipped: skipped.map((s) => s.rel),
@@ -344,6 +369,10 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1] === fileU
     for (const [k, v] of Object.entries(result)) {
       if (['verb', 'account', 'accountRoot', 'dryRun'].includes(k)) continue;
       console.log('  ' + k + ': ' + (Array.isArray(v) ? (v.length ? v.join(', ') : '(none)') : JSON.stringify(v)));
+    }
+    if (!result.dryRun && ['install', 'upgrade', 'repair'].includes(result.verb) && result.ok !== false) {
+      console.log('Route 1 (CLI): ready immediately.');
+      console.log('Route 2 (native MCP): ' + result.activationRequired);
     }
   }
   process.exit(result.ok === false ? 1 : 0);

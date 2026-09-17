@@ -56,6 +56,17 @@ refusal rather than a wrong conclusion. There is no synchronous variant of any o
 | `search.content` | file contents | `query` |
 | `search.count` | file contents, counted | `query` |
 
+`search.files` and `search.content` return the **array of rows itself**. Read `r.length`,
+iterate `r`, or spread it with `[...r]`; there is no `r.matches` and no `r.results`. If you
+used `r.matches || r.results || []`, the fallback hid every real row. The search metadata is
+on non-enumerable `r.complete`, `r.truncated`, `r.partial` and `r.scope`, so `Object.keys(r)`
+shows only the numeric row indices. Returning the result whole, or serializing it as JSON,
+emits the envelope `{ rows, complete, truncated, partial, scope }`; a spread or mapped array
+is a projection and does not retain that metadata.
+
+`search.count` is the exception: it returns the plain count object `{ matches, files }`,
+decorated with the same non-enumerable metadata. On that result, `.matches` is the count.
+
 `path` is required by all three: a directory or file inside a configured root. A relative
 path resolves against `--cwd`. Passing `pattern` to `search.content` is refused with the
 correct name, and when the value itself looks like a glob the refusal offers both, because

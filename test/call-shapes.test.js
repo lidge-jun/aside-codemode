@@ -3,12 +3,54 @@
 // result putting the body where a caller looks for it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { validateSearchOptions } from '../src/search-schema.js';
 import { createReadText } from '../src/host/browse/read-text.js';
+import { createRgResolver, createRgRunner } from '../src/rg.js';
+
+const callShapes = readFileSync(
+  new URL('../templates/skill/references/call-shapes.md', import.meta.url),
+  'utf8',
+);
 
 const refusal = (fn, opts) => {
   try { validateSearchOptions(fn, opts); return null; } catch (e) { return e; }
 };
+
+test('the search guidance names the row-array return contract and the wrong property guesses', () => {
+  const section = callShapes.match(/## search: which name belongs to which method([\s\S]*?)\n## /)?.[1] ?? '';
+  assert.match(section, /array of rows itself/i);
+  assert.match(section, /non-enumerable[^\n]*complete[^\n]*truncated[^\n]*partial[^\n]*scope/i);
+  assert.match(section, /\{ rows, complete, truncated, partial, scope \}/);
+  assert.match(section, /no `r\.matches` and no `r\.results`/);
+  assert.match(section, /search\.count[^\n]*exception/i);
+});
+
+test('a real content search returns the decorated array the guidance describes', async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'codemode-call-shapes-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'one.txt'), 'NEEDLE\n');
+
+  const result = await createRgRunner(createRgResolver({})).content({
+    path: root,
+    query: 'NEEDLE',
+  });
+
+  assert.equal(Array.isArray(result), true);
+  assert.deepEqual([...result], [{ file: path.join(root, 'one.txt'), line: 1, text: 'NEEDLE' }]);
+  for (const key of ['complete', 'truncated', 'partial', 'scope']) {
+    assert.equal(key in result, true, `${key} is missing from the live result`);
+    assert.equal(Object.getOwnPropertyDescriptor(result, key)?.enumerable, false);
+  }
+  assert.equal('matches' in result, false);
+  assert.equal('results' in result, false);
+
+  const wire = JSON.parse(JSON.stringify(result));
+  assert.deepEqual(Object.keys(wire), ['rows', 'complete', 'truncated', 'partial', 'scope']);
+  assert.deepEqual(wire.rows, [...result]);
+});
 
 test('search.content rejects pattern by naming the option it does want', () => {
   const e = refusal('search.content', { pattern: 'x', path: '/tmp' });

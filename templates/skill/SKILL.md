@@ -1,23 +1,30 @@
 ---
 name: aside-codemode
-description: Batch repeated browser and file work from inside Aside, and read a result that says what actually happened. Use when the structure repeats and the items do not share state; stay native for a first look, a single click, or anything needing an account or an approval.
+description: Use code mode for any directory or project search and for 2+ independent files, URLs, pages, queries, API lookups or captures. Use native once to learn an unfamiliar page shape, and keep one known file, one visible click, account, approval, watch-me and dependent-state work native; then batch 2+ known independent items.
 ---
 
 # aside-codemode
 
-Native first. This skill is for the moment after you already know the shape of the work:
-the same steps over twenty rows, the same read over forty files, the same capture over a
-list of urls. If you have not seen the page yet, look at it natively. If one click answers
-the question, click it.
+Use native once to learn an unfamiliar page shape. After that, batch 2+ known independent
+items. Keep one known file, one visible click, a fresh visual judgement, file-card delivery,
+watch-me work, sign-in/SSO/MFA/CAPTCHA/approval, uncertain side effects, and dependent
+wizard/cart/form steps native.
 
 ## Deciding to batch
 
-Batch when all three hold: the steps repeat, the items do not depend on each other's
-state, and you can say in one sentence what a finished item looks like. If items share a
-cart, a wizard step, or a single logged-in form, they are one task, not a batch.
+Any directory- or project-scoped content or filename search is code mode before you know
+the hit count. Treat find, search, locate, grep, count, occurrences, references, usages,
+TODO, all, every, each, across, repository and project as multi-file. Also use code mode
+for 2+ independent files, URLs, pages, queries, API lookups or captures.
 
-A batch is also the wrong tool when the answer is visual and you have not looked yet. Run
-one item natively, read what came back, then batch the rest.
+Do not make a native `read_file` loop, a bash `find`/`grep` pipeline, or repeated grep
+calls. Make one `search.content`, `search.files` or `search.count` call, filter it, then
+read only the hits in the same body.
+
+For browsing, inspect one unfamiliar page natively first. For 2+ independent URLs or
+queries, use `browse.exec` for the same rendered extraction, `browse.readText` for page
+bodies, `browse.captureMany` for artifacts, and `browse.searchMany` for queries. Use
+`browse.attach` when the request means "this page" or an already-open tab.
 
 ## Running one, inside a REPL session
 
@@ -108,10 +115,9 @@ in as `loggedInMarker`. Then batch.
 
 `loggedInMarker` is deliberately not `requireContent`, because the two failures ask
 different things of you. Content that is missing is a failure: the page did not hold what
-you wanted. A session that is gone is `needs_input`: sign in and run the rest. Once one
-item reports the marker missing the run stops by default, since every remaining item shares
-that session and can only open tabs that cannot succeed; pass `stopWhenLoggedOut: false` if
-you would rather see them all fail.
+you wanted. A session that is gone is `needs_input`: sign in and run the rest. The run stops by
+default after three consecutive items miss the marker, since the shared session is then no
+longer credible; pass `stopWhenLoggedOut: false` if you would rather check every item.
 
 One gap worth knowing. If the page cannot be evaluated at all, the marker is not checked
 and the item is not failed for it — a missing evaluate costs the verdict rather than the

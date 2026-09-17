@@ -169,21 +169,21 @@ function inputsFor(order) {
 export const SEARCH_ACTIONS = [
   {
     path: 'search.files',
-    description: 'List file paths under a directory (ripgrep --files). Streams and stops at `max`, so a large tree is safe.',
+    description: 'First call for any directory or project filename search. Returns file paths and streams to the `max` cap, so a large tree is safe.',
     signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
     notes: "Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. `pattern` is a substring filter and `glob` is the glob: pattern:'*.pdf' is rejected with the glob you probably meant, instead of returning zero rows. Paths come back as the bytes on disk; the pattern comparison is NFC-folded so a decomposed macOS filename still matches. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).",
     inputs: inputsFor(FILES_ORDER),
   },
   {
     path: 'search.content',
-    description: 'Search file contents with ripgrep. Returns matching lines with file, line number and optional context.',
+    description: 'First call for any directory or project content search. Searches file contents and returns matching lines with file, line number and optional context.',
     signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text,context?}[]>',
     notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Unknown options and invalid values are rejected rather than ignored. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
     inputs: inputsFor(CONTENT_ORDER),
   },
   {
     path: 'search.count',
-    description: 'Count matches and matching files WITHOUT returning rows. Use as a pre-flight to size a search before pulling results.',
+    description: 'First call to size any directory or project content search. Returns match and matching-file counts without returning rows.',
     signature: 'search.count({ query, path, glob?, ignoreCase?, fixedStrings?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{matches,files}>',
     notes: 'Stays a plain {matches,files} object; `.complete`, `.truncated`, `.partial` and `.scope` are non-enumerable, and JSON serialization emits them alongside the counts. An unreadable path makes the count partial instead of silently smaller.',
     inputs: inputsFor(COUNT_ORDER),

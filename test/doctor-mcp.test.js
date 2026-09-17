@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAsideBundledRgPath } from '../src/rg.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(checkout, 'bin', 'codemode.mjs');
@@ -82,7 +83,9 @@ test('--doctor distinguishes MCP registration, activation, stale, and settings e
   assert.deepEqual(report.mcp.rgResolution, {
     configuredPath: process.execPath,
     configuredPathKind: 'absolute',
+    asideBundledPath: getAsideBundledRgPath(),
     resolvedPath: process.execPath,
+    resolvedSource: 'explicit',
     ok: true,
     warning: null,
   });
@@ -156,7 +159,9 @@ test('--doctor reports actual rg resolution for relative, absolute, and missing 
   assert.deepEqual(relativeResult.report.mcp.rgResolution, {
     configuredPath: relative,
     configuredPathKind: 'relative-to-package',
+    asideBundledPath: getAsideBundledRgPath(),
     resolvedPath: process.execPath,
+    resolvedSource: 'explicit',
     ok: true,
     warning: null,
   });
@@ -166,7 +171,9 @@ test('--doctor reports actual rg resolution for relative, absolute, and missing 
   assert.deepEqual(absoluteResult.report.mcp.rgResolution, {
     configuredPath: process.execPath,
     configuredPathKind: 'absolute',
+    asideBundledPath: getAsideBundledRgPath(),
     resolvedPath: process.execPath,
+    resolvedSource: 'explicit',
     ok: true,
     warning: null,
   });
@@ -175,7 +182,9 @@ test('--doctor reports actual rg resolution for relative, absolute, and missing 
   const missingResult = runWith(missing);
   assert.equal(missingResult.run.status, 1, missingResult.run.stderr + missingResult.run.stdout);
   assert.equal(missingResult.report.mcp.rgResolution.configuredPath, missing);
+  assert.equal(missingResult.report.mcp.rgResolution.asideBundledPath, getAsideBundledRgPath());
   assert.equal(missingResult.report.mcp.rgResolution.resolvedPath, null);
+  assert.equal(missingResult.report.mcp.rgResolution.resolvedSource, null);
   assert.equal(missingResult.report.mcp.rgResolution.ok, false);
   assert.match(missingResult.report.mcp.rgResolution.warning, /configured rgPath could not be resolved/);
 });

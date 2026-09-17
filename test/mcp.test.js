@@ -55,6 +55,7 @@ test('AC1/AC10: initialize purity, tools/list, ping', async () => {
   assert.equal(JSON.parse(firstLine).result.serverInfo.name, 'aside-codemode', 'stdout first line IS the initialize response — zero banner bytes');
   const list = await call('tools/list', {});
   assert.deepEqual(list.result.tools.map((t) => t.name), ['execute_code']);
+  assert.equal(list.result.tools[0].title, 'Code mode: project search and multi-item work');
   const ping = await call('ping', {});
   assert.deepEqual(ping.result, {});
   child.stdin.end();

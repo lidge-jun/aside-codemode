@@ -5,20 +5,23 @@ import { requireInteger } from './execution-output.js';
 export const TOOL_NAME = 'execute_code';
 
 const GUEST_API_DOC = [
-  'Run JavaScript that orchestrates local search, files, browsing, APIs and reports in one call.',
-  'Reach for this first whenever the work touches more than one file, page or lookup. A run of native calls puts every intermediate result in the context; one body here returns only the answer.',
-  'Code is an async function body: await freely and return the final answer. Only the return value and console output reach the model.',
-  'Discover before calling: actions.find(query) -> actions.describe(path) -> actions.check(path, catalogArgs) -> call the named API directly. The on-demand catalog holds signatures, options, outputs and caveats, including browse.readText, browse.attach and treeNodes.',
-  'Injected globals: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.',
+  'Run JavaScript to search, filter and read local files, pages and APIs in one call; only returned output enters context.',
+  'Use first for every directory or repo search and for 2+ independent files, URLs, pages, queries, API lookups or captures, even if a search returns one hit.',
+  'Never start a native read_file loop, bash find/grep or repeated grep; call search.content or search.files once, then read only the hits.',
+  'For "this page" or an already-open tab, use browse.attach; it reads the existing tab without opening or closing one.',
+  'Code is an async function body; await freely and return the answer. Only return and console output enter context.',
+  'Discover calls with actions.find(query) -> actions.describe(path) -> actions.check(path,args). The catalog includes browse.readText, browse.attach and treeNodes.',
+  'Globals: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.',
   'There is no module loader: import(), require, process and fetch do not exist; string-built code and dynamic import are refused. Use the injected APIs.',
   'Searches respect .gitignore by default. A parent rule can hide an entire project. If expected content is absent, retry with noIgnore:true (and hidden:true for dotfiles) or compare counts before concluding it does not exist. An inclusive glob may still match ignored or hidden paths.',
   'Search arrays remain iterable, but direct or nested serialization is {rows,complete,truncated,partial,scope}; counts add the same metadata to matches/files. Preserve the envelope when projecting rows. complete:false, truncated:true or partial entries mean the result is not evidence of absence.',
   'Symlinks are never followed. scope.skippedSymlinks is {dirs,files,examples,capped}; a skipped directory makes complete:false because it may hide a subtree. noIgnore/hidden cannot recover it: search the real target, which must be inside a configured root. Skipped file links are counted but do not lower completeness.',
-  'Paths outside configured roots are refused. Prefer one body that searches, filters, reads only hits and returns a distilled result.',
+  'Paths outside roots are refused. Search, filter and read hits in one body.',
 ].join('\n');
 
 export const TOOL_DEF = {
   name: TOOL_NAME,
+  title: 'Code mode: project search and multi-item work',
   description: GUEST_API_DOC,
   inputSchema: {
     type: 'object',

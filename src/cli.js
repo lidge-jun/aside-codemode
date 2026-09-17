@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
-import { createRgResolver } from './rg.js';
+import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
 import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
 import { requireInteger } from './execution-output.js';
@@ -85,7 +85,7 @@ try {
   fail(e.message, { code: e.code ?? null });
 }
 
-const rgResolver = createRgResolver(config);
+const rgResolver = createDetailedRgResolver(config);
 const globals = signal => createHostGlobals(config, assertInside, signal);
 
 const MCP_SERVER = 'aside-codemode';
@@ -189,7 +189,9 @@ function mcpDoctorReport(env = process.env) {
       configuredPath: config.rgPath,
       configuredPathKind: typeof config.rgPath !== 'string'
         ? 'unset' : path.isAbsolute(config.rgPath) ? 'absolute' : 'relative-to-package',
+      asideBundledPath: getAsideBundledRgPath(),
       resolvedPath: null,
+      resolvedSource: null,
       ok: null,
       warning: null,
     },
@@ -216,8 +218,10 @@ if (has('--doctor')) {
     mcp: mcpDoctorReport(),
   };
   try {
-    report.rgResolved = await rgResolver();
-    report.mcp.rgResolution.resolvedPath = report.rgResolved;
+    const resolved = await rgResolver();
+    report.rgResolved = resolved.path;
+    report.mcp.rgResolution.resolvedPath = resolved.path;
+    report.mcp.rgResolution.resolvedSource = resolved.source;
     report.mcp.rgResolution.ok = true;
   } catch (e) {
     report.ok = false;

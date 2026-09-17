@@ -80,7 +80,7 @@ those same shapes.
 ## Requirements
 
 - Node.js >= 18
-- an absolute ripgrep `CODEMODE_RG` / `rgPath` for the MCP route, because the daemon's minimal environment does not carry the normal PATH. The CLI route can use `rg` on PATH. Windows may use vendored `bin/rg.exe`
+- ripgrep for the CLI route. The MCP route resolves Aside's bundled native ripgrep automatically on macOS and Windows; `CODEMODE_RG` / `rgPath` remains an explicit override
 - macOS and Windows
 
 ## Install
@@ -112,7 +112,8 @@ and registers `aside-codemode` for native MCP (replace `0` with the account numb
 node scripts/install-codemode.mjs install --account 0 --json
 ```
 
-Pin ripgrep with an absolute `rgPath` in the codemode config or an absolute `CODEMODE_RG`.
+The MCP server resolves Aside's bundled native ripgrep automatically on macOS and Windows.
+Set an absolute `rgPath` in codemode config or `CODEMODE_RG` only when you want to override it.
 The command prepares Aside's own tool-inventory discovery; it does not fabricate an inventory.
 **Activation happens when you start the next Aside session, not while the installer is
 running.** That new session connects to the server, caches `execute_code`, and attaches
@@ -137,10 +138,9 @@ description is always resident in every MCP session. That is less resident conte
 route's 3,808-byte account block, one reason MCP is the first-class route.
 
 The daemon starts the server with only six environment variables and with its own application
-directory as cwd. Its PATH does not contain ripgrep. Without the absolute `rgPath` or
-`CODEMODE_RG`, search actions fail with `ERG404` even when the CLI route works on the same
-machine. Aside's bundled ripgrep 15.2.0 with PCRE2 is a natural absolute pin on a machine with
-no other `rg`.
+directory as cwd, so its PATH does not contain ripgrep. The server therefore resolves Aside's
+bundled native binary directly: ripgrep 15.2.0 with PCRE2 on macOS and 15.1.0 with PCRE2 on
+Windows. An explicit absolute `rgPath` or `CODEMODE_RG` still overrides that resolution.
 
 ### Route 2: CLI and account guidance
 
@@ -328,15 +328,24 @@ Migration: callers parsing a directly returned search array must now read `resul
 - Search, multi-file read, summarize: one code-mode call, Route 1 `mcp__aside-codemode__execute_code` or a Route 2 bash call.
 - Do not call `rg`, `find`, `grep`, or `Get-ChildItem -Recurse` directly.
 
-### Choosing when to batch
+### Choosing native or code mode
 
-Make the decision on two separate axes.
+Make the routing decision before searching. Any directory- or project-scoped content or filename
+search uses code mode, even if it may return one hit. Words such as find, search, locate, grep,
+count, occurrences, references, usages, TODO, all, every, each, across, repository and project
+all mean multi-file until the search proves otherwise. Use code mode for any 2+ independent
+files, URLs, pages, queries, API lookups or captures as well.
 
-**Round-trip cost.** Batch when the structure repeats, the items do not share state, and you
-can say in one sentence what a finished item looks like. Native tools win for a first look at
-an unfamiliar page, a single click, one file, a fresh visual judgement, or anything that needs
-an account or an approval. Keep work native when the user should watch it happen too: a batch
-does not produce file cards in the Aside UI.
+Stay native for one first look at an unfamiliar page, one known file, one visible click, a fresh
+visual judgement, file-card delivery, watch-me work, sign-in/SSO/MFA/CAPTCHA/approval, an
+uncertain side effect, or dependent steps that share wizard, cart or form state. Once a page's
+shape is known, route 2+ independent URLs or queries by operation: `browse.exec` for rendered
+extraction, `browse.readText` for page bodies, `browse.captureMany` for artifacts, and
+`browse.searchMany` for queries. Use `browse.attach` for “this page” or an already-open tab.
+
+Do not replace code mode with a native `read_file` loop, a bash `find`/`grep` pipeline, or
+repeated grep calls. Make one `search.content`, `search.files` or `search.count` call, filter
+the result, and read only the hits in the same body.
 
 **Resident context cost, measured.** The MCP route keeps its **1,984-byte** tool description
 resident in every MCP session. The CLI route keeps the **3,808-byte** account `AGENTS.md` block
@@ -391,7 +400,7 @@ aside exec --permission full-access -- "/abs/project 에서 README 가 들어있
 
 ## macOS
 
-For Route 1, do not rely on the daemon PATH; pin an absolute `rgPath` or `CODEMODE_RG` as described above. For Route 2, install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` is ignored on non-Windows. Noninteractive Aside PATH often has no `node` — that is why AGENTS stores the absolute `process.execPath` from the register run (issue #3).
+Route 1 resolves Aside's bundled native ripgrep automatically; an absolute `rgPath` or `CODEMODE_RG` remains an override. For Route 2, install ripgrep with Homebrew (`brew install ripgrep`). A vendored `bin/rg.exe` is ignored on non-Windows. Noninteractive Aside PATH often has no `node` — that is why AGENTS stores the absolute `process.execPath` from the register run (issue #3).
 
 ## Windows
 

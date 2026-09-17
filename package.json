@@ -1,6 +1,6 @@
 {
   "name": "aside-codemode",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "CLI code mode for the Aside agent: one `codemode --code` guest with Aside-shaped file tools and rg-backed search",
   "type": "module",
   "license": "MIT",

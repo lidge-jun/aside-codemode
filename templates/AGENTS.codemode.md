@@ -1,27 +1,28 @@
 # code mode
 
-Native is the default. A page you have not seen, a single click, one file or a fresh
-visual judgement: ignore this block. Keep work native when it needs an account, an
-approval or a result the user should watch; a batch makes no Aside file cards.
-
-Batch when the structure repeats and the items do not depend on each other's state. A
-signed-in site is the exception that looks like the rule: every item shares one session,
-so when it expires partway the rest quietly read a login page and report success. Sign in
-natively first, pass the text that proves you are signed in as `loggedInMarker`, then batch.
-A missing marker is `needs_input`, not a failure: someone can sign in again.
-
+Stay native for one unfamiliar first-look page, one known file, one visible click, or a fresh
+visual judgement. Also stay native for file-card delivery, watch-me work, accounts,
+sign-in/SSO/MFA/CAPTCHA/approval, an uncertain side effect, or dependent wizard/cart/form steps.
+Code mode is the default for ANY directory- or project-scoped content or filename search before
+the hit count is known. Treat find, search, locate, grep, count, occurrences, references, usages,
+TODO, all, every, each, across, repository and project as multi-file.
+Also use code mode for 2+ independent files, URLs, pages, queries, API lookups or captures.
+For browsing, inspect one unfamiliar page natively first. Then use `browse.exec` for rendered
+extraction, `browse.readText` for bodies, `browse.captureMany` for artifacts, `browse.searchMany`
+for queries, and `browse.attach` for "this page" or an open tab.
+Losing moves are a native `read_file` loop, a bash `find`/`grep` pipeline, or repeated grep calls.
+Replace them with one `search.content`, `search.files` or `search.count` call, filter, then read
+only the hits in the same body; `fs.stat` and `fs.grepFile` cover metadata and one-file matching.
+Do not call `rg`, `find`, `grep` or `Get-ChildItem -Recurse` directly.
+A signed-in batch shares one session: sign in natively first, pass its `loggedInMarker`, then
+batch. If it expires partway the rest read a login page; a missing marker is `needs_input`.
 `ok`, `completed`, HTTP 200 and `contentVerified` say the call worked. None of them says
 the page holds what you asked for. Name the content you expect, or you have not checked it.
 A search says it the same way: `complete:false`, `truncated` or a `skippedSymlinks` count
 means rows are missing, so an empty result is not evidence of absence; project those out too.
 
-An open API or a server-rendered page is a fetch, where a tab is pure overhead; an SPA
-whose HTML arrives empty is a batch. The test is whether the text you expect survives
-deleting the script tags.
-
-File trees, metadata and structured results are this path whether or not the work repeats.
-Do not call `rg`, `find`, `grep` or `Get-ChildItem -Recurse`; `search.content`, `fs.stat`
-and `fs.grepFile` answer the same question in one call instead of fifty.
+An open API or a server-rendered page is a fetch; an SPA whose HTML arrives empty needs rendered
+browsing. The test is whether the expected text survives deleting the script tags.
 
     {{NODE}} {{CLI}} --code-file /abs/script.js      # quoting-proof; prefer this
     {{NODE}} {{CLI}} --code "return actions.describe('browse.exec')"

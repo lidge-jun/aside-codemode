@@ -69,7 +69,7 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.exec',
-    description: 'Run a batch of urls through ONE Aside REPL session. On by default; refused when browseCaps.enabled is false.',
+    description: 'Rendered-extraction path for 2+ independent URLs in ONE Aside REPL session. On by default; refused when browseCaps.enabled is false.',
     signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, snapshot?, screenshot?, pdf?, extract?, concurrency?, detect? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
@@ -98,7 +98,7 @@ export const BROWSE_ACTIONS = [
       minTextChars: { type: 'number', required: false, description: 'Minimum visible (innerText) characters for the content to count as read' },
       requireContent: { type: 'boolean|string', required: false, description: 'A string is a regular expression the page must contain, and is itself the check: an item without it fails. true instead enforces whatever checks apply, including the render heuristics that always run, and is legal on its own. contentVerified reads true only when a selector, a minimum length or a pattern was asked for, so a bare true never claims verification' },
       loggedInMarker: { type: 'string', required: false, description: 'A regular expression matching text that only appears when you are signed in. An item without it is needs_input rather than failed, because a person can sign in again. Sign in natively first; the batch never attempts a login. The tool cannot infer this: a signed-out page need not contain the word for signing in, and a JSON api answering with your account data contains no sign-out wording at all' },
-      stopWhenLoggedOut: { type: 'boolean', required: false, description: 'Default true beside loggedInMarker. Once one item proves the session is gone the rest are skipped with logged-out as the reason, because they share that session and can only open tabs that cannot succeed' },
+      stopWhenLoggedOut: { type: 'boolean', required: false, description: 'Default true beside loggedInMarker. After three consecutive items miss the marker, remaining work is skipped with logged-out as the reason; one or two misses may be incomplete renders, so they do not stop the shared session' },
     },
     outputs: {
       items: { description: 'Each item may include capture.requested and capture.actual; when pdf was requested, capture.actual.pdfBytes reports the produced byte count. browse.exec does not bring an artifact file back.' },
@@ -139,7 +139,7 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.attach',
-    description: "Read the tab the user already has open, with their session, scroll position and current screen. Never opens or closes a tab.",
+    description: 'Route for "this page" or an already-open tab: read its session, scroll position and current screen without opening or closing a tab.',
     signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, approveWrites?, requireSelector?, minTextChars?, includeText?, maxTextChars?, sampleChars? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
@@ -178,7 +178,7 @@ export const BROWSE_ACTIONS = [
   },
   {
     path: 'browse.readText',
-    description: 'Fetch-first page read: html to markdown-shaped text, with no browser unless the page rendered nothing. Takes a url string or { url, ...options }.',
+    description: 'Fetch-first body reading for one URL: HTML to markdown-shaped text, with a browser only when fetch yields no usable body. Takes a url string or { url, ...options }.',
     signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>",
     // treeNodes is documented on the job that carries it, below.
     inputs: {

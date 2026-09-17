@@ -23,19 +23,28 @@ const rendered = () => {
   };
 };
 
-test('the installed skill still says native first, and when not to batch', () => {
+// 0.7.0 inverted the default: a project search is code mode before anyone knows the hit
+// count. What has to survive that inversion is the list of work that stays native, and the
+// independence requirement that keeps a batch honest. Without both, this is a sales pitch.
+test('the installed skill says what stays native, and what makes items batchable', () => {
   const { skill } = rendered();
   const flat = skill.replace(/\s+/g, ' ');
-  assert.match(flat, /Native first/i);
-  assert.match(flat, /single click/i);
-  assert.match(flat, /do not depend on each other|do not share/i);
+  assert.match(flat, /native once to learn an unfamiliar/i);
+  assert.match(flat, /one visible click/i);
+  assert.match(flat, /approval/i);
+  assert.match(flat, /independent/i);
 });
 
 test('the managed block routes rather than insists', () => {
   const { agents } = rendered();
   const flat = agents.replace(/\s+/g, ' ');
-  assert.match(flat, /Native is the default/i);
-  assert.match(flat, /ignore this block/i);
+  // Routing means naming both directions. The block may not simply assert code mode:
+  // the cases that stay native come first and stay concrete.
+  assert.match(flat, /stay native for/i);
+  assert.match(flat, /one known file/i);
+  assert.match(flat, /fresh visual judgement/i);
+  // And it must still name what sends work the other way, or it is not routing either.
+  assert.match(flat, /2\+ independent/i);
 });
 
 test('neither document claims the usability gate was run', () => {
@@ -89,6 +98,19 @@ test('readText and attach are in the tool description, with the field readText a
   assert.match(doc, /browse\.attach/);
   assert.match(doc, /treeNodes/);
   assert.match(doc, /no module loader/i);
+});
+
+test('the resident tool advertises deterministic code-mode routing', () => {
+  const doc = TOOL_DEF.description;
+  assert.equal(TOOL_DEF.title, 'Code mode: project search and multi-item work');
+  assert.match(doc, /every directory or repo search/i);
+  assert.match(doc, /2\+ independent files, URLs, pages, queries, API lookups or captures/i);
+  assert.match(doc, /even if a search returns one hit/i);
+  assert.match(doc, /native read_file loop/i);
+  assert.match(doc, /bash find\/grep/i);
+  assert.match(doc, /repeated grep/i);
+  assert.match(doc, /search\.content or search\.files once, then read only the hits/i);
+  assert.match(doc, /"this page" or an already-open tab, use browse\.attach/i);
 });
 
 // Four things an agent got wrong in real sessions, each because the block did not say them.

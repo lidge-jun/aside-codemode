@@ -3,7 +3,7 @@
 // Streaming/child-process mechanics live in ./rg-stream.js; the option contract
 // and result envelope live in ./search-schema.js and ./search-result.js.
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +15,12 @@ import { scanSkippedSymlinks, symlinkSkipLowersCompleteness } from './symlink-sc
 import { includesText } from './unicode.js';
 
 const execFileP = promisify(execFile);
-const isWindows = process.platform === 'win32';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const WELL_KNOWN_RG_PATHS = [
+  '/opt/homebrew/bin/rg',
+  '/usr/local/bin/rg',
+  '/home/linuxbrew/.linuxbrew/bin/rg',
+];
 
 export { RgFailedError };
 
@@ -29,23 +33,35 @@ export class RgNotFoundError extends Error {
   }
 }
 
-function pathCandidates(env) {
+function platformPath(platform) {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+export function getAsideBundledRgPath({ platform = process.platform, homedir = os.homedir } = {}) {
+  const home = typeof homedir === 'function' ? homedir() : homedir;
+  if (platform === 'darwin') return path.posix.join(home, '.aside', 'runtime', 'native', 'bin', 'rg');
+  if (platform === 'win32') return path.win32.join(home, '.aside', 'runtime', 'native', 'bin', 'rg.exe');
+  return null;
+}
+
+function pathCandidates(env, platform) {
   const out = [];
   const pathEnv = env.PATH ?? env.Path ?? '';
   // .bat/.cmd shims are NOT spawnable via execFile (EINVAL without a shell) —
   // measured through aside exec's bash on Windows 2026-09-13. exe/plain only.
-  const exts = isWindows ? ['rg.exe', 'rg'] : ['rg'];
-  for (const dir of pathEnv.split(path.delimiter)) {
+  const exts = platform === 'win32' ? ['rg.exe', 'rg'] : ['rg'];
+  const pathApi = platformPath(platform);
+  for (const dir of pathEnv.split(pathApi.delimiter)) {
     if (!dir) continue;
-    for (const name of exts) out.push(path.join(dir, name));
+    for (const name of exts) out.push(pathApi.join(dir, name));
   }
   return out;
 }
 
-async function whereRg(signal) {
-  if (!isWindows) return null;
+async function whereRg({ platform, signal, env }) {
+  if (platform !== 'win32') return null;
   try {
-    const { stdout } = await execFileP('where.exe', ['rg'], { timeout: 5000, signal, killSignal: 'SIGKILL' });
+    const { stdout } = await execFileP('where.exe', ['rg'], { timeout: 5000, signal, killSignal: 'SIGKILL', env });
     const first = stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
     return first ?? null;
   } catch {
@@ -56,62 +72,101 @@ async function whereRg(signal) {
 // A vendored bin/rg.exe is a repo default, not a per-machine choice. On a
 // non-Windows host it is unrunnable (spawn EACCES, measured on macOS after a
 // fresh clone), so it must not be treated as an authoritative explicit path.
-function isInapplicableVendoredExe(abs) {
-  return !isWindows && abs.toLowerCase().endsWith('.exe');
+function isInapplicableVendoredExe(abs, platform) {
+  return platform !== 'win32' && abs.toLowerCase().endsWith('.exe');
 }
 
-export function createRgResolver(config, env = process.env, { signal } = {}) {
+async function verifyRg(candidate, { signal, env }) {
+  await execFileRg(candidate, ['--version'], { timeout: 5000, signal, killSignal: 'SIGKILL' }, env);
+}
+
+function failureText(candidate, error) {
+  return `${candidate}: ${error?.code ?? error?.message ?? String(error)}`;
+}
+
+export function createDetailedRgResolver(config, env = process.env, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const homedir = options.homedir ?? os.homedir;
+  const verify = options.verify ?? verifyRg;
+  const where = options.where ?? whereRg;
+  const packageRoot = options.packageRoot ?? repoRoot;
+  const signal = options.signal;
+  const pathApi = platformPath(platform);
   let cached = null;
-  return async function resolveRg() {
+  return async function resolveDetailedRg() {
     signal?.throwIfAborted();
     if (cached) return cached;
     const explicit = config.rgPath || env.CODEMODE_RG;
     if (explicit) {
-      const abs = path.isAbsolute(explicit) ? explicit : path.resolve(repoRoot, explicit);
-      if (!isInapplicableVendoredExe(abs)) {
+      const abs = pathApi.isAbsolute(explicit) ? explicit : pathApi.resolve(packageRoot, explicit);
+      if (!isInapplicableVendoredExe(abs, platform)) {
         // Explicit config is authoritative: a wrong path is a structured error,
         // never a silent fall-through to whatever PATH happens to hold.
-        if (!existsSync(abs)) throw new RgNotFoundError();
         try {
-          await execFileRg(abs, ['--version'], { timeout: 5000, signal, killSignal: 'SIGKILL' }, env);
-          return (cached = abs);
+          await verify(abs, { signal, env });
+          return (cached = { path: abs, source: 'explicit' });
         } catch (e) {
           signal?.throwIfAborted();
           const err = new RgNotFoundError();
-          err.candidates = [`${abs}: ${e.code ?? e.message}`];
+          err.candidates = [failureText(abs, e)];
           throw err;
         }
       }
       // else: fall through to the ladder below on purpose.
     }
-    const candidates = [
-      ...pathCandidates(env),
-      '/opt/homebrew/bin/rg',
-      '/usr/local/bin/rg',
-      '/home/linuxbrew/.linuxbrew/bin/rg',
-      await whereRg(signal),
-      // Last, and only where it can run: the copy we ship. register writes rgPath on a
-      // Windows checkout, but a package installed from npm has no register step, and
-      // without this the binary we just shipped is the one thing PATH cannot find.
-      isWindows ? path.join(repoRoot, 'bin', 'rg.exe') : null,
-    ].filter(Boolean);
     const failures = [];
-    for (const cand of candidates) {
+    const seen = new Set();
+    const probe = async (candidate, source) => {
+      if (!candidate) return null;
+      const key = platform === 'win32' ? candidate.toLowerCase() : candidate;
+      if (seen.has(key)) return null;
+      seen.add(key);
       signal?.throwIfAborted();
       // existsSync is not enough: a directory or non-executable named rg
       // passes it and then dies as spawn EINVAL/EACCES (measured via aside
       // exec's bash env, node v24, 2026-09-13). Prove each with --version.
       try {
-        await execFileRg(cand, ['--version'], { timeout: 5000, signal, killSignal: 'SIGKILL' }, env);
-        return (cached = cand);
+        await verify(candidate, { signal, env });
+        return { path: candidate, source };
       } catch (e) {
         signal?.throwIfAborted();
-        failures.push(`${cand}: ${e.code ?? e.message}`);
+        failures.push(failureText(candidate, e));
+        return null;
       }
+    };
+
+    // This precedes PATH because it is the only rg proven to run in Aside's
+    // six-variable daemon child environment, where PATH does not contain rg.
+    const bundled = getAsideBundledRgPath({ platform, homedir });
+    const ordered = [
+      [bundled, 'aside-bundled'],
+      ...pathCandidates(env, platform).map((candidate) => [candidate, 'path']),
+      ...WELL_KNOWN_RG_PATHS.map((candidate) => [candidate, 'well-known']),
+    ];
+    for (const [candidate, source] of ordered) {
+      const resolved = await probe(candidate, source);
+      if (resolved) return (cached = resolved);
+    }
+    if (platform === 'win32') {
+      const fromWhere = await where({ platform, signal, env });
+      const resolvedWhere = await probe(fromWhere, 'windows-where');
+      if (resolvedWhere) return (cached = resolvedWhere);
+
+      // Last: npm packages have no register step to write an explicit rgPath.
+      const vendored = path.win32.join(packageRoot, 'bin', 'rg.exe');
+      const resolvedVendored = await probe(vendored, 'package-vendored');
+      if (resolvedVendored) return (cached = resolvedVendored);
     }
     const err = new RgNotFoundError();
     err.candidates = failures.slice(0, 12);
     throw err;
+  };
+}
+
+export function createRgResolver(config, env = process.env, options = {}) {
+  const resolveDetailed = createDetailedRgResolver(config, env, options);
+  return async function resolveRg() {
+    return (await resolveDetailed()).path;
   };
 }
 

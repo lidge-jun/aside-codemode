@@ -76,7 +76,7 @@ bash 카드가 보이는 방식을 선호하는 사용자는 CLI 경로를 이�
 ## Requirements
 
 - Node.js 18 이상
-- MCP 경로에는 ripgrep 절대경로 `CODEMODE_RG` / `rgPath`가 필요합니다. 데몬의 최소 환경에는 평소 PATH가 없습니다. CLI 경로는 PATH의 `rg`를 쓸 수 있습니다. Windows는 번들 `bin/rg.exe`를 쓸 수 있습니다
+- CLI 경로에서 쓸 ripgrep. MCP 경로는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. `CODEMODE_RG` / `rgPath`는 명시적 재정의로 남습니다
 - macOS, Windows
 
 ## 설치
@@ -108,7 +108,8 @@ Aside에는 MCP 클라이언트가 들어 있습니다. 패키지 체크아웃�
 node scripts/install-codemode.mjs install --account 0 --json
 ```
 
-codemode 설정의 `rgPath`나 `CODEMODE_RG`에는 ripgrep 절대경로를 지정합니다. 이 명령은 Aside가
+MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. 다른 바이너리를
+쓰고 싶을 때만 codemode 설정의 절대 `rgPath`나 `CODEMODE_RG`로 재정의합니다. 이 명령은 Aside가
 자체 도구 목록을 찾도록 준비할 뿐, 목록을 임의로 만들어 넣지 않습니다. **MCP는 설치 명령을
 실행하는 순간이 아니라 다음 Aside 세션을 열 때 활성화됩니다.** 새 세션이 서버에 연결해
 `execute_code`를 캐시에 넣고 `mcp__aside-codemode__execute_code`를 붙입니다. 이미 실행 중인 세션에
@@ -131,9 +132,9 @@ Aside가 끄고 마이그레이션 버전까지 올리므로 자동으로 다시
 작다는 점도 MCP를 주 경로로 삼은 이유입니다.
 
 데몬이 서버를 띄울 때 넘기는 환경 변수는 여섯 개뿐이고 cwd도 데몬의 앱 디렉터리입니다. PATH에는
-ripgrep이 없습니다. 절대경로 `rgPath`나 `CODEMODE_RG`를 지정하지 않으면 같은 기계에서 CLI 경로가
-정상이어도 검색 액션은 `ERG404`로 실패합니다. 다른 `rg`가 없는 기계라면 Aside에 번들된 PCRE2 지원
-ripgrep 15.2.0 바이너리를 절대경로로 지정하는 것이 자연스럽습니다.
+ripgrep이 없습니다. 서버는 PATH 대신 Aside 번들 네이티브 바이너리를 직접 찾습니다. macOS 번들은
+PCRE2 지원 ripgrep 15.2.0, Windows 번들은 PCRE2 지원 15.1.0입니다. 절대 `rgPath`나 `CODEMODE_RG`를
+설정하면 자동으로 찾은 값보다 우선합니다.
 
 ### 경로 2: CLI와 계정 안내
 
@@ -310,14 +311,23 @@ return { hits, excerpts };
 - 검색, 여러 파일 읽기, 요약은 코드 모드를 한 번 부릅니다. 경로 1이면 `mcp__aside-codemode__execute_code`, 경로 2이면 bash 호출입니다.
 - `rg`, `find`, `grep`, `Get-ChildItem -Recurse`를 직접 치지 마세요.
 
-### 언제 묶을까
+### 네이티브와 코드 모드 고르기
 
-결정할 때는 왕복 비용과 상주 문맥 비용을 따로 보세요.
+검색하기 전에 경로부터 고릅니다. 디렉터리나 프로젝트 범위의 내용·파일명 검색은 예상 적중 수와
+관계없이 코드 모드를 씁니다. find, search, locate, grep, count, occurrences, references, usages,
+TODO, all, every, each, across, repository, project라는 말은 검색 결과가 나오기 전까지 여러 파일을
+뜻합니다. 서로 독립인 파일·URL·페이지·질의·API 조회·캡처가 두 개 이상이어도 코드 모드입니다.
 
-**왕복 비용.** 같은 구조가 반복되고 항목끼리 상태를 공유하지 않으며, 끝난 항목의 모습을 한 문장으로
-말할 수 있을 때 묶음이 이깁니다. 낯선 페이지를 처음 살피는 일, 클릭 한 번, 파일 하나, 새로운 화면 판단,
-계정이나 승인이 필요한 일은 네이티브 도구가 낫습니다. 사용자가 진행 과정을 봐야 하는 작업도 마찬가지입니다.
-묶음 작업은 Aside 화면에 파일 카드를 만들지 않습니다.
+낯선 페이지를 처음 보는 일, 알고 있는 파일 하나, 사용자가 볼 클릭 한 번, 새로운 화면 판단은
+네이티브에 남깁니다. 파일 카드가 결과물인 일, 진행을 지켜봐야 하는 일, 로그인·SSO·MFA·CAPTCHA·승인,
+결과를 확신할 수 없는 부수 효과, wizard·cart·form 상태를 이어 가는 단계도 같습니다. 페이지 모양을
+알게 된 뒤 독립 URL이나 질의가 두 개 이상이면 작업에 맞춰 고릅니다. 렌더링 추출은 `browse.exec`,
+본문 읽기는 `browse.readText`, 결과물 캡처는 `browse.captureMany`, 여러 질의는 `browse.searchMany`입니다.
+“이 페이지”나 이미 열린 탭은 `browse.attach`가 맡습니다.
+
+네이티브 `read_file` 반복, bash `find`/`grep` 파이프라인, grep 여러 번 호출은 피합니다. 대신
+`search.content`, `search.files`, `search.count` 가운데 하나를 한 번 부르고, 같은 코드 본문에서
+결과를 거른 뒤 적중한 파일만 읽습니다.
 
 **상주 문맥 비용, 실측값.** MCP 경로는 **1,984바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
 CLI 경로는 **3,808바이트**짜리 계정 `AGENTS.md` 블록을 계속 두고, **8,973바이트**짜리 사용자 스킬은
@@ -366,7 +376,7 @@ aside exec --permission full-access -- "/abs/project 에서 README 가 들어있
 
 ## macOS
 
-경로 1에서는 데몬 PATH에 기대지 말고 위에서 설명한 절대경로 `rgPath`나 `CODEMODE_RG`를 지정하세요. 경로 2의 ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는 Windows가 아닌 곳에서 무시됩니다. 비대화형 Aside PATH에는 `node`가 없는 경우가 많습니다. 그래서 AGENTS에는 등록 당시의 절대 `process.execPath`를 넣습니다 (이슈 #3).
+경로 1은 Aside 번들 네이티브 ripgrep을 자동으로 찾습니다. 절대 `rgPath`나 `CODEMODE_RG`는 재정의가 필요할 때만 씁니다. 경로 2의 ripgrep은 Homebrew로 설치합니다 (`brew install ripgrep`). `bin/rg.exe`는 Windows가 아닌 곳에서 무시됩니다. 비대화형 Aside PATH에는 `node`가 없는 경우가 많습니다. 그래서 AGENTS에는 등록 당시의 절대 `process.execPath`를 넣습니다 (이슈 #3).
 
 ## Windows
 

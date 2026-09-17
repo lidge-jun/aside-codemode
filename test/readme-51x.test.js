@@ -33,6 +33,22 @@ test('README pair leads with the 55s / 1s / ~51x folder bench', () => {
   assert.match(readmeKo, /51배/);
 });
 
+// The README used to describe this note as shipping the exact argv and the unrounded times.
+// The note says the opposite in its own words: those were not recorded. Overselling your own
+// evidence is the same defect as inventing it, so the claim is checked against the note.
+test('the README does not credit the 51x note with evidence it says it lacks', () => {
+  const note = readFileSync(path.join(root, 'evidence', 'dev-folder-51x.md'), 'utf8');
+  assert.match(note, /were not recorded/);
+  for (const readme of [readmeEn, readmeKo]) {
+    assert.equal(/ships the exact argv/.test(readme), false);
+    assert.equal(/argv 원문과 반올림하지 않은 시간/.test(readme), false);
+  }
+  assert.match(readmeEn, /operator report/);
+  assert.match(readmeEn, /were not recorded/);
+  assert.match(readmeKo, /운영자가 직접 재서/);
+  assert.match(readmeKo, /남기지/);
+});
+
 test('old general-50x denial strings are gone', () => {
   for (const phrase of forbidden) {
     assert.equal(readmeEn.includes(phrase), false, phrase);

@@ -60,10 +60,11 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 ```
 
 On a real development folder, `find`+`grep` took **55s** and one `codemode --code` search took
-**1s**, about **51x**. The [measurement](evidence/dev-folder-51x.md) ships the exact argv, the
-unrounded times, and the proof that both commands found the same files. It also says which
-number came from the folder and which came from the synthetic companion, because those are not
-the same run and one of them is not 55 seconds of anything.
+**1s**, about **51x**. That pair is an operator report: the [note](evidence/dev-folder-51x.md)
+says so plainly, and says that the folder, the unrounded clocks and the exact options behind it
+were not recorded. What the note does carry is the companion benchmark in this repository,
+which anyone can re-run, and it keeps the two apart on purpose, because they are not the same
+run and one of them is not 55 seconds of anything.
 
 Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
 

@@ -105,7 +105,7 @@ export const BROWSE_ACTIONS = [
     // The signature named ten of twenty-seven implemented options and omitted both `actions`
     // and `approveWrites`, so the first thing a reader saw described browse.exec as a
     // read-only fetcher. An action that can write has to say so where the reader looks first.
-    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, concurrency?, snapshot?, maxTreeChars?, treeNodes?, snapshotAfter?, screenshot?, pdf?, extract?, fullText?, maxTextChars?, requireSelector?, requireContent?, minTextChars?, loggedInMarker?, stopWhenLoggedOut?, detect?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, helper? }) => Promise<{ok,status,complete,items,requested,completed,unreturned,contentVerified,suspectEmpty?,effects,actionLog,timings,partial,leakedUrls,tabs}>",
+    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, concurrency?, snapshot?, maxTreeChars?, treeNodes?, snapshotAfter?, screenshot?, pdf?, extract?, fullText?, maxTextChars?, requireSelector?, requireContent?, minTextChars?, loggedInMarker?, stopWhenLoggedOut?, detect?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, helper? }) => Promise<{ok,status,complete,truncated,lostTo?,items,requested,completed,unreturned,contentVerified,suspectEmpty?,effects,actionLog,timings,partial,leakedUrls,tabs}>",
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       timeoutMs: { type: 'number', required: false, description: 'Inner deadline, clamped to browseCaps.timeoutMs (default 25000)' },
@@ -175,7 +175,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.attach',
     description: 'Route for "this page" or an already-open tab: read its session, scroll position and current screen without opening or closing a tab.',
-    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, extract?, snapshotAfter? }) => Promise<{ok,code,tab,href,hash,pageUrl,title,scrollY,render,contentVerified,text,snapshot,actions,actionsOk,data,runId,effects,note}>',
+    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, extract?, snapshotAfter? }) => Promise<{ok,complete,truncated,lostTo?,code,tab,href,hash,pageUrl,title,scrollY,render,contentVerified,text,snapshot,actions,actionsOk,data,runId,effects,note}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
@@ -247,7 +247,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.downloadMedia',
     description: 'Download original images directly instead of screenshotting the page around them.',
-    signature: 'browse.downloadMedia(urls, { outDir, maxBytes? }) => Promise<{ok,items,partial}>',
+    signature: 'browse.downloadMedia(urls, { outDir, maxBytes? }) => Promise<{ok,complete,requested,delivered,items,partial}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of image urls' },
       outDir: { type: 'string', required: true, description: 'Directory inside the configured roots' },
@@ -258,7 +258,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.watch',
     description: 'Hash each url and return a diff only for the ones that changed.',
-    signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{ok,items,changed}>',
+    signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{ok,complete,items,changed,observed}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of urls to watch' },
       timeoutMs: { type: 'number', required: false, description: 'Per-url deadline for the read' },
@@ -269,7 +269,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.prefetch',
     description: 'Warm the shared cache for a watch list. Best effort; failures are reported, never thrown.',
-    signature: 'browse.prefetch(urls, { timeoutMs?, locale? }) => Promise<{ok,items,warmed,note}>',
+    signature: 'browse.prefetch(urls, { timeoutMs?, locale? }) => Promise<{ok,complete,items,warmed,note}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of urls to warm' },
       timeoutMs: { type: 'number', required: false, description: 'Per-url deadline handed to the underlying read' },
@@ -282,7 +282,7 @@ export const REPORT_ACTIONS = [
   {
     path: 'report.build',
     description: 'Assemble a paged HTML report and print it to PDF, verifying the real page size.',
-    signature: 'report.build({ items?, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,path?,bytes?,pageBox?,code,error}>',
+    signature: 'report.build({ items?, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,complete,runStatus?,lostTo?,path?,bytes?,pageBox?,code,error}>',
     inputs: {
       items: { type: 'array', required: false, description: 'Rows: { url, title?, ok, data?, error?, figure? }. Defaults to [].' },
       outFile: { type: 'string', required: true, description: 'Destination pdf path inside the configured roots' },
@@ -300,7 +300,7 @@ export const API_ACTIONS = [
     description: 'Parallel API-first lookups with per-item isolation.',
     // The one positional argument had no name in the signature while the catalog called it
     // `requests`, so a reader checking the two against each other found a phantom option.
-    signature: "api.batch(requests: [{ adapter, ...args }]) => Promise<{ok,items,partial}>",
+    signature: "api.batch(requests: [{ adapter, ...args }]) => Promise<{ok,complete,items,partial}>",
     inputs: { requests: { type: 'array', required: true, description: "[{ adapter: 'youtube', url }] or [{ adapter: 'itunes', term | id }]" } },
     notes: 'youtube and itunes are public no-key endpoints. play and slack return ENOTSUP because neither has an honest public path.',
   },
@@ -313,7 +313,7 @@ export const RECIPE_ACTIONS = [
   {
     path: 'recipes.run',
     description: 'Execute a stored site recipe with no model turn.',
-    signature: 'recipes.run(name, args?) => Promise<{recipe,url,ok,items,partial}>',
+    signature: 'recipes.run(name, args?) => Promise<{recipe,url,ok,status,complete,truncated,lostTo?,items,partial}>',
     inputs: { name: { type: 'string', required: true, description: 'Recipe name' }, args: { type: 'object', required: false, description: 'Values interpolated into the recipe url' } },
     notes: 'A recipe is DATA ({ url, waitSelector, extract }). A .js recipe is refused: host-loaded code would bypass the guest sandbox.',
   },

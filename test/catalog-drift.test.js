@@ -459,7 +459,6 @@ const UNDECLARED_ON_PURPOSE = {
     reconciledBy: 'how items were matched to requests; a debugging aid',
     raw: 'the unparsed REPL stdout, kept for post-mortems',
     pwd: 'the working directory the batch ran in',
-    truncated: 'always false on this path today; complete is the field to read',
     extraItems: 'orphan and duplicate rows, present only when reconciliation found some',
     breaker: 'circuit-breaker snapshot for the domain, not a per-call result',
     helper: 'hash of the shipped helper, for checking an installed copy',

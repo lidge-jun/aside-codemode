@@ -21,6 +21,24 @@ export const REQUIRED_KEYS = Object.freeze([
   'schema', 'runId', 'status', 'requested', 'completed', 'unreturned', 'items', 'effects', 'complete',
 ]);
 
+// `partial` has been carrying two different kinds of thing under one name. Most of its
+// markers say something the caller asked for did not come back — 'unreturned', 'blocked',
+// 'dead-end', 'unparsable-records', 'truncated-items'. One says which document a successful
+// observation describes: a run whose actions navigated observed what it was told to observe,
+// and reporting that is a qualification, not a loss.
+//
+// The split is named here rather than inferred, because the rule below turns it into a
+// verdict. 'suspect-empty' is deliberately NOT here: browse.searchMany already lowers its
+// completeness for that marker (src/host/browse/search.js:202), and the marker exists
+// precisely because an empty result may mean "could not read" rather than "nothing is
+// there". Two producers disagreeing about one marker was the defect, not the fix.
+export const PARTIAL_ADVISORY = Object.freeze(new Set(['navigated-during-actions']));
+
+// The loss markers in a partial array, in order, with the advisory ones removed.
+export function lossMarkers(partial) {
+  return Array.isArray(partial) ? partial.filter((p) => !PARTIAL_ADVISORY.has(p)) : [];
+}
+
 // Returns the problems rather than throwing, so a test can name every mismatch in one run
 // instead of one per edit.
 export function checkResultEnvelope(value) {
@@ -55,6 +73,14 @@ export function checkResultEnvelope(value) {
   // The one rule that ties the counts to the verdict. A run that calls itself complete while
   // some of what was asked for never came back is the failure this whole contract exists for.
   if (value.complete === true && value.status !== 'completed') problems.push('complete:true with status ' + String(value.status));
+  // Status is about the run; these two are about the result. A run can finish every item it
+  // was given and still hand back a tree that was cut at a cap or a snapshot that failed
+  // after the actions ran, and until wp9 the host said complete:true over exactly that.
+  if (value.complete === true && value.truncated === true) problems.push('complete:true with truncated:true');
+  const losses = lossMarkers(value.partial);
+  if (value.complete === true && losses.length) {
+    problems.push('complete:true with partial ' + JSON.stringify(losses));
+  }
   if (value.status === 'completed' && Number.isInteger(value.requested) && value.completed !== value.requested) {
     problems.push('status completed with ' + value.completed + ' of ' + value.requested);
   }

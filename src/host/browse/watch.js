@@ -49,7 +49,16 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
         return { url, ok: false, code: e.code, error: String(e.message || e) };
       }
     }));
-    return { items, changed: items.filter((i) => i.changed).length, ok: items.every((i) => i.ok) };
+    // changed:null is what an unobserved url looks like, and counting it as "not changed"
+    // is how a watch reports quiet over an outage.
+    const observed = items.filter((i) => i.ok).length;
+    return {
+      items,
+      changed: items.filter((i) => i.changed).length,
+      ok: items.every((i) => i.ok),
+      observed,
+      complete: observed === urls.length,
+    };
   };
 }
 
@@ -90,7 +99,14 @@ export function createRecipes({ registry = {}, exec } = {}) {
       if (r.waitSelector) job.waitSelector = r.waitSelector;
       if (r.extract) job.extract = r.extract;
       const res = await exec(job);
-      return { recipe: name, url: r.url, ok: res.ok, items: res.items, partial: res.partial };
+      // A projection that drops fields erases them. This one dropped exactly the field the
+      // run had just been taught to set, so a recipe over a truncated page reported ok and
+      // nothing else.
+      return {
+        recipe: name, url: r.url, ok: res.ok, items: res.items, partial: res.partial,
+        status: res.status, complete: res.complete, truncated: res.truncated,
+        lostTo: res.lostTo,
+      };
     },
   });
 }
@@ -115,6 +131,16 @@ export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
         : { url, ok: true, chars: (read.text || '').length, source: read.source };
     }));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));
-    return { items, warmed: items.filter((i) => i.ok).length, ok: true, note: 'prefetch is best-effort: failures are reported, never thrown' };
+    // ok stays true on purpose - DEC-6. A warm-up that reported failure as failure would make
+    // every caller branch on a result they asked for as an optimisation. complete is the
+    // field that says how much of the cache is actually warm, and it is a different question.
+    const warmed = items.filter((i) => i.ok).length;
+    return {
+      items,
+      warmed,
+      ok: true,
+      complete: warmed === urls.length,
+      note: 'prefetch is best-effort: failures are reported, never thrown',
+    };
   };
 }

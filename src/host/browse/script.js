@@ -642,7 +642,11 @@ async function one(item) {
     try { finalUrl = await page.evaluate(() => location.href); } catch (_) {}
     if (!finalUrl || finalUrl === 'about:blank') { try { if (typeof page.url === 'function') finalUrl = await page.url(); } catch (_) {} }
     try { if (typeof page.title === 'function') title = await page.title(); } catch (_) {}
-    try { if (typeof snapshot === 'function') { const snap = await snapshot(page); tree = (snap && snap.tree) || ''; } } catch (_) {}
+    // A snapshot that throws used to leave tree as '', and an empty tree is indistinguishable
+    // from a page with nothing interactive on it. Whole-line comments are stripped from the
+    // wire, but code is not, so this is one flag and a short name rather than three.
+    let snapFail = 0;
+    try { if (typeof snapshot === 'function') { const snap = await snapshot(page); tree = (snap && snap.tree) || ''; } } catch (_) { snapFail = 1; }
     t.detect = lap();
     // Arriving nowhere outranks every verdict below; see structure/batch-contract.md. The
     // wording is terse because this text travels on a 30000 character command line.
@@ -828,6 +832,10 @@ async function one(item) {
     /*__EXTRACT__*/
     if (JOB.snapshot) {
       out.snapshotBytes = tree.length;
+      // The caller asked for an observation and the observation did not happen. Saying so
+      // here is the difference between a page with no interactive rows and a page nobody
+      // managed to look at.
+      if (snapFail) out.snapshotFailed = true;
       if (JOB.snapshot !== 'bytes') {
         // The tree above is the real Aside accessibility snapshot and it already contains
         // the child frames, which is why a frame arrives as its own [ref=fNN] row. Shipping

@@ -14,6 +14,7 @@ import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
 import { DEAD_END } from './policy.js';
 import { createTabJournal } from './tab-journal.js';
+import { lossMarkers } from './result-contract.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -202,6 +203,67 @@ export function itemStatus(item) {
   if (item.code === 'ELOGINREQUIRED') return 'needs_input';
   if (item.code === 'EBLOCKED') return HUMAN_CLEARABLE.has(item.blockKind) ? 'needs_input' : 'failed';
   return 'failed';
+}
+
+// Every way a FINISHED item can still be missing something the caller asked for.
+//
+// itemStatus above answers "did this job run", and item.ok is a correct answer to that even
+// when the tree it brought back was cut at a cap. These are the second question, and until
+// now nobody asked it: the run said complete:true because every item said ok, while the
+// snapshot inside one of them was sliced, the post-action observation had failed, or a ref
+// read came back ESTALEREF.
+//
+// Named markers rather than a boolean, so a run can say WHICH cut it took and a new kind of
+// loss arrives as a new name instead of joining an existing flag in silence.
+export function itemLoss(item, { fullText = false, treeCap = 20000 } = {}) {
+  if (!item || typeof item !== 'object') return [];
+  const out = [];
+  const snap = item.snapshot;
+  if (snap && typeof snap === 'object') {
+    if (snap.truncated === true) out.push('snapshot-truncated');
+    if (snap.refsTruncated === true) out.push('snapshot-refs-truncated');
+    if (snap.nodesTruncated === true) out.push('snapshot-nodes-truncated');
+    if (Number.isFinite(snap.nodesUnparsed) && snap.nodesUnparsed > 0) out.push('snapshot-nodes-unparsed');
+  }
+  // An observation that threw leaves an empty tree, which reads downstream as a page with
+  // nothing on it. The script marks it at the source because nothing here could recover it.
+  // browse.attach reports the same thing under its own name, and the two surfaces answer
+  // the same question for a caller. One axis, both spellings.
+  if (item.snapshotFailed === true || typeof item.snapshotError === 'string') out.push('snapshot-failed');
+  // The after-snapshot's cuts are derived here rather than flagged in the script. The
+  // generated source is a command-line argument with a 30,000 character ceiling and a
+  // 1,000 character reserve, and both facts are already on the wire: refs are sliced at 500
+  // while refCount is the count BEFORE the slice, and the diff tree is sliced at
+  // maxTreeChars. A tree that came back exactly at the cap is reported as cut; that is wrong
+  // only when a page's tree is exactly 20,000 characters, and it errs toward saying less was
+  // delivered than claiming more was.
+  const after = item.snapshotAfter;
+  if (after && typeof after === 'object') {
+    if (after.ok === false) out.push('snapshot-after-failed');
+    if (Number.isFinite(after.refCount) && after.refCount > 500) out.push('snapshot-after-refs-truncated');
+    if (typeof after.tree === 'string' && after.tree.length >= treeCap) out.push('snapshot-after-truncated');
+  }
+  // render.textChars is measured BEFORE the slice, so the cut is visible here without the
+  // script carrying a second flag for it.
+  const render = item.render;
+  if (render && typeof render === 'object' && Number.isFinite(render.textChars)
+      && typeof item.text === 'string' && render.textChars > item.text.length) {
+    out.push('text-truncated');
+  }
+  // The render probe threw, so with fullText asked for the text is not merely short - it is
+  // absent, and the item still says ok.
+  if (fullText && !render && typeof item.text !== 'string') out.push('render-missing');
+  // REF-ADDRESSED reads only. data.missing is also populated by ordinary selector absence
+  // (the page does not have that element), and counting that as a loss would turn an answer
+  // into a failure.
+  const fields = item.data && item.data.data;
+  if (fields && typeof fields === 'object') {
+    for (const key of Object.keys(fields)) {
+      const v = fields[key];
+      if (v && typeof v === 'object' && v.ok === false) { out.push('ref-read-failed'); break; }
+    }
+  }
+  return out;
 }
 
 // completed | partial | failed | needs_input | indeterminate. needs_input reaches a run
@@ -490,6 +552,16 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     if (unreconciled) partial.push('unreconciled');
     if (extra.length) partial.push('extra-items');
     if (duplicates.length) partial.push('duplicate-jobid');
+    // The second question, asked once over the reconciled items: every job finished, but did
+    // every job bring back what it was told to bring back? Until this existed the run took
+    // its verdict from status alone and answered complete:true over a sliced tree.
+    const losses = new Set();
+    for (const item of reconciled) {
+      const seen = itemLoss(item, { fullText: Boolean(job.fullText), treeCap: job.maxTreeChars || 20000 });
+      for (const marker of seen) losses.add(marker);
+    }
+    const truncated = losses.size > 0;
+    if (truncated) partial.push('truncated-items');
     const status = runStatus({
       marker, items: reconciled, leakedUrls, killed, effects,
       extras: extra.length + duplicates.length,
@@ -515,8 +587,15 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // Side-effect lifetimes arrive with wp4. The slot exists now so runStatus already
       // knows the rule and nothing has to change shape later.
       effects,
-      complete: status === 'completed',
-      truncated: false,
+      // Three independent things have to be true, and only the first of them used to be
+      // checked: the run finished every job, nothing inside a finished job was cut, and no
+      // loss marker was raised. An advisory marker - which document a successful observation
+      // describes - is not one of them; see PARTIAL_ADVISORY in result-contract.js.
+      complete: status === 'completed' && !truncated && lossMarkers(partial).length === 0,
+      truncated,
+      // Which cuts, not just that there were cuts. A caller retrying a batch needs to know
+      // whether to raise maxTreeChars or re-mint its refs.
+      lostTo: truncated ? [...losses] : undefined,
       // Steps that really ran, even when their item never made it into items[]. A click on
       // a live page is a side effect and must never be erased by a deadline.
       actionLog,

@@ -63,8 +63,35 @@ The field a caller reads to detect incomplete work.
 | `fs.list` | `complete` / `truncated`; `partial` names unreadable directories |
 | `fs.readMany` | per-row `skipped` and `error` |
 | `browse.searchMany` | `complete`; `dateFilter` and `suspectEmpty` explain it |
-| `browse.exec`, `browse.captureMany` | `complete`, `status`, `partial`, `contentVerified` |
+| `browse.exec`, `browse.captureMany` | `complete`, `status`, `partial`, `truncated`, `lostTo`, `contentVerified` |
 | `browse.readText` | `complete`, with `ok`, `blockKind`, `degraded` and `contentShape` explaining it |
+| `browse.attach` | `complete`, `truncated`, `lostTo` — the same axes a batch item can lose |
+| `browse.downloadMedia` | `complete`, with `requested` and `delivered` counting the gap |
+| `browse.watch` | `complete`, with `observed`; an unobserved url is `changed:null`, never `false` |
+| `browse.prefetch` | `complete`. `ok` stays `true` by design — a warm-up failure is not the caller's failure |
+| `recipes.run` | `complete`, `status`, `truncated`, `lostTo`, forwarded from the run it wraps |
+| `report.build` | `complete`, with `runStatus` and `lostTo` from the run that printed the page |
+| `api.batch` | `complete`; an adapter that hit its own `limit` reports `saturated` |
+
+### What `complete` answers for a browse batch
+
+Three things have to be true, and only the first of them used to be checked:
+
+1. the run finished every job it was given — `status === 'completed'`
+2. nothing inside a finished job was cut — `truncated === false`
+3. no loss marker was raised — every entry in `partial` is an advisory
+
+The second one is the whole of wp9. A job can report `ok` while the tree it brought back was
+sliced at `maxTreeChars`, the post-action snapshot failed, or a ref read came back
+`ESTALEREF`. `itemLoss()` in `src/host/browse/session.js` names each of those, and `lostTo`
+carries the names out so a caller knows whether to raise a cap or re-mint its refs.
+
+`partial` carries two kinds of thing and always has. `PARTIAL_ADVISORY` in
+`src/host/browse/result-contract.js` names the ones that are not losses — currently
+`navigated-during-actions`, which says WHICH document a successful observation describes.
+Everything else in that array lowers completeness, including `suspect-empty`:
+`browse.searchMany` already treated it as a loss, and one marker meaning two things in two
+producers was the defect rather than the fix.
 
 ## Named exceptions
 

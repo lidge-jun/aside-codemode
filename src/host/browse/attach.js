@@ -27,6 +27,7 @@
 //      page.url() returned "http://localhost:10100/" while location.href returned
 //      "http://localhost:10100/#providers". The fragment is part of which screen was read.
 import { validateAttach } from './attach-schema.js';
+import { itemLoss } from './session.js';
 import { settleEffects, parseEffects } from './session.js';
 import { randomUUID } from 'node:crypto';
 import { gatedVerbs } from './schema.js';
@@ -338,6 +339,7 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
           code: 'EWRITEAPPROVAL',
           error: 'this call would ' + wants.join(', ') + " on the tab you are signed into; set approveWrites: true to say you mean it",
           wants,
+          complete: false,
           tabs: [],
           tab: null,
           contentVerified: null,
@@ -375,6 +377,7 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
           code: err.code || 'ENOROWS',
           error: err.message || 'the attach script returned no page row',
           tabs: err.tabs || [],
+          complete: false,
           contentVerified: null,
           targetId: gone ? (err.targetId ?? null) : null,
           lastUrl: known ? known.url : null,
@@ -387,8 +390,19 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
           effectsUnknown: gone,
         };
       }
+      const attachLoss = itemLoss(page, {
+        fullText: req.includeText === true,
+        treeCap: req.maxTreeChars || 20000,
+      });
       return {
         ok: page.contentVerified !== false && page.actionsOk !== false,
+        // browse.attach had no completeness field at all. Its losses are the same ones a
+        // batch item can take - a tree cut at maxTreeChars, text cut at maxTextChars, a
+        // snapshot that threw, a ref read that failed - so they are read with the same
+        // function rather than a second list that would drift away from it.
+        lostTo: attachLoss.length ? attachLoss : undefined,
+        truncated: attachLoss.length > 0,
+        complete: page.contentVerified !== false && page.actionsOk !== false && attachLoss.length === 0,
         code: page.contentVerified === false
           ? 'EUNRENDERED'
           : (page.actionsOk === false ? 'EACTION' : null),

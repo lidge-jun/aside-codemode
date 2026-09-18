@@ -27,6 +27,14 @@ import { createSearch } from '../src/host/search.js';
 import { createRgResolver, createRgRunner } from '../src/rg.js';
 import { createSearchMany } from '../src/host/browse/search.js';
 import { makeRootGuard } from '../src/paths.js';
+import { createBrowse } from '../src/host/browse/browse.js';
+import { createCaptureMany } from '../src/host/browse/capture.js';
+import { createAttach } from '../src/host/browse/attach.js';
+import { createReadText } from '../src/host/browse/read-text.js';
+import { createDownloadMedia } from '../src/host/browse/media.js';
+import { createWatch, createPrefetch, createRecipes } from '../src/host/browse/watch.js';
+import { createReport } from '../src/host/report/report.js';
+import { createApi } from '../src/host/browse/adapters.js';
 
 const actions = createActions();
 
@@ -71,34 +79,13 @@ const COVERAGE = {
   'fs.list': { path: 'selector', max: 'may-omit', recursive: 'selector', depth: 'selector' },
 };
 
-// An audit of this file established that NONE of these is genuinely un-forceable in-process:
-// every one has an existing injection seam, cited per action below. Calling them
-// "unreachable" would have been the same kind of false comfort this test exists to remove,
-// so the set is named for what it actually is — deferred, with the seam the next cycle uses.
-//
-//   browse.exec        fake resolveAside/spawnAside, as test/browse-envelope.test.js:9-16 does
-//   browse.captureMany injectable session (src/host/browse/capture.js:98)
-//   browse.attach      injectable session.raw (src/host/browse/attach.js:273)
-//   browse.readText    injectable fetchImpl and browse adapter (read-text.js:96)
-//   browse.downloadMedia injectable fetch and fs deps (media.js:29)
-//   browse.watch       injectable readText (watch.js:17)
-//   browse.prefetch    injectable readText (watch.js:93)
-//   api.batch          injectable fetch (adapters.js:62)
-//   recipes.run        injectable exec (watch.js:70)
-//   report.build       injectable session/read/write (report.js:38)
-//
-// One of them is a KNOWN present-day false green rather than merely untested: a fake
-// browse.exec child can return ok:true with snapshot.truncated:true, because itemStatus
-// ignores nested truncation (script.js:80, session.js:181) and top-level complete is assigned
-// from run status alone (session.js:518). wp9 is the cycle that fixes it, and its probe here
-// is what will prove it.
-const DEFERRED_TO_WP9 = new Set([
-  'browse.exec', 'browse.attach', 'browse.captureMany', 'browse.downloadMedia',
-  'browse.watch', 'browse.prefetch', 'browse.readText', 'report.build', 'recipes.run',
-  'api.batch',
-]);
-
 const COVERAGE_CLASSES = new Set(['neutral', 'selector', 'may-omit']);
+
+// browse.approve and recipes.run project browse.exec's envelope, so their loss is inherited
+// rather than introduced by one of their own options. api.batch caps requests[].limit, which
+// is below the catalog's top-level requests input. These still need probes even though the
+// hand-written option table has no may-omit entry that can reveal them.
+const LOSSY_BEYOND_OPTIONS = new Set(['browse.approve', 'recipes.run', 'api.batch']);
 
 // NAMED EXCEPTIONS from structure/result-completeness.md: a primitive string return cannot
 // carry a field, the catalog promises Promise<string>, and the suite asserts it as one. Their
@@ -122,10 +109,192 @@ function searchOn(dir) {
   });
 }
 
+const BROWSE_URL = 'https://a.test/page';
+const resolveAside = async () => 'C:/fake/aside.exe';
+
+function childOutput(item) {
+  return JSON.stringify({ type: 'final', items: [{ jobId: 'j000', url: BROWSE_URL, ok: true, ...item }], leakedUrls: [], partial: [] })
+    + '\n[ok | 5ms]';
+}
+
+function browseWith(item, extraCaps = {}) {
+  return createBrowse({
+    config: { browseCaps: { enabled: true, ...extraCaps } },
+    resolveAside,
+    spawnAside: async () => ({ stdout: childOutput(item), killed: false }),
+  });
+}
+
+function readablePng() {
+  const buf = Buffer.alloc(32);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+  buf.write('IHDR', 12, 'latin1');
+  buf.writeUInt32BE(10, 16);
+  buf.writeUInt32BE(5, 20);
+  return buf;
+}
+
+function captureValue(truncated) {
+  const capture = createCaptureMany({
+    session: {
+      run: async (_job, opts) => ({
+        schema: 'browse/2', runId: 'run-capture', status: 'completed', ok: true,
+        requested: 1, completed: 1, complete: !truncated, truncated,
+        items: [{
+          jobId: 'j000', url: BROWSE_URL, ok: true, status: 'completed',
+          artifactName: opts.artifactNames[0],
+          ...(truncated ? { snapshot: { truncated: true } } : {}),
+        }],
+        ledger: [{ jobId: 'j000', url: BROWSE_URL, index: 0 }],
+        partial: truncated ? ['truncated-items'] : [],
+        lostTo: truncated ? ['snapshot-truncated'] : undefined,
+        pwd: '/fake/session',
+      }),
+    },
+    assertInside: (p) => p,
+    deps: {
+      mkdirImpl: async () => {},
+      realpathImpl: async (p) => p,
+      readFileImpl: async () => readablePng(),
+      writeFileImpl: async () => {},
+    },
+  });
+  return capture([BROWSE_URL], { outDir: '/out' });
+}
+
+function attachValue(textChars, text) {
+  const attach = createAttach({
+    config: { browseCaps: { enabled: true } },
+    session: {
+      raw: async () => ({
+        rows: [{
+          kind: 'page', contentVerified: true, actionsOk: true,
+          render: { textChars }, text,
+        }],
+        raw: { stdout: '' },
+      }),
+    },
+  });
+  return attach.attach({ includeText: true });
+}
+
+function diffReader(body, type = 'text/plain') {
+  return createReadText({
+    fetchImpl: async () => ({
+      status: 200,
+      headers: { get: (name) => (name.toLowerCase() === 'content-type' ? type : null) },
+      text: async () => body,
+      url: 'https://patch-diff.githubusercontent.com/raw/o/r/pull/1.diff',
+    }),
+  });
+}
+
+function mediaValue(refuseSecond) {
+  const media = createDownloadMedia({
+    fetchImpl: async (url) => url.includes('/refused') && refuseSecond
+      ? { ok: false, status: 503, headers: { get: () => null } }
+      : { ok: true, status: 200, headers: { get: () => 'image/png' }, arrayBuffer: async () => readablePng() },
+    deps: { mkdirImpl: async () => {}, writeFileImpl: async () => {} },
+  });
+  return media(['https://a.test/image', 'https://a.test/refused'], { outDir: '/out' });
+}
+
+function reportValue(complete) {
+  let paper;
+  const report = createReport({
+    session: {
+      run: async (job) => {
+        paper = job.pdf;
+        return {
+          status: 'completed', complete,
+          items: [{ ok: true, pdfName: 'report.pdf' }],
+        };
+      },
+    },
+    assertInside: (p) => p,
+    deps: {
+      readPdf: async () => Buffer.from(`/MediaBox [0 0 ${paper.paperWidth * 72} ${paper.paperHeight * 72}]`),
+      writeFileImpl: async () => {},
+    },
+  });
+  return report.build({ items: [], outFile: '/out/report.pdf' });
+}
+
 // Each probe forces ONE deterministic loss and declares the axis that must disclose it.
 // 'complete' is for an operational loss — a cap, an unreadable path, an unapplied filter.
 // A coverage key is for POLICY pruning, where complete is deliberately left true.
 const PROBES = {
+  'browse.exec': async () => ({
+    value: await browseWith({ snapshot: { truncated: true } }).exec({ urls: [BROWSE_URL], snapshot: true }),
+    expect: 'complete',
+  }),
+  'browse.approve': async () => {
+    const browse = browseWith(
+      { actionsOk: true, snapshot: { truncated: true } },
+      { approvalDir: tmp('inv-approve-') },
+    );
+    const refused = await browse.exec({
+      urls: [BROWSE_URL], snapshot: true, refsFingerprint: 'r1-test',
+      actions: [{ ref: 'e1', click: true }],
+    });
+    return { value: await browse.approve({ approvalId: refused.approvalId }), expect: 'complete' };
+  },
+  'browse.attach': async () => ({
+    value: await attachValue(10, 'short'),
+    expect: 'complete',
+  }),
+  'browse.captureMany': async () => ({
+    value: await captureValue(true),
+    expect: 'complete',
+  }),
+  'browse.readText': async () => {
+    const url = 'https://patch-diff.githubusercontent.com/raw/o/r/pull/1.diff';
+    const interstitial = '[Skip to content](#start-of-content)\n\n## Navigation Menu\n\n[Sign in](/login?return_to=x)\n\nYou can’t perform that action at this time.\n';
+    return { value: await diffReader(interstitial, 'text/html')(url, { fresh: true }), expect: 'complete' };
+  },
+  'browse.downloadMedia': async () => ({
+    value: await mediaValue(true),
+    expect: 'complete',
+  }),
+  'browse.watch': async () => {
+    const watch = createWatch({
+      readText: async (url) => url.includes('/bad')
+        ? { ok: false, complete: false }
+        : { ok: true, complete: true, text: 'observed' },
+    });
+    return { value: await watch(['https://a.test/good', 'https://a.test/bad']), expect: 'complete' };
+  },
+  'browse.prefetch': async () => {
+    const prefetch = createPrefetch({
+      readText: async (url) => url.includes('/incomplete')
+        ? { ok: true, complete: false, text: 'partial', source: 'fetch' }
+        : { ok: true, complete: true, text: 'whole', source: 'fetch' },
+    });
+    const value = await prefetch(['https://a.test/complete', 'https://a.test/incomplete']);
+    assert.equal(value.ok, true, 'best-effort prefetch must stay successful as an operation');
+    assert.equal(value.complete, false, 'one incomplete read must leave the same prefetch incomplete');
+    return { value, expect: 'complete' };
+  },
+  'report.build': async () => ({
+    value: await reportValue(false),
+    expect: 'complete',
+  }),
+  'recipes.run': async () => {
+    const recipes = createRecipes({
+      registry: { page: { url: BROWSE_URL } },
+      exec: async () => ({ ok: true, status: 'completed', complete: false, items: [{ ok: true }], partial: [] }),
+    });
+    return { value: await recipes.run('page'), expect: 'complete' };
+  },
+  'api.batch': async () => {
+    const api = createApi({
+      fetchImpl: async () => ({
+        ok: true, status: 200,
+        json: async () => ({ results: [{ trackId: 1 }, { trackId: 2 }] }),
+      }),
+    });
+    return { value: await api.batch([{ adapter: 'itunes', term: 'x', limit: 1 }]), expect: 'complete' };
+  },
   'fs.list': async () => {
     const dir = tmp('inv-list-');
     for (const n of ['a', 'b', 'c']) writeFileSync(path.join(dir, n), 'x');
@@ -228,15 +397,15 @@ test('every catalog input is classified, and every classification is a real inpu
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
-test('every may-omit action has a probe, or is deferred or excepted by name', () => {
+test('every may-omit action has a probe, or is excepted by name', () => {
   const lossy = Object.entries(COVERAGE)
     .filter(([, table]) => Object.values(table).includes('may-omit'))
     .map(([action]) => action);
 
-  const missing = lossy.filter((a) => !PROBES[a] && !DEFERRED_TO_WP9.has(a) && !STRING_RETURN_EXCEPTIONS.has(a));
+  const missing = lossy.filter((a) => !PROBES[a] && !STRING_RETURN_EXCEPTIONS.has(a));
   assert.deepEqual(missing, [], 'no probe and no stated reason: ' + missing.join(', '));
 
-  const stale = Object.keys(PROBES).filter((a) => !lossy.includes(a));
+  const stale = Object.keys(PROBES).filter((a) => !lossy.includes(a) && !LOSSY_BEYOND_OPTIONS.has(a));
   assert.deepEqual(stale, [], 'probe for an action that can no longer lose anything: ' + stale.join(', '));
 });
 
@@ -262,12 +431,75 @@ for (const [action, probe] of Object.entries(PROBES)) {
 // every negative probe above and is useless. The audit found the first version covered only
 // fs.list and search.content, so four actions could have gone unconditionally incomplete.
 //
-// Each case constructs a no-loss situation, by one of two routes: meet the cap exactly
-// (fs.list, fs.grepFile, search.content, search.files), stay comfortably inside the budget
-// (fs.readMany), or disable the lossy policy outright (search.count, browse.searchMany).
-// Only the first route is a boundary; all three are genuinely lossless, which is what the
-// axis has to report.
+// Each case constructs a no-loss situation: caps are met exactly or stay inside budget,
+// policies are disabled, and projected envelopes come from complete producers. The point is
+// the same in every case: the axis has to distinguish a real loss from an unconditional
+// incomplete result.
 const POSITIVE = {
+  'browse.exec': async () => ({
+    value: await browseWith({}).exec({ urls: [BROWSE_URL] }),
+    expect: 'complete',
+  }),
+  'browse.approve': async () => {
+    const browse = browseWith(
+      { actionsOk: true, snapshot: { truncated: false } },
+      { approvalDir: tmp('pos-approve-') },
+    );
+    const refused = await browse.exec({
+      urls: [BROWSE_URL], snapshot: true, refsFingerprint: 'r1-test',
+      actions: [{ ref: 'e1', click: true }],
+    });
+    return { value: await browse.approve({ approvalId: refused.approvalId }), expect: 'complete' };
+  },
+  'browse.attach': async () => ({
+    value: await attachValue(5, 'whole'),
+    expect: 'complete',
+  }),
+  'browse.captureMany': async () => ({
+    value: await captureValue(false),
+    expect: 'complete',
+  }),
+  'browse.readText': async () => {
+    const url = 'https://patch-diff.githubusercontent.com/raw/o/r/pull/1.diff';
+    const body = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n';
+    return { value: await diffReader(body)(url, { fresh: true }), expect: 'complete' };
+  },
+  'browse.downloadMedia': async () => ({
+    value: await mediaValue(false),
+    expect: 'complete',
+  }),
+  'browse.watch': async () => {
+    const watch = createWatch({
+      readText: async () => ({ ok: true, complete: true, text: 'observed' }),
+    });
+    return { value: await watch(['https://a.test/one', 'https://a.test/two']), expect: 'complete' };
+  },
+  'browse.prefetch': async () => {
+    const prefetch = createPrefetch({
+      readText: async () => ({ ok: true, complete: true, text: 'whole', source: 'fetch' }),
+    });
+    return { value: await prefetch(['https://a.test/one', 'https://a.test/two']), expect: 'complete' };
+  },
+  'report.build': async () => ({
+    value: await reportValue(true),
+    expect: 'complete',
+  }),
+  'recipes.run': async () => {
+    const recipes = createRecipes({
+      registry: { page: { url: BROWSE_URL } },
+      exec: async () => ({ ok: true, status: 'completed', complete: true, items: [{ ok: true }], partial: [] }),
+    });
+    return { value: await recipes.run('page'), expect: 'complete' };
+  },
+  'api.batch': async () => {
+    const api = createApi({
+      fetchImpl: async () => ({
+        ok: true, status: 200,
+        json: async () => ({ results: [{ trackId: 1 }] }),
+      }),
+    });
+    return { value: await api.batch([{ adapter: 'itunes', term: 'x', limit: 1 }]), expect: 'complete' };
+  },
   'fs.list': async () => {
     const dir = tmp('pos-list-');
     for (const n of ['a', 'b']) writeFileSync(path.join(dir, n), 'x');
@@ -310,6 +542,11 @@ const POSITIVE = {
 
 test('every probe has a positive counterpart', () => {
   assert.deepEqual(Object.keys(PROBES).sort(), Object.keys(POSITIVE).sort());
+});
+
+test('every beyond-options loss has both executable sides', () => {
+  const missing = [...LOSSY_BEYOND_OPTIONS].filter((action) => !PROBES[action] || !POSITIVE[action]);
+  assert.deepEqual(missing, [], 'beyond-options entry without a negative and positive probe: ' + missing.join(', '));
 });
 
 for (const [action, probe] of Object.entries(POSITIVE)) {

@@ -12,7 +12,10 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKFLOW = path.join(repoRoot, '.github', 'workflows', 'release.yml');
-const src = readFileSync(WORKFLOW, 'utf8');
+// Normalised, because .gitattributes gives .yml no eol rule and `text=auto` hands the Windows
+// runner a CRLF checkout. Every assertion below is about the workflow's content; one of them
+// anchored to a line ending and was red on Windows alone while four other platforms were green.
+const src = readFileSync(WORKFLOW, 'utf8').replace(/\r\n/g, '\n');
 const header = src.slice(0, src.indexOf('\non:'));
 // Prose explaining why a thing is absent is not the thing being present.
 const code = src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');

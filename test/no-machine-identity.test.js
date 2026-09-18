@@ -63,7 +63,7 @@ test('no tracked file carries a real home directory', () => {
 function knownMachineNames() {
   const names = new Set();
   // Only distinctive names are usable. Several aliases on a developer's machine are ordinary
-  // words - mini, codex, a bare number - and scanning for those would fail on prose that has
+  // words - a short dictionary word, a bare number - and scanning for those would fail on prose
   // nothing to do with any machine. A name counts when it carries a hyphen or a digit, or is
   // long enough that its appearance in source is not a coincidence. That is a filter, not a
   // proof: a host called "server" still gets past it, and a human still has to look.

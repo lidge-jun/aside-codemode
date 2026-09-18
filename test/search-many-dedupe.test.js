@@ -50,6 +50,35 @@ test('searchMany reports a requested date filter as unapplied when dates are unk
   });
 });
 
+// Issue #38: #32's fix disclosed the dateFilter object and this test asserted it, but
+// production still computed ok from items.every(i => i.ok), so a caller reading the
+// documented success bit got an UNFILTERED result set presented as a successful filtered
+// search. The split is pinned here in one assertion so neither half can drift alone:
+// ok stays "no query threw"; complete answers "did I get what I asked for".
+test('searchMany keeps ok true but reports complete false when since could not be applied', async () => {
+  const fetchImpl = async () => ({
+    text: async () => ddgHtml([{ url: 'https://a.test', title: 'A' }]),
+  });
+
+  const result = await createSearchMany({ fetchImpl })(['undated'], { since: '2030-01-01' });
+
+  assert.equal(result.ok, true, 'no query threw, so ok is still true');
+  assert.equal(result.complete, false, 'a requested filter was never applied');
+  assert.equal(result.dateFilter.requested, true);
+  assert.equal(result.dateFilter.applied, false);
+});
+
+test('searchMany reports complete true when nothing the caller asked for was lost', async () => {
+  const fetchImpl = async () => ({
+    text: async () => ddgHtml([{ url: 'https://a.test', title: 'A' }, { url: 'https://b.test', title: 'B' }]),
+  });
+
+  const result = await createSearchMany({ fetchImpl })(['plain'], {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.complete, true);
+});
+
 test('searchMany applies a date filter to dated rows and reports unknown dates', async () => {
   const session = {
     raw: async () => ({

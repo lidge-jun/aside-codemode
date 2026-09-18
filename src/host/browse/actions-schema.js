@@ -236,7 +236,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.searchMany',
     description: 'Run several queries in parallel with url dedupe and an optional date filter.',
-    signature: "browse.searchMany(queries, { engine?, since?: string|Date }) => Promise<{engine,items,ok}>",
+    signature: "browse.searchMany(queries, { engine?, since?: string|Date }) => Promise<{engine,items,ok,complete,partial,deduped,filtered,dateFilter,suspectEmpty?}>",
     inputs: {
       queries: { type: 'array', required: true, description: 'Array of query strings' },
       engine: { type: 'string', required: false, description: 'duckduckgo (default) | youtube | google' },

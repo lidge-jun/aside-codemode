@@ -207,6 +207,42 @@ test('recursive fs.list walks to depth and caps entries', async () => {
   assert.equal(capped.length, 2);
 });
 
+// Issue #37: fs.list sliced at max and returned a BARE array. 18 of 21 entries vanished and
+// nothing in the value said so, so a caller could not tell "this directory has 3 files" from
+// "I showed you 3 of 21". The old test above pinned the cap and left the silence unpinned.
+test('a capped fs.list discloses the cap, and survives serialization', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-list-cap-'));
+  for (const n of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(path.join(dir, n), 'x');
+  const fs = createFs({ assertInside: makeRootGuard([dir]) });
+
+  const capped = await fs.list(dir, { max: 2 });
+  assert.equal(capped.length, 2);
+  assert.equal(capped.truncated, true);
+  assert.equal(capped.complete, false);
+  assert.equal(capped.scope.kind, 'list');
+  assert.equal(capped.scope.max, 2);
+
+  // JSON.stringify used to emit a bare array, which is how the metadata was lost on the way
+  // to the model even when the live value carried it.
+  const wire = JSON.parse(JSON.stringify(capped));
+  assert.equal(wire.complete, false);
+  assert.equal(wire.truncated, true);
+  assert.equal(wire.rows.length, 2);
+});
+
+// The boundary that proves max+1 is a witness and not an off-by-one: exactly max entries is
+// a COMPLETE answer, not a truncated one.
+test('fs.list with exactly max entries is complete, not truncated', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-list-exact-'));
+  for (const n of ['a.txt', 'b.txt']) writeFileSync(path.join(dir, n), 'x');
+  const fs = createFs({ assertInside: makeRootGuard([dir]) });
+
+  const exact = await fs.list(dir, { max: 2 });
+  assert.equal(exact.length, 2);
+  assert.equal(exact.truncated, false);
+  assert.equal(exact.complete, true);
+});
+
 test('a soft rg error (unreadable dir) returns rows with a partial warning', async () => {
   // rg exits 2 for BOTH a bad regex and a single unreadable file. Failing the
   // whole call on exit 2 threw away good results because of one permission.

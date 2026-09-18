@@ -5,6 +5,7 @@ import {
   errorFields, fitEnvelope, requireInteger, translateGuestError,
   MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES,
 } from './execution-output.js';
+import { isDecoratedResult } from './search-result.js';
 
 const HOST_DRAIN_MS = 1000;
 const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
@@ -113,8 +114,10 @@ export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResult
           const value = await fn(...msg.args);
           if (settled) return;
           // Array metadata is deliberately transferred, not lost to structuredClone.
-          const search = typeof value?.toJSON === 'function'
-            && (msg.name.startsWith('search.') || msg.name === 'fs.grepFile');
+          // Gated on the decorator's brand, NOT on the action name: the name list
+          // ('search.' + 'fs.grepFile') silently dropped the envelope for anything added
+          // later, so a decorated fs.list passed its host test and arrived bare in the guest.
+          const search = isDecoratedResult(value);
           worker.postMessage({ type: 'reply', id: msg.id, value: search ? value.toJSON() : value, search });
         } catch (e) {
           if (!settled) worker.postMessage({ type: 'reply', id: msg.id, error: errorFields(e) });

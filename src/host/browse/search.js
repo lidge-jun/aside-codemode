@@ -199,8 +199,15 @@ export function createSearchMany({ fetchImpl, session, cache = null, accountRoot
       evaluated: answered.reduce((total, item) => total + item.dateFilter.evaluated, 0),
       unknown: answered.reduce((total, item) => total + item.dateFilter.unknown, 0),
     };
+    // ok stays "no query threw". complete answers the different question the caller of an
+    // absence-sensitive search is actually asking: was anything I requested not delivered?
+    // Issue #38: a requested since filter that no candidate could be judged against left
+    // ok:true on an unfiltered result set. That is ok:true, complete:false.
+    const complete = items.every((i) => i.ok)
+      && !(dateFilter.requested && !dateFilter.applied)
+      && !allEmpty;
     return {
-      engine, items, ok: items.every((i) => i.ok), partial, deduped, filtered, dateFilter,
+      engine, items, ok: items.every((i) => i.ok), complete, partial, deduped, filtered, dateFilter,
       suspectEmpty: allEmpty ? {
         queries: answered.length,
         why: 'every query came back with nothing, which is more often a challenge page or a parser that stopped matching than a subject with no results anywhere',

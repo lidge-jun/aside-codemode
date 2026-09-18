@@ -21,6 +21,22 @@
 
 const META_KEYS = ['truncated', 'partial', 'complete', 'scope', 'toJSON'];
 
+// A BRAND, not a shape test. The worker RPC has to know whether a value carries transferable
+// metadata, and it used to decide that from the ACTION NAME (src/sandbox.js). That list
+// silently dropped the envelope for every action added after it was written, so a decorated
+// fs.list passed its host test and lost its metadata on the guest wire. Branding the value
+// itself cannot go stale. Ordinary guest data shaped like {rows:[...]} is still never
+// mistaken for an envelope, because only this module attaches the brand and the wire side
+// continues to validate with isSearchEnvelope.
+const DECORATED = Symbol.for('codemode.resultEnvelope');
+
+export function isDecoratedResult(value) {
+  return value !== null
+    && (typeof value === 'object' || typeof value === 'function')
+    && value[DECORATED] === true
+    && typeof value.toJSON === 'function';
+}
+
 export class SearchEnvelopeError extends Error {
   constructor(message) {
     super(message);
@@ -63,6 +79,8 @@ export function decorateSearchResult(value, metadata = {}) {
   const complete = typeof metadata.complete === 'boolean'
     ? metadata.complete
     : !truncated && partial.length === 0;
+
+  hide(value, DECORATED, true);
 
   if (Array.isArray(value)) {
     hide(value, 'truncated', truncated);

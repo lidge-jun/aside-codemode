@@ -91,11 +91,15 @@ actually receives.
 
 ## Tool schema
 
-The MCP server exposes one tool. Its full definition is **2,418 bytes** (2,019 description,
-274 input schema) and covers **34 guest actions** whose own descriptions total **42,506
-bytes** — **17.6×**. `browse.exec` alone is 8,131 bytes described, more than three times the
+The MCP server exposes one tool. Its full definition is **2,433 bytes** (2,034 description,
+274 input schema) and covers **34 guest actions** whose own descriptions total **44,330
+bytes** — **18.2×**. `browse.exec` alone is 8,249 bytes described, more than three times the
 entire resident tool surface. Schema is paid every turn; action descriptions are fetched only
 when `actions.describe` is called.
+
+Re-measured at 0.9.0, after the completeness work widened eleven signatures and the resident
+description named the 64 KiB return-path cap. The four numbers moved together and the note
+records the run: [aside-mcp-attach-260918.md](evidence/aside-mcp-attach-260918.md).
 
 ## Where codemode loses
 

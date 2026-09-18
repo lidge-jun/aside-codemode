@@ -47,7 +47,7 @@ const REGISTRY = [
     if (entry.path !== 'browse.readText') return entry;
     return {
       ...entry,
-      signature: 'browse.readText(urlString) OR browse.readText({ url, timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>',
+      signature: 'browse.readText(urlString) OR browse.readText({ url, timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,complete,contentShape?,lostTo?,blockKind,fallbackReason}>',
       notes: entry.notes + " Direct calls accept either a URL string or one options object containing url. actions.check validates the catalog-shaped object, so check with actions.check('browse.readText', { url, ...options }).",
     };
   }),

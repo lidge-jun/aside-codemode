@@ -243,13 +243,17 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const item = (res.items || [])[0] || {};
     const body = item.ok ? String(item.text || '') : '';
     const enough = body.length >= Math.max(1, opts.minChars || 1);
+    // Issue #39: a successful item came from a capped run, but readText replaced that
+    // run's complete:false with complete:true and hid the reported text loss.
+    const complete = res.complete !== false && res.truncated !== true;
+    const lostTo = Array.isArray(res.lostTo) && res.lostTo.length ? [...res.lostTo] : undefined;
     const out = enough
       ? { url, source: 'browser', status, ...body0(body, 'text'),
-          fallbackReason: verdict.reason, browserOk: true, ok: true, complete: true, blockKind: item.blockKind || null }
+          fallbackReason: verdict.reason, browserOk: true, ok: true, complete, lostTo, blockKind: item.blockKind || null }
       : { url, source: 'browser', status, ...body0(text, format),
           fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, complete: false, degraded: true,
           degradedReason: item.ok ? 'the browser returned no text' : 'the browser could not read the page',
-          blockKind: item.blockKind || null };
+          lostTo, blockKind: item.blockKind || null };
     if (cache && out.ok && out.complete) await cache.put(cacheKeyParts, out);
     return out;
   };

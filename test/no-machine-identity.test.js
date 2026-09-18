@@ -63,10 +63,11 @@ test('no tracked file carries a real home directory', () => {
 function knownMachineNames() {
   const names = new Set();
   // Only distinctive names are usable. Several aliases on a developer's machine are ordinary
-  // words - a short dictionary word, a bare number - and scanning for those would fail on prose
-  // nothing to do with any machine. A name counts when it carries a hyphen or a digit, or is
-  // long enough that its appearance in source is not a coincidence. That is a filter, not a
-  // proof: a host called "server" still gets past it, and a human still has to look.
+  // words - a short dictionary word, a bare number - and scanning for those would fail on
+  // prose that has nothing to do with any machine. A name counts when it carries a hyphen or
+  // a digit, or is long enough that its appearance in source is not a coincidence. That is a
+  // filter, not a proof: a host called "server" still gets past it, and a human still has to
+  // look.
   const add = (value) => {
     const name = String(value || '').trim().toLowerCase().split('.')[0];
     if (/[*?!]/.test(name)) return;
@@ -92,6 +93,11 @@ test('no tracked file names a machine this one can reach', () => {
   const found = [];
   for (const rel of tracked) {
     // This file lists the generic words it allows, and the scan would read them as evidence.
+    // It carries no machine name of its own - that was fixed rather than exempted - but it
+    // cannot be scanned either way: knownMachineNames() accepts any ssh alias of seven
+    // characters or more, and this file's own prose contains "machine", "identity" and
+    // "repository". A developer whose ssh config names a host `machine` would watch the
+    // guard fail on its own explanation.
     if (rel === 'test/no-machine-identity.test.js') continue;
     const text = readIfText(rel);
     if (text === null) continue;
@@ -144,11 +150,15 @@ test('the pattern still recognises the shapes it was written for', () => {
 // `git ls-files` carried all four past a green suite of 978 tests.
 //
 // The host-derived scan below cannot catch them, which is why this assertion names the shape
-// instead. Of the four leaked names, knownMachineNames() drops two of them before any
-// comparison because neither has a hyphen or a digit and both are under seven characters;
-// the other two survive that filter and then fail the word-boundary test,
-// because the character after each is `s`, from "side". Zero of four. A guard that is green
-// while the defect is present is worse than no guard.
+// instead. Of the four leaked names, knownMachineNames() dropped two before any comparison
+// because neither carried a hyphen or a digit and both were under seven characters; the other
+// two survived that filter and then failed the word-boundary test, because the character
+// after each was `s`, from "side". Zero of four. A guard that is green while the defect is
+// present is worse than no guard.
+//
+// The names themselves are not written here. A guard that has to quote a hostname to explain
+// itself is one more tracked file carrying one, and this file is exempt from both scans
+// below - it would not have caught itself.
 test('the fleet probe is tracked once, under a name that is nobody', () => {
   const probes = tracked.filter((f) => f.endsWith('fleet-probe.mjs'));
   assert.deepEqual(probes, ['scripts/aside-fleet-probe.mjs']);

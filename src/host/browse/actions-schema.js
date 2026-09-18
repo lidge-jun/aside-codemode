@@ -222,7 +222,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.readText',
     description: 'Fetch-first body reading for one URL: HTML to markdown-shaped text, with a browser only when fetch yields no usable body. Takes a url string or { url, ...options }.',
-    signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,url,status,source,text,format,chars,blockKind?,fallbackReason,finalUrl?,cached?,degraded?,degradedReason?}>",
+    signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,url,status,source,text,format,chars,complete,contentShape?,lostTo?,blockKind?,fallbackReason,finalUrl?,cached?,degraded?,degradedReason?}>",
     // treeNodes is documented on the job that carries it, below.
     inputs: {
       url: { type: 'string', required: true, description: 'http(s) url' },

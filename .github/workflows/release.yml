@@ -6,8 +6,10 @@ name: release
 # the repository url in package.json agrees with the repository this runs in.
 #
 # Bump package.json on main BEFORE dispatching, and dispatch with dry-run first. The gate refuses
-# a version that does not match package.json, a commit that is not the one you audited, a SHA whose
-# ci run is not green, and any version whose tag, release or registry entry already exists.
+# a version that does not match package.json, a commit that is not the one you audited, and any
+# version whose tag, release or registry entry already exists. It also requires a green ci run for
+# the SHA unless the dispatch sets the deliberate `skip-ci-check` bypass after verifying the suite
+# another way.
 #
 # The npm side has to be configured once, and only after a version already exists: on the package
 # settings page, add a GitHub Actions trusted publisher for lidge-jun/aside-codemode with the

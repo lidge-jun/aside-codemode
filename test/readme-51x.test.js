@@ -70,7 +70,7 @@ test('old general-50x denial strings are gone', () => {
 // repository does not write down what was not measured.
 //
 // What IS observed is the absence of a DOCUMENTED route, which is all the baseline argument
-// needs. These are the nine phrasings of the stronger claim, in both languages, banned by
+// needs. These are the ten phrasings of the stronger claim, in both languages, banned by
 // exact string so the claim cannot come back in either README, the benchmark page, or the
 // evidence note that feeds them.
 //
@@ -85,6 +85,7 @@ const unmeasuredAbsence = [
   'nothing is wired to it',
   'The harness does not expose',
   '그걸 호출하는 도구가 없습니다',
+  '그걸 부르는 도구는 없습니다',
   '설치된 앱 번들을 뒤져도',
   '연결된 건 없습니다',
 ];

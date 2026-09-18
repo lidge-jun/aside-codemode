@@ -26,10 +26,17 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
         const read = await readText(url, { timeoutMs: opts.timeoutMs, locale: opts.locale, fresh: true });
         // A 503, a rate limit or a login wall is not this page's new content. Writing it to
         // the baseline made the outage look like a change and the recovery look like another.
-        if (read.ok === false || read.degraded === true) {
+        //
+        // complete === false covers the case that does not announce itself: a 200 whose body
+        // is not what the URL promised, such as a .diff endpoint answering with a sign-in
+        // page. Hashing that as the new baseline is how an interstitial becomes "changed"
+        // and the real diff becomes "changed back". The comparison is === false so an
+        // injected observation without the field still counts as observed.
+        if (read.ok === false || read.degraded === true || read.complete === false) {
           return { url, ok: false, changed: null, code: 'EOBSERVE',
             blockKind: read.blockKind || null, status: read.status ?? null,
-            reason: read.degradedReason || read.fallbackReason || null };
+            reason: read.degradedReason || read.fallbackReason
+              || (read.contentShape ? read.contentShape.why : null) };
         }
         const text = read.text || '';
         const hash = textHash(text);
@@ -98,10 +105,13 @@ export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
       // readText owns this entry now. The second, thinner write that used to live here
       // replaced a full observation with { markdown, source }, and the next reader got an
       // answer with no status, no chars and no ok.
-      return read.ok === false
+      // An incomplete read is not a warm cache entry: readText refused to store it, so
+      // counting it as warmed would promise the next caller a hit that is not there.
+      return read.ok === false || read.complete === false
         ? { url, ok: false, chars: 0, source: read.source,
             blockKind: read.blockKind || null,
-            reason: read.degradedReason || read.fallbackReason || null }
+            reason: read.degradedReason || read.fallbackReason
+              || (read.contentShape ? read.contentShape.why : null) }
         : { url, ok: true, chars: (read.text || '').length, source: read.source };
     }));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));

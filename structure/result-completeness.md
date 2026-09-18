@@ -64,7 +64,7 @@ The field a caller reads to detect incomplete work.
 | `fs.readMany` | per-row `skipped` and `error` |
 | `browse.searchMany` | `complete`; `dateFilter` and `suspectEmpty` explain it |
 | `browse.exec`, `browse.captureMany` | `complete`, `status`, `partial`, `contentVerified` |
-| `browse.readText` | `ok`, `blockKind`, `degraded` |
+| `browse.readText` | `complete`, with `ok`, `blockKind`, `degraded` and `contentShape` explaining it |
 
 ## Named exceptions
 

@@ -135,6 +135,13 @@ converted the html, `text` when the browser returned its rendered body. There is
 cannot drop one copy while you are reading the other. A body too large for the envelope is
 still cut - check `chars` against what you got before treating it as the whole page.
 
+`complete` is on every return. `ok: true, complete: false` means the fetch worked and the
+body is not what you asked for: a `.diff` or `.patch` URL that answers with no diff marker
+gets `contentShape: { expected: 'diff', matched: false, why }`. A sign-in page served as
+200 for a diff endpoint is the case this exists for, and a size check will not catch it
+because the interstitial is small. An incomplete read is not cached, does not update a
+`browse.watch` baseline, and does not count as warmed by `browse.prefetch`.
+
 ## browse.exec / browse.attach: asking for structure
 
 `snapshot: 'tree'` returns the accessibility tree as a string. Add `treeNodes: true` and the

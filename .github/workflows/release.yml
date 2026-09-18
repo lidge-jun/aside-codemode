@@ -29,6 +29,11 @@ on:
         description: "Immutable release commit this dispatch must publish (fails if main moved)"
         required: true
         type: string
+      skip-ci-check:
+        description: "Publish without a green ci run for this SHA — only when the suite was verified another way"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -114,6 +119,8 @@ jobs:
       # Deliberately narrower than "any green ci run for this SHA": a pull-request run tested a
       # merge ref under a different trigger, so only main's own push run qualifies.
       - name: Require green ci for this exact commit
+        env:
+          SKIP_CI_CHECK: ${{ inputs.skip-ci-check }}
         run: |
           set -euo pipefail
           ci_url="$(
@@ -127,6 +134,11 @@ jobs:
               --jq '[.[] | select(.conclusion == "success")][0].url // ""'
           )"
           if [ -z "$ci_url" ]; then
+            if [ "$SKIP_CI_CHECK" = "true" ]; then
+              echo "::warning::publishing $GITHUB_SHA without a green ci run, because skip-ci-check was set. The runs that exist for this commit:"
+              gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 10 || true
+              exit 0
+            fi
             echo "::error::no successful ci run found for $GITHUB_SHA on main (push event). A pull-request run does not qualify."
             gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 10 || true
             exit 1

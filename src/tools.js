@@ -10,13 +10,13 @@ const GUEST_API_DOC = [
   'Never start a native read_file loop, bash find/grep or repeated grep; call search.content or search.files once, then read only the hits.',
   'Shelling out anyway means rg, never grep or find, and rg answers without any completeness signal.',
   'For "this page" or an already-open tab, use browse.attach; it reads the existing tab without opening or closing one.',
-  'Code is an async function body; await freely and return the answer. Only return and console output enter context.',
+  'Code is an async function body; await freely and return the answer. Only return and console output enter context, capped at 64 KiB on the RETURN path: a big page reads whole, so fs.write it and fs.grepFile it, then return a small answer.',
   'Discover calls with actions.find(query) -> actions.describe(path) -> actions.check(path,args). The catalog includes browse.readText, browse.attach and treeNodes.',
   'Globals: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.',
   'There is no module loader: import(), require, process and fetch do not exist; string-built code and dynamic import are refused. Use the injected APIs.',
-  'Searches prune by .gitignore, dotfiles, excludeGlobs and binary content by default, and rg skips binary content SILENTLY. scope.coverage marks each mechanism off/on/unknown: absence needs complete:true AND every entry off, so noIgnore/hidden/includeExcluded/binary true.',
-  'Search arrays remain iterable, but direct or nested serialization is {rows,complete,truncated,partial,scope}; counts add the same metadata to matches/files. Preserve the envelope when projecting rows. complete:false, truncated:true or partial entries mean rows are missing.',
-  'Symlinks are never followed. scope.skippedSymlinks is {dirs,files,examples,capped}; a skipped directory makes complete:false because it may hide a subtree. noIgnore/hidden cannot recover it: search the real target, which must be inside a configured root.',
+  'Searches prune by .gitignore, dotfiles, excludeGlobs and binary content by default; rg skips binary SILENTLY. scope.coverage marks each off/on/unknown: absence needs complete:true and every entry off.',
+  'Search arrays stay iterable; serialization is {rows,complete,truncated,partial,scope}, and counts add the same to matches/files. Preserve the envelope when projecting. complete:false, truncated:true or partial mean rows are missing.',
+  'Symlinks are never followed; a skipped directory makes complete:false because it may hide a subtree, and scope.skippedSymlinks counts what was stepped over. noIgnore/hidden cannot recover it: search the real target, inside a root.',
   'Paths outside roots are refused. Search, filter and read hits in one body.',
 ].join('\n');
 

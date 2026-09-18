@@ -409,3 +409,134 @@ test('the extracted pre-flights are the checks their calls execute', async () =>
   await sameRefusal(() => validateApiBatch([]), () => api.batch([]));
   await sameRefusal(() => validateRecipeRun('unknown', registry), () => recipes.run('unknown'));
 });
+
+// #33 closed the INPUT direction of catalog drift and this file has guarded it since. The
+// OUTPUT direction was open and untested, by construction: argumentPart above deliberately
+// cuts the return type off before comparing, which was the right fix for #33 and left the
+// other half unchecked.
+//
+// #39 is what was hiding there. browse.attach declared ten keys and returned nineteen, and
+// the one it omitted was `text` — the page body itself. An agent that trusts the signature
+// never learns where the content is. Fifteen or more actions drifted the same way.
+function returnPart(signature) {
+  const sig = String(signature || '');
+  const arrow = sig.indexOf('=>');
+  return arrow === -1 ? '' : sig.slice(arrow + 2);
+}
+
+// Every name the declared return mentions, at any brace group. An array-returning action
+// legitimately declares TWO shapes — the row and the serialized envelope, as fs.list does —
+// so reading only the first group reported the envelope's own keys as undeclared.
+function declaredReturnKeys(signature) {
+  const ret = returnPart(signature);
+  if (!ret.includes('{')) return null;   // not an object return; nothing to compare
+  const names = new Set();
+  let depth = 0;
+  let current = '';
+  const flush = () => {
+    const name = current.split(':')[0].trim().replace(/\?$/, '');
+    if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+    current = '';
+  };
+  for (const ch of ret) {
+    if (ch === '{' || ch === '[' || ch === '<') { flush(); depth += 1; continue; }
+    if (ch === '}' || ch === ']' || ch === '>') { flush(); depth -= 1; continue; }
+    if (ch === ',' || ch === ';') { flush(); continue; }
+    current += ch;
+  }
+  flush();
+  return names;
+}
+
+// Diagnostics a model should NOT be told to read. Each entry carries its reason, and an
+// entry without one fails the test: an allow-list whose entries are unexplained is how the
+// drift comes back wearing a permission slip.
+const UNDECLARED_ON_PURPOSE = {
+  'browse.exec': {
+    schema: 'the envelope version, not something a caller branches on',
+    runId: 'correlation id for the ledger, surfaced in errors instead',
+    ledger: 'the requested-URL bookkeeping the reconciler works from',
+    reconciledBy: 'how items were matched to requests; a debugging aid',
+    raw: 'the unparsed REPL stdout, kept for post-mortems',
+    pwd: 'the working directory the batch ran in',
+    truncated: 'always false on this path today; complete is the field to read',
+    extraItems: 'orphan and duplicate rows, present only when reconciliation found some',
+    breaker: 'circuit-breaker snapshot for the domain, not a per-call result',
+    helper: 'hash of the shipped helper, for checking an installed copy',
+  },
+};
+
+test('a runtime key is either declared in the signature or excused by name', async () => {
+  // Only actions that can be CALLED in-process without a browser or a network. The rest are
+  // covered by the completeness invariant's own deferral list, which says so out loud rather
+  // than pretending this file checks them.
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-outdrift-'));
+  writeFileSync(path.join(dir, 'a.txt'), 'hit\n');
+  const guard = makeRootGuard([dir]);
+  const fs2 = createFs({ assertInside: guard });
+
+  const callable = {
+    'fs.stat': () => fs2.stat(path.join(dir, 'a.txt')),
+    'fs.list': () => fs2.list(dir),
+    'api.adapters': () => api.adapters(),
+    'recipes.list': () => recipes.list(),
+  };
+
+  const problems = [];
+  for (const [action, call] of Object.entries(callable)) {
+    const entry = entries.find((e) => e.path === action);
+    assert.ok(entry, action + ' is not in the catalog');
+    const declared = declaredReturnKeys(entry.signature);
+    if (!declared) continue;
+    let value = await call();
+    if (value === null || typeof value !== 'object') continue;
+    // A decorated array's own keys are numeric row indices. Its wire form is the envelope,
+    // which is what a caller actually receives when the result is returned or serialized.
+    if (Array.isArray(value)) {
+      if (typeof value.toJSON !== 'function') continue;
+      value = value.toJSON();
+    }
+    const excused = UNDECLARED_ON_PURPOSE[action] || {};
+    for (const key of Object.keys(value)) {
+      if (declared.has(key)) continue;
+      if (key in excused) {
+        if (!excused[key]) problems.push(action + '.' + key + ' is excused with no reason');
+        continue;
+      }
+      problems.push(action + '.' + key + ' is returned and not declared');
+    }
+  }
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('every excuse names a reason, and excuses nothing the signature already declares', () => {
+  const problems = [];
+  for (const [action, excuses] of Object.entries(UNDECLARED_ON_PURPOSE)) {
+    const entry = entries.find((e) => e.path === action);
+    if (!entry) { problems.push(action + ' is excused but not in the catalog'); continue; }
+    const declared = declaredReturnKeys(entry.signature) || new Set();
+    for (const [key, reason] of Object.entries(excuses)) {
+      if (!reason || reason.length < 12) problems.push(action + '.' + key + ' has no usable reason');
+      if (declared.has(key)) problems.push(action + '.' + key + ' is excused AND declared; drop the excuse');
+    }
+  }
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+// browse.attach is the one #39 called sharpest, and it cannot be called here without a
+// browser. Assert the DECLARATION instead: the body has to be named, because a caller who
+// reads the signature and not the source has no other way to find it.
+test('browse.attach declares the page body it returns', () => {
+  const entry = entries.find((e) => e.path === 'browse.attach');
+  const declared = declaredReturnKeys(entry.signature);
+  assert.ok(declared.has('text'), 'browse.attach returns the page body on text and must say so');
+  assert.ok(declared.has('contentVerified'));
+});
+
+test('browse.exec declares the fields a caller acts on', () => {
+  const entry = entries.find((e) => e.path === 'browse.exec');
+  const declared = declaredReturnKeys(entry.signature);
+  for (const key of ['ok', 'status', 'complete', 'items', 'contentVerified']) {
+    assert.ok(declared.has(key), 'browse.exec must declare ' + key);
+  }
+});

@@ -205,10 +205,13 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
   }
 
   if (verb === 'uninstall') {
-    if (!manifest) return { ...base, filesInstalled: false, removed: [], preserved: [], note: 'nothing was installed here' };
+    // The block and the files are installed by different paths: register writes the AGENTS
+    // block into EVERY account root, while the helper files and their manifest land only where
+    // an install ran. Returning early on a missing manifest left the block behind on every
+    // other account, which is exactly the text that tells an agent to use the CLI route.
     const removed = [];
     const preserved = [];
-    for (const known of manifest.files || []) {
+    for (const known of (manifest && manifest.files) || []) {
       const seen = inspectFile(accountRoot, known.path, manifest);
       if (seen.state === 'missing') continue;
       if (seen.state === 'modified') { preserved.push(seen.rel); continue; }
@@ -237,7 +240,8 @@ export function runInstaller({ verb = 'doctor', asideHome, account = null, dryRu
       // the call that removes a directory, and it still refuses a non-empty one.
       try { if (!dryRun && existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir); } catch { /* leave it */ }
     }
-    return { ...base, filesInstalled: dryRun, removed, preserved, agentsBlock };
+    return { ...base, filesInstalled: dryRun && Boolean(manifest), removed, preserved, agentsBlock,
+      note: manifest ? null : (agentsBlock === 'removed' ? 'no files were installed here; the AGENTS block was' : 'nothing was installed here') };
   }
 
   if (verb === 'rollback') {

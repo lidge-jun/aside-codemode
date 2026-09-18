@@ -25,6 +25,7 @@ The one vocabulary every batch answers in, whoever produced it.
 | --- | --- |
 | [`batch-contract.md`](batch-contract.md) | The shared run envelope, the status vocabulary, reconciliation, effects, and tab accounting. |
 | [`session-contract.md`](session-contract.md) | How signed-in work divides between native steps and a batch, and why the tool never infers authentication. |
+| [`result-completeness.md`](result-completeness.md) | The invariant every action's completeness field must satisfy, the decorator that carries it, per-action disclosure, and the named exceptions. |
 
 ### Tier 3 — Browsing
 
@@ -67,6 +68,7 @@ What an install writes into an account, and the budget it spends there.
 | `src/register.js` | [`install-surface.md`](install-surface.md) |
 | `src/rg.js` | [`local-surface.md`](local-surface.md) |
 | `src/sandbox.js` | [`overview.md`](overview.md) |
+| `src/search-result.js` | [`result-completeness.md`](result-completeness.md) |
 | `src/search-schema.js` | [`local-surface.md`](local-surface.md) |
 | `src/tools.js` | [`overview.md`](overview.md) |
 | `templates/` | [`install-surface.md`](install-surface.md) |

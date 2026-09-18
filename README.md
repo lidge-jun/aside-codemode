@@ -1,7 +1,8 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
-<h3 align="center">make aside 50x faster</h3>
-<p align="center"><b>Rows instead of pages, files instead of fifty cards</b><br>
-Five real pages are 1.87 MB of HTML. The answer to a question about them is 4.4 KB. One call returns the 4.4 KB.</p>
+<h3 align="center">code mode for a browser that does not speak CDP</h3>
+<p align="center"><b>Search, read and filter in one call, so only the answer reaches the model</b><br>
+Aside ships a 6.5 MB ripgrep and no tool that calls it. This puts it on the surface,<br>
+along with parallel browsing, inside the browser's own process.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -19,6 +20,10 @@ codemode --doctor
 <p align="center"><a href="README.md">English</a> · <a href="README.ko.md">한국어</a></p>
 
 ### Browsing: 1.87 MB in, 4.4 KB out
+
+Every number below was measured on 2026-09-18 against codemode 0.8.1 on the MCP path, N=7
+after a discarded warm-up, with result counts checked on both sides. Method, full tables and
+the cells where this loses: **[BENCHMARKS.md](BENCHMARKS.md)**.
 
 Five pages, and one thing to know about each — its title and its first link.
 
@@ -62,11 +67,49 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 On a real development folder, `find`+`grep` took **55s** and one `codemode --code` search took
 **1s**, about **51x**. That pair is an operator report: the [note](evidence/dev-folder-51x.md)
 says so plainly, and says that the folder, the unrounded clocks and the exact options behind it
-were not recorded. What the note does carry is the companion benchmark in this repository,
-which anyone can re-run, and it keeps the two apart on purpose, because they are not the same
-run and one of them is not 55 seconds of anything.
+were not recorded.
+
+A controlled run on 2026-09-18 reproduced the shape of it and found something sharper. Asked to
+count `function` across a 127,000-file tree, `grep -r -I` did not finish: it passed **128
+seconds having emitted 3.23 GB across 3.7 million lines** and was aborted. `search.count`
+answered in **2,966 ms** and returned **778 bytes** — 502,963 matching lines in 57,403 files.
+
+That is not a speedup. It is a question an agent holding POSIX tools cannot ask, because the
+output buries the conversation before the answer arrives. Listing every `*.md` in the same tree
+is the plainer version: `find` 5,467 ms against **2,063 ms**, same 39,831 paths.
 
 Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for single searches. Those do not cancel the folder wall-clock. [See the older table](#performance-evidence).
+
+### The engine was already there
+
+Aside installs ripgrep 15.2.0 with PCRE2 — 6,476,288 bytes at `runtime/native/bin/rg`, first on
+the agent PATH — and exposes **no tool that calls it**. Searching the installed app bundle finds
+no `Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search` or `codebase_search`. The binary
+ships; nothing is wired to it.
+
+So an agent's real options were POSIX `grep` and `find` through bash, which is why the numbers
+above are measured against those and not against ripgrep. Ripgrep is the ceiling, not the
+baseline. This package puts that engine on the surface as 34 guest actions behind one tool.
+
+Against ripgrep called directly the two are level, because `search.*` shells out to that same
+binary. This is not a faster search engine. It is the engine Aside already shipped, reachable,
+with the result filtered before it reaches the model.
+
+### Code mode for a browser that does not speak CDP
+
+Every other agentic browser drives pages over the Chrome DevTools Protocol. BrowserOS patches
+Chromium in 528 places and still sends `Input.dispatchMouseEvent` to a CDP socket on port 9000;
+Playwright, Puppeteer and Selenium all call `Runtime.enable`, which is the leak Cloudflare and
+DataDome watch for and the reason stealth forks exist at all.
+
+Aside is a Chromium fork — a 2.0 GB framework with its own renderer, GPU and alert helpers, its
+own `.pak` resources and V8 snapshot — and it does not open a CDP port. No
+`--remote-debugging-port`, nothing listening on 9222 or 9000, and `/json/version` on its one
+local port answers `Missing or invalid Authorization header.` rather than a CDP version object.
+Page control runs inside the browser process itself.
+
+What it did not have was code mode. This adds it: one tool, thirty-four actions, batched pages
+and filtered results — on a path that never speaks the protocol everyone else is trying to hide.
 
 **aside-codemode** gives Aside a single place to search, filter, read and summarize local files —
 and, once browsing is turned on, to run twenty pages through one session and come back with rows

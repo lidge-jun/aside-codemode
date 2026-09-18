@@ -153,6 +153,17 @@ test('only the cited measurement notes are tracked under evidence/', () => {
   const allowed = [
     'evidence/aside-mcp-activation-260918.md',
     'evidence/aside-mcp-attach-260918.md',
+    // The 2026-09-18 set. Raw JSON dumps and the runner script from that session are
+    // deliberately NOT here: they carry absolute home paths. The notes carry numbers only,
+    // and the fixture script is parameterised so it reproduces without naming a machine.
+    'evidence/bench-260918/PROTOCOL.md',
+    'evidence/bench-260918/agent-baseline.md',
+    'evidence/bench-260918/completeness.md',
+    'evidence/bench-260918/local-search.md',
+    'evidence/bench-260918/make-completeness-fixture.sh',
+    'evidence/bench-260918/mcp-completeness.md',
+    'evidence/bench-260918/mcp-local-search.md',
+    'evidence/bench-260918/mcp-path.md',
     'evidence/browse-compression-260915.md',
     'evidence/dev-folder-51x.md',
     'evidence/exclude-pruning-260918.md',

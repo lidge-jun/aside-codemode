@@ -26,3 +26,16 @@ evidence/*
 !evidence/summary.md
 !evidence/summary-compound.md
 !evidence/review-hardening-20260913.json
+
+# 2026-09-18 measurement set: protocol written before the numbers, the agent-visible
+# baseline (grep/find, since no harness tool calls the bundled rg), the MCP-path results
+# BENCHMARKS.md cites, and the completeness fixture behind issue #41.
+!evidence/bench-260918/
+!evidence/bench-260918/PROTOCOL.md
+!evidence/bench-260918/agent-baseline.md
+!evidence/bench-260918/mcp-path.md
+!evidence/bench-260918/mcp-local-search.md
+!evidence/bench-260918/mcp-completeness.md
+!evidence/bench-260918/completeness.md
+!evidence/bench-260918/local-search.md
+!evidence/bench-260918/make-completeness-fixture.sh

@@ -1,7 +1,8 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
-<h3 align="center">make aside 50x faster</h3>
-<p align="center"><b>페이지 대신 행, 카드 50장 대신 한 장</b><br>
-실제 페이지 다섯 개는 HTML 1.87MB입니다. 거기서 알고 싶은 것의 답은 4.4KB입니다. 호출 한 번이 그 4.4KB를 돌려줍니다.</p>
+<h3 align="center">CDP를 쓰지 않는 브라우저를 위한 코드 모드</h3>
+<p align="center"><b>검색·읽기·필터링을 호출 한 번에 묶어 답만 모델에 넘깁니다</b><br>
+Aside는 6.5MB ripgrep을 담고 있지만 그걸 부르는 도구는 없습니다.<br>
+이 패키지가 그 엔진과 병렬 브라우징을 브라우저 프로세스 안에서 표면으로 올립니다.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -61,10 +62,48 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 실제 개발 폴더에서 `find`+`grep`은 **55초**, `codemode --code` 한 번은 **1초**였습니다.
 대략 **51배**입니다. 이 한 쌍은 운영자가 직접 재서 알려준 값이고, [측정 노트](evidence/dev-folder-51x.md)도
 그렇게 적혀 있습니다. 어느 폴더였는지, 반올림하지 않은 시간과 실제 옵션이 무엇이었는지는 남기지
-않았습니다. 노트에 남아 있는 건 이 저장소에서 누구나 다시 돌릴 수 있는 합성 대조 쪽입니다. 둘을
-따로 적어 둔 이유도 같습니다. 같은 실행이 아니니까요.
+않았습니다.
+
+2026-09-18 통제된 측정에서 같은 모양이 재현됐고, 더 분명한 게 나왔습니다. 파일 127,000개 트리에서
+`function`을 세는 일을 시키자 `grep -r -I`는 끝나지 못했습니다. **128초를 넘기며 3.23GB,
+370만 줄을 쏟아내고도 미완성**이어서 중단했습니다. `search.count`는 **2,966ms**에 **778바이트**로
+답했습니다. 57,403개 파일에서 502,963줄.
+
+이건 속도 차이가 아닙니다. POSIX 도구만 가진 에이전트는 **애초에 물을 수 없는 질문**입니다.
+답이 도착하기 전에 출력이 대화를 덮어버리니까요. 같은 트리에서 `*.md`를 전부 나열하는 더 평범한
+버전은 `find` 5,467ms 대 **2,063ms**, 같은 39,831개 경로입니다.
 
 예전에 재 둔 Aside 턴 비교(모델·데몬 포함)는 단일 검색 1.05~1.81배입니다. 그 표가 폴더에서 잰 시간을 없던 일로 만들지는 않습니다. [예전 표](#performance-evidence).
+
+### 엔진은 이미 거기 있었습니다
+
+Aside는 PCRE2가 들어간 ripgrep 15.2.0을 설치합니다. `runtime/native/bin/rg`에 6,476,288바이트,
+에이전트 PATH 맨 앞. 그런데 **그걸 호출하는 도구가 없습니다.** 설치된 앱 번들을 뒤져도
+`Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search`, `codebase_search` 어느 것도 없습니다.
+바이너리는 들어있고, 연결된 건 없습니다.
+
+그래서 에이전트의 실제 선택지는 bash로 부르는 POSIX `grep`과 `find`였고, 위 수치를 ripgrep이
+아니라 그쪽에 대고 재는 이유도 그것입니다. ripgrep은 베이스라인이 아니라 천장입니다. 이 패키지는
+그 엔진을 도구 하나 뒤의 게스트 액션 34개로 표면에 올립니다.
+
+ripgrep을 직접 부를 때와는 비슷합니다. `search.*`가 바로 그 바이너리를 부르니까요. 더 빠른 검색
+엔진이 아니라, Aside가 이미 담아둔 엔진을 닿게 만들고 결과를 모델 앞에서 거르는 겁니다.
+
+### CDP를 쓰지 않는 브라우저의 코드 모드
+
+다른 에이전틱 브라우저는 전부 Chrome DevTools Protocol로 페이지를 조작합니다. BrowserOS는
+Chromium을 528곳 패치하고도 포트 9000의 CDP 소켓으로 `Input.dispatchMouseEvent`를 보냅니다.
+Playwright·Puppeteer·Selenium은 모두 `Runtime.enable`을 호출하고, 그게 Cloudflare와 DataDome이
+감시하는 누출이며 스텔스 포크가 존재하는 이유입니다.
+
+Aside는 Chromium 포크이고(자체 렌더러·GPU·알림 헬퍼와 자체 `.pak`, V8 스냅샷을 가진 2.0GB
+프레임워크), **CDP 포트를 열지 않습니다.** `--remote-debugging-port`도 없고, 9222나 9000에
+듣는 것도 없으며, 유일한 로컬 포트의 `/json/version`은 CDP 버전 객체 대신
+`Missing or invalid Authorization header.`를 돌려줍니다. 페이지 조작은 브라우저 프로세스 안에서
+돕니다.
+
+없던 건 코드 모드였습니다. 이 패키지가 그걸 더합니다. 도구 하나, 액션 서른네 개, 배치 페이지와
+걸러진 결과 — 다른 모든 곳이 숨기려고 애쓰는 그 프로토콜을 애초에 말하지 않는 경로 위에서.
 
 **aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 코드 호출 한 번으로 묶습니다.
 브라우징을 켜면 페이지 스무 개를 세션 하나로 도는 일도 같은 자리에서 합니다. 중간 데이터를 모델에

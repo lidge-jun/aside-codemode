@@ -77,6 +77,13 @@ Re-measured the same way at 0.8.0: **2,042 bytes**, under the 2,048-byte budget 
 enforces. The READMEs quote this number, and a test recomputes it from `TOOL_DEF` so the
 prose cannot drift away from the code again - which it had, at 1,984 bytes.
 
+0.8.1 spends part of that budget differently. An Aside session was observed opening with
+`grep -rn` although the block already banned it, so the block now says what to do when the
+shell is used anyway - rg, and rg cannot report completeness - and pays for it by moving two
+refinements into the on-demand catalog, where they already belonged: the glob-precedence
+sentence and the rule that a skipped file symlink does not lower completeness. Measured after
+that exchange: **2,019 bytes**.
+
 What that number does and does not mean. It is a byte measurement of the description, not
 a measurement of agent behaviour. The relocation was checked three ways: the suite pins the
 call-shape tokens that had to survive, a byte budget now fails the suite above 2,048 bytes,

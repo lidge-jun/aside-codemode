@@ -182,15 +182,17 @@ test('the block gives the routing test, not just the routing rule', () => {
   assert.match(flat, /deleting the script tags/i);
 });
 
-// The ban existed and the replacement did not, so an agent read a prohibition with no way
-// out and reached for the shell anyway. They belong in one sentence.
 test('the search ban names its replacement in the same breath', () => {
   const { agents } = rendered();
-  const sentence = agents.split(/\n\s*\n/).find((p) => /Do not call `rg`/.test(p));
+  const sentence = agents.split(/\n\s*\n/).find((p) => /Never call `find`/.test(p));
   assert.ok(sentence, 'the block no longer bans the shell search commands');
   for (const api of ['search.content', 'fs.stat', 'fs.grepFile']) {
     assert.ok(sentence.includes(api), api + ' is not offered where the ban is stated');
   }
+  // rg is no longer in the ban list: it is what the block sends you to when the shell is used
+  // anyway, and the sentence has to carry the reason that is not a free pass.
+  assert.match(sentence, /it is `rg`/);
+  assert.match(sentence, /no completeness signal/);
 });
 
 test('reading describe is a step before the first call, not a recovery from a refusal', () => {
@@ -204,6 +206,18 @@ test('reading describe is a step before the first call, not a recovery from a re
 // to prefer the MCP route, and that quote sat at 1,984 bytes while the description was 2,042:
 // inside the budget the suite enforces, and wrong in the document a reader trusts. The prose
 // is now recomputed from the code.
+// The ban on shelling out for a search did not hold: a live Aside session was observed opening
+// with grep -rn while this block already forbade it. A rule that is ignored still governs the
+// move that follows it, so the block now names the tool to use when it is ignored, and says
+// what that tool cannot tell you. Removing either half would leave the sentence a slogan.
+test('the block says what to use when the shell is used anyway, and what it costs', () => {
+  const doc = TOOL_DEF.description;
+  assert.match(doc, /bash find\/grep/);
+  assert.match(doc, /\brg\b/);
+  assert.match(doc, /never grep or find/);
+  assert.match(doc, /completeness signal/);
+});
+
 test('the description size the READMEs quote is the size the code has', () => {
   const bytes = Buffer.byteLength(TOOL_DEF.description).toLocaleString('en-US');
   for (const name of ['README.md', 'README.ko.md']) {

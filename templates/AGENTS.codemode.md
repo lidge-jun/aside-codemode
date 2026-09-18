@@ -13,7 +13,7 @@ for queries, and `browse.attach` for "this page" or an open tab.
 Losing moves are a native `read_file` loop, a bash `find`/`grep` pipeline, or repeated grep calls.
 Replace them with one `search.content`, `search.files` or `search.count` call, filter, then read
 only the hits in the same body; `fs.stat` and `fs.grepFile` cover metadata and one-file matching.
-Do not call `rg`, `find`, `grep` or `Get-ChildItem -Recurse` directly.
+Never call `find`, `grep` or `Get-ChildItem -Recurse`; shell out anyway and it is `rg`, whose rows carry no completeness signal, so an empty rg result is not absence.
 A signed-in batch shares one session: sign in natively first, pass its `loggedInMarker`, then
 batch. If it expires partway the rest read a login page; a missing marker is `needs_input`.
 `ok`, `completed`, HTTP 200 and `contentVerified` say the call worked. None of them says

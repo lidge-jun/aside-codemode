@@ -8,14 +8,15 @@ const GUEST_API_DOC = [
   'Run JavaScript to search, filter and read local files, pages and APIs in one call; only returned output enters context.',
   'Use first for every directory or repo search and for 2+ independent files, URLs, pages, queries, API lookups or captures, even if a search returns one hit.',
   'Never start a native read_file loop, bash find/grep or repeated grep; call search.content or search.files once, then read only the hits.',
+  'Shelling out anyway means rg, never grep or find, and rg answers without any completeness signal.',
   'For "this page" or an already-open tab, use browse.attach; it reads the existing tab without opening or closing one.',
   'Code is an async function body; await freely and return the answer. Only return and console output enter context.',
   'Discover calls with actions.find(query) -> actions.describe(path) -> actions.check(path,args). The catalog includes browse.readText, browse.attach and treeNodes.',
   'Globals: search, fs, actions, browse, report, api, recipes, read_file, write_file, edit_file, apply_patch, console.',
   'There is no module loader: import(), require, process and fetch do not exist; string-built code and dynamic import are refused. Use the injected APIs.',
-  'Searches respect .gitignore by default. A parent rule can hide an entire project. If expected content is absent, retry with noIgnore:true (and hidden:true for dotfiles) or compare counts before concluding it does not exist. An inclusive glob may still match ignored or hidden paths.',
+  'Searches respect .gitignore by default. A parent rule can hide an entire project. If expected content is absent, retry with noIgnore:true (and hidden:true for dotfiles) or compare counts before concluding it does not exist.',
   'Search arrays remain iterable, but direct or nested serialization is {rows,complete,truncated,partial,scope}; counts add the same metadata to matches/files. Preserve the envelope when projecting rows. complete:false, truncated:true or partial entries mean the result is not evidence of absence.',
-  'Symlinks are never followed. scope.skippedSymlinks is {dirs,files,examples,capped}; a skipped directory makes complete:false because it may hide a subtree. noIgnore/hidden cannot recover it: search the real target, which must be inside a configured root. Skipped file links are counted but do not lower completeness.',
+  'Symlinks are never followed. scope.skippedSymlinks is {dirs,files,examples,capped}; a skipped directory makes complete:false because it may hide a subtree. noIgnore/hidden cannot recover it: search the real target, which must be inside a configured root.',
   'Paths outside roots are refused. Search, filter and read hits in one body.',
 ].join('\n');
 

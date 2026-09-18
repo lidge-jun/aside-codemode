@@ -160,7 +160,7 @@ entry still points at an older installation. Anything but `activated` comes with
 step. The CLI never writes Aside's inventory cache by hand; doing so would go stale when
 the tool definition changes.
 
-The agent then calls `mcp__aside-codemode__execute_code` directly. Its **2,042-byte** tool
+The agent then calls `mcp__aside-codemode__execute_code` directly. Its **2,019-byte** tool
 description is always resident in every MCP session. That is less resident context than the CLI
 route's 3,808-byte account block, one reason MCP is the first-class route.
 
@@ -374,7 +374,7 @@ Do not replace code mode with a native `read_file` loop, a bash `find`/`grep` pi
 repeated grep calls. Make one `search.content`, `search.files` or `search.count` call, filter
 the result, and read only the hits in the same body.
 
-**Resident context cost, measured.** The MCP route keeps its **2,042-byte** tool description
+**Resident context cost, measured.** The MCP route keeps its **2,019-byte** tool description
 resident in every MCP session. The CLI route keeps the **3,808-byte** account `AGENTS.md` block
 resident and loads the **8,973-byte** user skill only on demand. The smaller always-resident
 footprint favours MCP as the first-class route. The CLI route remains supported where MCP does

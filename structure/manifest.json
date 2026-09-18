@@ -74,7 +74,7 @@
       "title": "Result completeness",
       "scope": "The invariant every action's completeness field must satisfy, the decorator that carries it, per-action disclosure, and the named exceptions.",
       "documents": [
-        "src/search-result.js"
+        "src/result-envelope.js"
       ]
     },
     {

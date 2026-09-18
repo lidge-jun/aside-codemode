@@ -19,7 +19,7 @@ import { runStream } from '../src/rg-stream.js';
 import { createSearch } from '../src/host/search.js';
 import { createActions } from '../src/host/actions.js';
 import { makeRootGuard } from '../src/paths.js';
-import { decorateSearchResult, restoreSearchResult, isSearchEnvelope } from '../src/search-result.js';
+import { decorateSearchResult, restoreSearchResult, isSearchEnvelope } from '../src/result-envelope.js';
 import { CONTENT_OPTS, FILES_OPTS, COUNT_OPTS } from '../src/search-schema.js';
 
 const caps = { files: 5000, content: 500 };

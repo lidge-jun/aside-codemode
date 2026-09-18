@@ -141,7 +141,7 @@ test('cancellation reaches the per-execution host scope and prevents later write
 });
 
 test('search completeness survives host RPC and nested final serialization', async () => {
-  const { decorateSearchResult } = await import('../src/search-result.js');
+  const { decorateSearchResult } = await import('../src/result-envelope.js');
   const out = await runCode('const hits=await search.content({}); return {hits,first:hits.map(x=>x.file)[0]};', {
     ...options,
     globals: { search: { content: async () => decorateSearchResult([{file:'a.txt',line:1,text:'needle'}], {
@@ -158,7 +158,7 @@ test('search completeness survives host RPC and nested final serialization', asy
 });
 
 test('count metadata survives RPC without changing guest count access', async () => {
-  const { decorateSearchResult } = await import('../src/search-result.js');
+  const { decorateSearchResult } = await import('../src/result-envelope.js');
   const out = await runCode('const count=await search.count({}); return {count,n:count.matches};', {
     ...options,
     globals: { search: { count: async () => decorateSearchResult({matches:3,files:2}, {scope:{path:'/fixture'}}) } },

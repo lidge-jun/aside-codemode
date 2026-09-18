@@ -17,7 +17,7 @@
 // The option contract itself is owned by ../search-schema.js so this file, the
 // discovery catalog and the runner cannot drift.
 import { validateSearchOptions } from '../search-schema.js';
-import { decorateSearchResult } from '../search-result.js';
+import { decorateSearchResult } from '../result-envelope.js';
 import { hasNonAscii } from '../unicode.js';
 
 function normalizationCases(opts, fields) {

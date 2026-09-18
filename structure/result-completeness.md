@@ -35,7 +35,7 @@ that was actually applied — defines the request. It lowers nothing.
 
 ## The mechanism
 
-`src/search-result.js` is the canonical owner. It attaches non-enumerable `truncated`,
+`src/result-envelope.js` is the canonical owner. It attaches non-enumerable `truncated`,
 `partial`, `complete`, `scope` and `toJSON` so a result keeps plain ergonomics
 (`rows.length`, `.map`, destructuring) while still telling the truth on the wire. A bare
 `JSON.stringify` of a decorated array emits `{rows, complete, truncated, partial, scope}`.

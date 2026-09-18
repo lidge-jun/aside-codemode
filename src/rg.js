@@ -1,7 +1,7 @@
 // ripgrep resolution + search execution (A-D4).
 // Lazy resolution, structured failure, argv-only (never a shell).
 // Streaming/child-process mechanics live in ./rg-stream.js; the option contract
-// and result envelope live in ./search-schema.js and ./search-result.js.
+// and result envelope live in ./search-schema.js and ./result-envelope.js.
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { execFileRg } from './child-opts.js';
 import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
-import { decorateSearchResult } from './search-result.js';
+import { decorateSearchResult } from './result-envelope.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
 import { scanSkippedSymlinks, symlinkSkipLowersCompleteness } from './symlink-scan.js';
 import { includesText } from './unicode.js';

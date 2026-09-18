@@ -66,9 +66,9 @@ What an install writes into an account, and the budget it spends there.
 | `src/host/search.js` | [`local-surface.md`](local-surface.md) |
 | `src/paths.js` | [`install-surface.md`](install-surface.md) |
 | `src/register.js` | [`install-surface.md`](install-surface.md) |
+| `src/result-envelope.js` | [`result-completeness.md`](result-completeness.md) |
 | `src/rg.js` | [`local-surface.md`](local-surface.md) |
 | `src/sandbox.js` | [`overview.md`](overview.md) |
-| `src/search-result.js` | [`result-completeness.md`](result-completeness.md) |
 | `src/search-schema.js` | [`local-surface.md`](local-surface.md) |
 | `src/tools.js` | [`overview.md`](overview.md) |
 | `templates/` | [`install-surface.md`](install-surface.md) |

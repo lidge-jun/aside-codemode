@@ -15,7 +15,7 @@ import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
 import { applyLineEdits } from './line-edit.js';
-import { decorateSearchResult } from '../search-result.js';
+import { decorateSearchResult } from '../result-envelope.js';
 import { hasNonAscii, nfc } from '../unicode.js';
 
 // A single returned line is bounded so one pathological minified file cannot

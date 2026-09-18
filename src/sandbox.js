@@ -5,7 +5,7 @@ import {
   errorFields, fitEnvelope, requireInteger, translateGuestError,
   MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES,
 } from './execution-output.js';
-import { isDecoratedResult } from './search-result.js';
+import { isDecoratedResult } from './result-envelope.js';
 
 const HOST_DRAIN_MS = 1000;
 const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];

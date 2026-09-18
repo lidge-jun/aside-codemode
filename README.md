@@ -1,7 +1,7 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
 <h3 align="center">code mode for a browser that does not speak CDP</h3>
 <p align="center"><b>Search, read and filter in one call, so only the answer reaches the model</b><br>
-Aside ships a 6.5 MB ripgrep and no tool that calls it. This puts it on the surface,<br>
+Aside ships a 6.5 MB ripgrep and no documented way to reach it. This puts it on the surface,<br>
 along with parallel browsing, inside the browser's own process.</p>
 
 <p align="center">
@@ -83,9 +83,11 @@ Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for 
 ### The engine was already there
 
 Aside installs ripgrep 15.2.0 with PCRE2 — 6,476,288 bytes at `runtime/native/bin/rg`, first on
-the agent PATH — and exposes **no tool that calls it**. Searching the installed app bundle finds
-no `Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search` or `codebase_search`. The binary
-ships; nothing is wired to it.
+the agent PATH — and **no documented tool reaches it**. That path is the skill runtime's utility
+bin: `rg` sits there beside `pdftotext`, `pdftoppm`, `python3` and `node`, vendored from
+Homebrew (`runtime/manifest.txt`). The documented agent tools are `read_file`, `write_file`,
+`edit_file`, `bash` and `repl`, and none of them is a content search. An agent that types `rg`
+in bash is using an undocumented implementation detail, not a provided tool.
 
 So an agent's real options were POSIX `grep` and `find` through bash, which is why the numbers
 above are measured against those and not against ripgrep. Ripgrep is the ceiling, not the

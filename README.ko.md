@@ -78,9 +78,11 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 ### 엔진은 이미 거기 있었습니다
 
 Aside는 PCRE2가 들어간 ripgrep 15.2.0을 설치합니다. `runtime/native/bin/rg`에 6,476,288바이트,
-에이전트 PATH 맨 앞. 그런데 **그걸 호출하는 도구가 없습니다.** 설치된 앱 번들을 뒤져도
-`Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search`, `codebase_search` 어느 것도 없습니다.
-바이너리는 들어있고, 연결된 건 없습니다.
+에이전트 PATH 맨 앞. 그런데 **문서화된 접근 경로가 없습니다.** 그 경로는 스킬 런타임의 도구
+bin이고, `rg`는 `pdftotext`, `pdftoppm`, `python3`, `node` 옆에 Homebrew에서 가져온 채로
+놓여 있습니다 (`runtime/manifest.txt`). 문서화된 에이전트 도구는 `read_file`, `write_file`,
+`edit_file`, `bash`, `repl`이고 그중 내용 검색은 없습니다. bash에서 `rg`를 치는 건 제공된
+도구를 쓰는 게 아니라 문서화되지 않은 구현 세부를 쓰는 것입니다.
 
 그래서 에이전트의 실제 선택지는 bash로 부르는 POSIX `grep`과 `find`였고, 위 수치를 ripgrep이
 아니라 그쪽에 대고 재는 이유도 그것입니다. ripgrep은 베이스라인이 아니라 천장입니다. 이 패키지는

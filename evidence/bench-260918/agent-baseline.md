@@ -11,7 +11,9 @@ An Aside agent in this environment has two search surfaces:
 1. **bash**, with `PATH=<aside-home>/runtime/bin:/usr/bin:/bin:/usr/sbin:/sbin`, a non-login shell.
 2. **`mcp__aside-codemode__execute_code`**, which can call `search.content` / `search.files` / `search.count` and then `fs.read` in one guest body.
 
-The harness does not expose Grep, Glob, ripgrep, `search_files`, or `codebase_search`. There is no tool whose job is “run rg and return the hits.” The rg binary is present because Aside bundles it for the product (codemode’s own backend). An agent that types `rg` in bash is using an undocumented implementation detail, not a provided tool.
+No documented harness tool runs rg and returns the hits. The rg binary is present in the skill runtime's utility bin, beside `pdftotext`, `python3` and `node`, vendored from Homebrew per `runtime/manifest.txt`. An agent that types `rg` in bash is using an undocumented implementation detail, not a provided tool.
+
+What this note does NOT claim, and an earlier draft did: that no such tool exists. A scan of `Aside.app/Contents/Resources` cannot settle that either way — the directory holds `Assets.car`, `app.icns`, the manifest and `scripting.sdef`, and no JavaScript. The agent is native (`Aside Framework.framework` plus `aside_resources.pak`) and a `strings` scan of both returns no tool names and no ripgrep reference. What is observed is the absence of a documented route, which is what the baseline argument actually needs.
 
 So the competent-agent baseline is BSD grep and BSD find:
 

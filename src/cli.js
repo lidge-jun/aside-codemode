@@ -11,7 +11,7 @@
 // call HANGS. (PowerShell does not hang; it mangles the argument into a parse error
 // instead.) Both were observed from a real Aside agent on 2026-09-14. Anything with a quote
 // in it should go through --code-file or stdin.
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +115,7 @@ if (has('--install-mcp')) {
   };
   // The proof of activation is the cached inventory Aside wrote, not our own report of
   // having asked for it.
+  let backupPath = null;
   const readInventory = () => {
     try {
       const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
@@ -122,6 +123,20 @@ if (has('--install-mcp')) {
         ? settings.mcp.inventories[MCP_SERVER] : null;
       return inv && Array.isArray(inv.tools) ? inv.tools.map((t) => t && t.name).filter(Boolean) : [];
     } catch { return []; }
+  };
+  // Aside finishes its migration after the session process is gone, so the restore has to wait
+  // for the version key to come back before it can see what was switched off.
+  const readState = () => {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+      const mcp = (settings && settings.mcp) || {};
+      return {
+        version: Object.prototype.hasOwnProperty.call(mcp, 'toolInventoryMigrationVersion') ? mcp.toolInventoryMigrationVersion : null,
+        servers: Object.keys(mcp.servers || {}),
+        inventories: Object.keys(mcp.inventories || {}),
+        refreshedAt: mcp.inventories && mcp.inventories[MCP_SERVER] ? mcp.inventories[MCP_SERVER].refreshedAt || null : null,
+      };
+    } catch { return null; }
   };
 
   const result = await activateMcp({
@@ -133,12 +148,26 @@ if (has('--install-mcp')) {
     discover: !has('--no-discovery'),
     run,
     readInventory,
+    readState,
+    onSnapshot: (snapshot) => {
+      // The daemon just handed over the only copy of what this account looked like. It goes
+      // next to the settings file, under the same .bak convention the file-path installer
+      // already uses, so a crash between here and the restore still leaves a way back.
+      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      backupPath = settingsPath + '.codemode-bak-' + stamp;
+      writeFileSync(backupPath, JSON.stringify({ mcp: snapshot }, null, 2) + String.fromCharCode(10));
+    },
   });
-  const report = { ...result, account: 'u' + target.id, settingsPath, server: MCP_SERVER, entry };
+  const report = { ...result, account: 'u' + target.id, settingsPath, backupPath, server: MCP_SERVER, entry };
   if (has('--json')) console.log(JSON.stringify(report, null, 2));
   else {
     console.log((report.ok ? 'ok' : 'failed') + ': ' + MCP_SERVER + ' on account u' + target.id);
     if (Array.isArray(report.tools)) console.log('cached tools: ' + (report.tools.join(', ') || '(none)'));
+    if (report.restored && report.restored.length) console.log('switched back on: ' + report.restored.join(', '));
+    if (report.lostInventories && report.lostInventories.length) {
+      console.log('these servers lost their cached tools and will be rediscovered on their next session: ' + report.lostInventories.join(', '));
+    }
+    if (report.rolledBack) console.log('the account was rolled back to the state in ' + backupPath);
     if (report.error) console.error('error: ' + report.error + (report.detail ? ' - ' + report.detail : ''));
     if (report.blocked) {
       console.error('other MCP servers would be reset by this write: ' + [...new Set([...(report.atRisk || []), ...(report.cached || [])])].join(', '));

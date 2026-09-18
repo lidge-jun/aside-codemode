@@ -88,3 +88,4 @@ Not yet described, with the reason recorded in the manifest:
 - [`ADR-0009-the-staleness-guard-is-mandatory-for-writes.md`](decisions/ADR-0009-the-staleness-guard-is-mandatory-for-writes.md) — ADR-0009 — decision recorded under "Acting on a page"
 - [`ADR-0010-attach-is-a-write-path-too.md`](decisions/ADR-0010-attach-is-a-write-path-too.md) — ADR-0010 — decision recorded under "Acting on a page"
 - [`ADR-0011-the-block-carries-what-an-error-cannot-say.md`](decisions/ADR-0011-the-block-carries-what-an-error-cannot-say.md) — ADR-0011 — decision recorded under "The budget"
+- [`ADR-0012-force-restores-what-it-switched-off.md`](decisions/ADR-0012-force-restores-what-it-switched-off.md) — ADR-0012 — decision recorded under "What an install writes"

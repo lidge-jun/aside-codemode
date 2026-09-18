@@ -134,8 +134,18 @@ server's cached inventory. Discovery then visits those servers again; Aside disa
 cannot reach and does not retry it automatically. `codemode --install-mcp` therefore refuses
 when another enabled MCP server or another cached inventory exists. It names what is at risk,
 prints the two commands it would have run, and makes no change. Use
-`codemode --install-mcp --account u1 --force` only when every other server is reachable and you
-accept rediscovering all of their tools.
+`codemode --install-mcp --account u1 --force` when you accept rediscovering their tools.
+
+`--force` is not a shrug. Before it writes, it takes the account's whole `mcp` object out of the
+daemon and saves it beside the settings file as `settings.json.codemode-bak-<stamp>`. If the
+discovery session fails, or if `execute_code` is not in the inventory afterwards, that snapshot
+goes straight back and the run reports `rolledBack`. If it succeeds, the command waits for
+Aside's migration to finish and then switches back on every server that was enabled before and
+is disabled now, naming them in `restored`, and naming in `lostInventories` the servers whose
+cached tools were dropped. Those caches are not rebuilt by hand: Aside rediscovers them on their
+next session, and a cache written from a snapshot is a claim about a tool definition nobody
+re-read. [Measured](evidence/mcp-force-restore-260918.md) against an unreachable probe server:
+Aside disabled it 2.0 s into the run and the restore switched it back on at 3.6 s.
 
 For a machine that already has other MCP servers, the older file-based path remains available.
 From the package checkout, run

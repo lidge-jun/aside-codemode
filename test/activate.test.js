@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  renderActivationScript, planActivation, activateMcp,
+  renderActivationScript, renderRestoreScript, planActivation, activateMcp,
   normalizedServerEntry, normalizeAccount, DISCOVERY_PROMPT,
 } from '../src/activate.js';
 
@@ -162,7 +162,8 @@ test('a discovery run that cached nothing is not reported as activated', async (
   });
   assert.equal(r.activated, false);
   assert.equal(r.ok, false);
-  assert.match(r.next, /not in the cached inventory/);
+  assert.match(r.error, /not in the cached inventory/);
+  assert.match(r.next, /starts and speaks MCP/);
 });
 
 test("another enabled server stops the write and the session never runs", async () => {
@@ -231,7 +232,7 @@ test('someone else\'s cached tool is not our activation', async () => {
   });
   assert.equal(r.activated, false);
   assert.equal(r.ok, false);
-  assert.match(r.next, /execute_code is not in the cached inventory/);
+  assert.match(r.error, /execute_code is not in the cached inventory/);
 });
 
 test('--no-discovery registers and says so instead of claiming an inventory', async () => {
@@ -247,6 +248,181 @@ test('--no-discovery registers and says so instead of claiming an inventory', as
   assert.equal(r.activated, false);
   assert.equal(r.discoveryRan, false);
   assert.match(r.next, /Start any Aside session/);
+});
+
+// --force pays for the install with other servers. Aside disables one it cannot reach during
+// the discovery pass and never retries it, so what this suite has to prove is that the switch
+// comes back and the cache is not forged.
+const twoServers = {
+  toolInventoryMigrationVersion: 1,
+  servers: {
+    'aside-codemode': { enabled: true, transport: 'stdio', command: 'old', args: [], env: {} },
+    other: { enabled: true, command: 'somewhere-unreachable' },
+  },
+  inventories: { 'aside-codemode': { tools: [{ name: 'execute_code' }] }, other: { tools: [{ name: 'other_tool' }] } },
+};
+
+test('the abort puts the account back exactly as it was', async () => {
+  const script = renderRestoreScript({ snapshot: twoServers, mode: 'full' });
+  const { state, sets, printed } = await runInFakeDaemon(script, { servers: {}, somethingElse: 1 });
+  assert.equal(sets.length, 1);
+  assert.deepEqual(state.mcp, twoServers);
+  assert.equal(printed[0].mode, 'full');
+  assert.equal(printed[0].version, 1);
+});
+
+test('the success path turns the other server back on and forges nothing', async () => {
+  // What the daemon looks like after a forced discovery that could not reach the other server.
+  const afterDiscovery = {
+    toolInventoryMigrationVersion: 1,
+    servers: {
+      'aside-codemode': { enabled: true, transport: 'stdio', command: 'new', args: [], env: {} },
+      other: { enabled: false, command: 'somewhere-unreachable' },
+    },
+    inventories: { 'aside-codemode': { tools: [{ name: 'execute_code' }] } },
+  };
+  const script = renderRestoreScript({ snapshot: twoServers, mode: 'enabled' });
+  const { state, printed } = await runInFakeDaemon(script, afterDiscovery);
+  assert.deepEqual(printed[0].restored, ['other']);
+  assert.deepEqual(printed[0].lostInventories, ['other']);
+  assert.deepEqual(printed[0].stillOff, []);
+  assert.equal(state.mcp.servers.other.enabled, true);
+  // The cache stays missing. Aside rebuilds it the next time the server answers, and a cache
+  // written from a snapshot is a claim about a tool definition nobody re-read.
+  assert.equal(state.mcp.inventories.other, undefined);
+  assert.deepEqual(state.mcp.servers['aside-codemode'].command, 'new');
+});
+
+test('a server that was already off stays off, because somebody decided that', async () => {
+  const snapshot = {
+    servers: { 'aside-codemode': { enabled: true }, muted: { enabled: false } },
+    inventories: {},
+  };
+  const after = {
+    servers: { 'aside-codemode': { enabled: true }, muted: { enabled: false } },
+    inventories: {},
+  };
+  const { sets, printed } = await runInFakeDaemon(renderRestoreScript({ snapshot, mode: 'enabled' }), after);
+  assert.deepEqual(printed[0].restored, []);
+  assert.equal(sets.length, 0, 'nothing to restore must not write settings');
+});
+
+test('a failed discovery session rolls the account back and says so', async () => {
+  const calls = [];
+  const r = await activateMcp({
+    entry,
+    force: true,
+    run: async (cmd, args) => {
+      const script = args.at(-1);
+      calls.push(script.includes('SNAPSHOT') ? 'restore' : (args.includes('exec') ? 'session' : 'set'));
+      if (args.includes('exec')) return { code: 1, stdout: '', stderr: 'session failed' };
+      if (script.includes('SNAPSHOT')) return { code: 0, stdout: JSON.stringify({ codemodeActivation: 1, ok: true, mode: 'full' }), stderr: '' };
+      return { code: 0, stdout: replOk({ before: twoServers }), stderr: '' };
+    },
+    readInventory: () => { throw new Error('the inventory must not be read after a failed session'); },
+  });
+  assert.deepEqual(calls, ['set', 'session', 'restore']);
+  assert.equal(r.ok, false);
+  assert.equal(r.rolledBack, true);
+  assert.equal(r.registered, false);
+});
+
+test('the snapshot reaches the caller before anything can go wrong with it', async () => {
+  let saved = null;
+  await activateMcp({
+    entry,
+    force: true,
+    onSnapshot: (s) => { saved = s; },
+    run: async (cmd, args) => {
+      const script = args.at(-1);
+      if (args.includes('exec')) return { code: 0, stdout: 'ok', stderr: '' };
+      if (script.includes('SNAPSHOT')) return { code: 0, stdout: JSON.stringify({ codemodeActivation: 1, ok: true, mode: 'enabled', restored: ['other'], lostInventories: ['other'], stillOff: [] }), stderr: '' };
+      return { code: 0, stdout: replOk({ before: twoServers }), stderr: '' };
+    },
+    readInventory: () => ['execute_code'],
+  });
+  assert.deepEqual(saved, twoServers);
+});
+
+test('a single-server account pays nothing for the restore it does not need', async () => {
+  const scripts = [];
+  const r = await activateMcp({
+    entry,
+    run: async (cmd, args) => {
+      scripts.push(args.at(-1));
+      if (args.includes('exec')) return { code: 0, stdout: 'ok', stderr: '' };
+      return { code: 0, stdout: replOk({ before: { servers: { 'aside-codemode': { enabled: true } }, inventories: {} } }), stderr: '' };
+    },
+    readInventory: () => ['execute_code'],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(scripts.filter((s) => s.includes('SNAPSHOT')).length, 0);
+  assert.deepEqual(r.restored, []);
+});
+
+// Aside finishes the migration after the session process is gone. Measured on macOS: the write
+// landed at 1.4s, the migration wrote its result at 2.0s, and a restore that ran in between
+// saw a state where nothing had been switched off yet and truthfully reported nothing to do.
+test('the restore waits for the migration to finish before it compares', async () => {
+  const order = [];
+  let reads = 0;
+  const snapshot = {
+    toolInventoryMigrationVersion: 1,
+    servers: { 'aside-codemode': { enabled: true }, other: { enabled: true } },
+    inventories: { 'aside-codemode': { tools: [{ name: 'execute_code' }], refreshedAt: 'OLD' } },
+  };
+  const r = await activateMcp({
+    entry,
+    force: true,
+    settleIntervalMs: 1,
+    wait: async () => { order.push('wait'); },
+    readState: async () => {
+      reads += 1,
+      order.push('read');
+      // The first two reads are the state before the migration wrote anything: the version key
+      // is back but the inventory is the same one the snapshot has.
+      return reads < 3 ? { version: 1, refreshedAt: 'OLD' } : { version: 1, refreshedAt: 'NEW' };
+    },
+    run: async (cmd, args) => {
+      const script = args.at(-1);
+      if (args.includes('exec')) { order.push('session'); return { code: 0, stdout: 'ok', stderr: '' }; }
+      if (script.includes('SNAPSHOT')) { order.push('restore'); return { code: 0, stdout: JSON.stringify({ codemodeActivation: 1, ok: true, mode: 'enabled', restored: ['other'], lostInventories: [], stillOff: [] }), stderr: '' }; }
+      order.push('set');
+      return { code: 0, stdout: replOk({ before: snapshot }), stderr: '' };
+    },
+    readInventory: () => ['execute_code'],
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.restored, ['other']);
+  assert.equal(order.indexOf('restore') > order.lastIndexOf('read'), true, 'the restore ran before the state settled: ' + order.join(','));
+  assert.equal(order.filter((o) => o === 'wait').length, 2, order.join(','));
+  const settle = r.steps.find((s) => s.step === 'settle');
+  assert.equal(settle.settled, true);
+});
+
+test('a settle that never happens is reported, not waited on forever', async () => {
+  const r = await activateMcp({
+    entry,
+    force: true,
+    settleTimeoutMs: 5,
+    settleIntervalMs: 1,
+    wait: async () => {},
+    readState: async () => ({ version: 1, refreshedAt: 'OLD' }),
+    run: async (cmd, args) => {
+      const script = args.at(-1);
+      if (args.includes('exec')) return { code: 0, stdout: 'ok', stderr: '' };
+      // The real script reports ok from stillOff being empty, so the stub has to as well.
+      if (script.includes('SNAPSHOT')) return { code: 0, stdout: JSON.stringify({ codemodeActivation: 1, ok: false, mode: 'enabled', restored: [], lostInventories: [], stillOff: ['other'] }), stderr: '' };
+      return { code: 0, stdout: replOk({ before: { servers: { 'aside-codemode': {}, other: { enabled: true } }, inventories: { 'aside-codemode': { refreshedAt: 'OLD' } } } }), stderr: '' };
+    },
+    readInventory: () => ['execute_code'],
+  });
+  const settle = r.steps.find((s) => s.step === 'settle');
+  assert.equal(settle.settled, false);
+  // And a server that could not be switched back on is named rather than glossed over.
+  assert.deepEqual(r.stillOff, ['other']);
+  assert.equal(r.ok, false);
+  assert.match(r.next, /could not be switched back on/);
 });
 
 test('an account id is accepted in either spelling the user has', () => {

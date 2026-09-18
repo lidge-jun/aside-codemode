@@ -114,7 +114,8 @@ test('a discovery pass that cached nothing of ours fails the command', { skip: s
   assert.equal(out.status, 1);
   const report = JSON.parse(out.stdout);
   assert.equal(report.activated, false);
-  assert.match(report.next, /not in the cached inventory/);
+  assert.match(report.error, /not in the cached inventory/);
+  assert.match(report.next, /starts and speaks MCP/);
 });
 
 test('an aside CLI that is not there says so', () => {

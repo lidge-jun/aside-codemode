@@ -66,9 +66,85 @@ export function renderActivationScript({ server, entry, force = false }) {
     '  const m = (after && after.mcp) || {};',
     '  console.log(JSON.stringify({ codemodeActivation: 1, ok: true, wrote: NAME, servers: Object.keys(m.servers || {}),',
     '    version: Object.prototype.hasOwnProperty.call(m, "toolInventoryMigrationVersion") ? m.toolInventoryMigrationVersion : null,',
-    '    inventories: Object.keys(m.inventories || {}), keys: Object.keys(m).sort() }));',
+    '    inventories: Object.keys(m.inventories || {}), keys: Object.keys(m).sort(),',
+    '    before: mcp }));',
+    // The snapshot leaves the daemon with the answer, because the account this write is about
+    // to change is the only place that still knows what it looked like. The host keeps it, and
+    // an abort writes it straight back.
     '}',
   ].join('\n');
+}
+
+export const RESTORE_MODES = Object.freeze(['full', 'enabled']);
+
+/**
+ * The script that puts things back.
+ *
+ * full is the abort: the snapshot goes back exactly as it was, because the run learned
+ * nothing and the account should look untouched. enabled is the success path, and it moves one
+ * field. Aside disables a server it could not reach during discovery and never retries it, so
+ * the switch is the part nobody else will turn back on. The cached inventory is deliberately
+ * not restored: writing Aside's tool cache by hand is the one thing this installer has always
+ * refused to do, and the next session rebuilds it anyway.
+ */
+// The repl refuses a script that mentions a module loader, and the snapshot carries this
+// project's own tool description, which explains that import() and require do not exist in the
+// guest. Embedding it verbatim was measured failing with "External modules are not available
+// in the REPL", so the payload travels encoded and is decoded inside the daemon.
+function encodePayload(value) {
+  return 'JSON.parse(atob(' + JSON.stringify(Buffer.from(JSON.stringify(value), 'utf8').toString('base64')) + '))';
+}
+
+export function renderRestoreScript({ snapshot, mode = 'enabled', server = 'aside-codemode' }) {
+  if (!snapshot || typeof snapshot !== 'object') throw new TypeError('renderRestoreScript needs the snapshot taken before the write');
+  if (!RESTORE_MODES.includes(mode)) throw new TypeError('renderRestoreScript mode must be one of: ' + RESTORE_MODES.join(', '));
+  const snap = encodePayload(snapshot);
+  const name = JSON.stringify(server);
+  if (mode === 'full') {
+    return [
+      'const SNAPSHOT = ' + snap + ';',
+      'await aside.settings.set("mcp", SNAPSHOT);',
+      'const after = await aside.settings.getAll();',
+      'const m = (after && after.mcp) || {};',
+      'console.log(JSON.stringify({ codemodeActivation: 1, ok: true, mode: "full",',
+      '  servers: Object.keys(m.servers || {}), inventories: Object.keys(m.inventories || {}),',
+      '  version: Object.prototype.hasOwnProperty.call(m, "toolInventoryMigrationVersion") ? m.toolInventoryMigrationVersion : null }));',
+    ].join(String.fromCharCode(10));
+  }
+  return [
+    'const SNAPSHOT = ' + snap + ';',
+    'const NAME = ' + name + ';',
+    'const s = await aside.settings.getAll();',
+    'const mcp = (s && s.mcp) || {};',
+    'const servers = Object.assign({}, mcp.servers || {});',
+    'const was = (SNAPSHOT && SNAPSHOT.servers) || {};',
+    'const wasInv = (SNAPSHOT && SNAPSHOT.inventories) || {};',
+    'const nowInv = mcp.inventories || {};',
+    'const restored = [];',
+    'for (const n of Object.keys(was)) {',
+    '  if (n === NAME) continue;',
+    // An absent enabled field is how a server says nothing, and discovery only ever writes
+    // the explicit false. So the ones to turn back on are those that were not explicitly off
+    // and are explicitly off now.
+    '  const before = was[n] && was[n].enabled !== false;',
+    '  const now = servers[n] && servers[n].enabled !== false;',
+    '  if (before && !now && servers[n]) {',
+    '    servers[n] = Object.assign({}, servers[n], { enabled: true });',
+    '    restored.push(n);',
+    '  }',
+    '}',
+    'const lostInventories = Object.keys(wasInv).filter((n) => n !== NAME && !nowInv[n]);',
+    'if (restored.length) {',
+    '  const next = Object.assign({}, mcp);',
+    '  next.servers = servers;',
+    '  await aside.settings.set("mcp", next);',
+    '}',
+    'const after = await aside.settings.getAll();',
+    'const m = (after && after.mcp) || {};',
+    'const stillOff = Object.keys(was).filter((n) => n !== NAME && was[n] && was[n].enabled !== false && m.servers && m.servers[n] && m.servers[n].enabled === false);',
+    'console.log(JSON.stringify({ codemodeActivation: 1, ok: stillOff.length === 0, mode: "enabled",',
+    '  restored, lostInventories, stillOff }));',
+  ].join(String.fromCharCode(10));
 }
 
 /** The two commands, in order, that carry an entry from a script into a cached inventory. */
@@ -132,6 +208,9 @@ function parseReplJson(stdout) {
 export async function activateMcp({
   server = 'aside-codemode', entry, account = null, asideCli = 'aside',
   force = false, discover = true, run, readInventory = null, requireTool = 'execute_code',
+  onSnapshot = null, readState = null,
+  settleTimeoutMs = 15000, settleIntervalMs = 250,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   if (typeof run !== 'function') throw new TypeError('activateMcp needs a run(cmd, args) function');
   const steps = [];
@@ -159,6 +238,25 @@ export async function activateMcp({
     return fail(steps, 'the tool-inventory migration was not reset, so discovery will not run', 'version=' + String(parsed.version), {});
   }
 
+  // What the account looked like a moment ago. The daemon is the only thing that still knew,
+  // and from here on every failure has somewhere to go back to.
+  const snapshot = parsed.before && typeof parsed.before === 'object' ? parsed.before : null;
+  const others = snapshot && snapshot.servers
+    ? Object.keys(snapshot.servers).filter((n) => n !== server)
+    : [];
+  if (snapshot && typeof onSnapshot === 'function') {
+    try { await onSnapshot(snapshot); } catch { /* a backup we could not write is not a reason to stop */ }
+  }
+
+  const accountArgs = account ? ['--account', normalizeAccount(account)] : [];
+  const restore = async (mode) => {
+    if (!snapshot) return null;
+    const res = await run(asideCli, [...accountArgs, 'repl', renderRestoreScript({ snapshot, mode, server })]);
+    const answer = parseReplJson(res && res.stdout);
+    steps.push({ step: 'restore-' + mode, code: res ? res.code : null, parsed: answer });
+    return answer;
+  };
+
   if (!discover) {
     return { ok: true, activated: false, registered: true, discoveryRan: false, steps, tools: null,
       next: 'Start any Aside session to let discovery cache the inventory.' };
@@ -167,7 +265,39 @@ export async function activateMcp({
   const session = await run(plan[1].cmd, plan[1].args);
   steps.push({ step: 'discovery-session', code: session ? session.code : null });
   if (!session || session.code !== 0) {
-    return fail(steps, 'the discovery session failed', session && session.stderr ? String(session.stderr).trim() : null, { registered: true });
+    // Nothing was learned, so the account goes back exactly as it was.
+    const back = await restore('full');
+    return fail(steps, 'the discovery session failed', session && session.stderr ? String(session.stderr).trim() : null,
+      { registered: false, rolledBack: Boolean(back && back.ok) });
+  }
+
+  // The session process exits before Aside finishes the migration it started. Measured on
+  // macOS: our write landed at 1.2s and the migration wrote its result at 2.0s, disabling the
+  // server it could not reach. A restore that ran in between compared against a state where
+  // nothing had been switched off yet and reported, truthfully and uselessly, that there was
+  // nothing to restore. So the migration version coming back is what says the pass is over.
+  let settled = null;
+  if (typeof readState === 'function') {
+    const started = Date.now();
+    // The version key alone cannot say the pass is over: it reads the same before the write
+    // and after the migration. What only the migration produces is a new refreshedAt on this
+    // server's cached inventory, so that is the marker, with the version key as the fallback
+    // for an account that had no inventory to begin with.
+    const priorRefreshedAt = snapshot && snapshot.inventories && snapshot.inventories[server]
+      ? snapshot.inventories[server].refreshedAt || null
+      : null;
+    const done = (state) => {
+      if (!state) return false;
+      if (state.version === null || state.version === undefined) return false;
+      if (priorRefreshedAt === null) return true;
+      return Boolean(state.refreshedAt) && state.refreshedAt !== priorRefreshedAt;
+    };
+    while (Date.now() - started < settleTimeoutMs) {
+      settled = await readState();
+      if (done(settled)) break;
+      await wait(settleIntervalMs);
+    }
+    steps.push({ step: 'settle', ms: Date.now() - started, settled: done(settled) });
   }
 
   const tools = typeof readInventory === 'function' ? await readInventory() : null;
@@ -176,15 +306,30 @@ export async function activateMcp({
   const activated = Array.isArray(tools)
     ? (requireTool ? tools.includes(requireTool) : tools.length > 0)
     : null;
+  if (activated === false) {
+    // The write did not buy anything, so it does not get to keep the cost either.
+    const back = await restore('full');
+    return fail(steps, 'discovery ran but ' + (requireTool || 'no tool') + ' is not in the cached inventory', null,
+      { registered: true, discoveryRan: true, tools, rolledBack: Boolean(back && back.ok),
+        next: 'Check that the command in the entry starts and speaks MCP.' });
+  }
+
+  // Success, and the only thing owed to the other servers is the switch. Their caches come
+  // back on their own; a server Aside turned off does not.
+  const restored = others.length ? await restore('enabled') : null;
   return {
-    ok: activated !== false,
+    ok: activated !== false && (!restored || restored.ok !== false),
     registered: true,
     activated,
     discoveryRan: true,
     steps,
     tools,
-    next: activated === false
-      ? 'Discovery ran but ' + (requireTool || 'no tool') + ' is not in the cached inventory. Check that the command in the entry starts and speaks MCP.'
+    restored: restored ? restored.restored || [] : [],
+    lostInventories: restored ? restored.lostInventories || [] : [],
+    stillOff: restored ? restored.stillOff || [] : [],
+    next: restored && restored.stillOff && restored.stillOff.length
+      ? 'Aside disabled these servers during discovery and they could not be switched back on: '
+        + restored.stillOff.join(', ') + '. The settings backup this run wrote has their original state.'
       : null,
   };
 }

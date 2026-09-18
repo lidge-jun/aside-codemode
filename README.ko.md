@@ -130,8 +130,16 @@ MCP 서버는 macOS와 Windows에서 Aside 번들 네이티브 ripgrep을 자동
 찾기 과정은 그 서버들을 다시 방문합니다. 이때 연결할 수 없는 서버는 Aside가 끄고 자동으로 다시
 시도하지 않습니다. 그래서 `codemode --install-mcp`는 다른 활성 MCP 서버나 다른 도구 목록 캐시가
 하나라도 있으면 거부합니다. 위험한 서버 이름과 원래 실행할 두 명령을 보여주고 설정은 바꾸지 않습니다.
-다른 서버가 모두 연결 가능한 상태이고 도구를 전부 다시 찾는 데 동의할 때만
-`codemode --install-mcp --account u1 --force`를 씁니다.
+도구를 전부 다시 찾는 데 동의한다면 `codemode --install-mcp --account u1 --force`를 씁니다.
+
+`--force`는 그냥 밀어붙이는 옵션이 아닙니다. 쓰기 전에 계정의 `mcp` 객체 전체를 데몬에서 꺼내
+설정 파일 옆에 `settings.json.codemode-bak-<stamp>`로 저장합니다. 찾기 세션이 실패하거나 그 뒤에
+`execute_code`가 목록에 없으면 그 스냅샷을 그대로 되돌리고 결과에 `rolledBack`을 적습니다.
+성공하면 Aside의 마이그레이션이 끝날 때까지 기다린 뒤, 전에는 켜져 있었는데 지금 꺼져 있는 서버를
+다시 켜고 그 이름을 `restored`에, 캐시를 잃은 서버 이름을 `lostInventories`에 적습니다. 캐시는
+손으로 다시 쓰지 않습니다. 그건 아무도 다시 읽지 않은 도구 정의를 사실처럼 적는 일이고, Aside가
+다음 세션에서 알아서 만듭니다. 도달 불가 서버를 넣고 [실측한 결과](evidence/mcp-force-restore-260918.md),
+Aside는 2.0초에 그 서버를 껐고 복원은 3.6초에 다시 켰습니다.
 
 다른 MCP 서버를 쓰는 기계에서는 예전 파일 기반 경로도 그대로 쓸 수 있습니다. 패키지 체크아웃에서
 `node scripts/install-codemode.mjs install --account 0 --json`을 실행해 `settings.json`을 쓴 다음,

@@ -66,6 +66,13 @@ with the bundled ripgrep resolved, and a guest search through `npx -y aside-code
 --code` returned one row with `complete: true`. The published artifact runs; that run says
 nothing about activation on this host, which was measured separately above.
 
+At 0.8.1 the same command was run across every machine on this network that carries Aside:
+two Windows hosts and four macOS accounts, installed from the registry, each ending with
+`activated: true` and `execute_code` cached, and each caching the 2,019-byte tool description
+that release shipped. One machine could not be done this way. Aside was installed there but
+the browser was not running, and `aside repl` says so plainly. The command reported that as a
+failure rather than registering an entry nothing would ever discover.
+
 ## Refusal guard
 
 Deleting `inventories` drops every other server's cached inventory too, so those servers

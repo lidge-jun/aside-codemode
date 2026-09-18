@@ -143,7 +143,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.leakedTabs',
     description: "Tabs THIS TOOL opened that are still sitting in the browser with the run that opened them gone. Reports; never closes.",
-    signature: 'browse.leakedTabs() => Promise<{ok,tabs:[{targetId,url,jobId,runId,pid,leftAt}],checked}>',
+    signature: 'browse.leakedTabs() => Promise<{ok,tabs:[{targetId,url,jobId,runId,pid,leftAt}],checked?,code?,error?}>',
     inputs: {},
     notes: "A killed run cannot close its own tabs, and before this there was no way to tell which ones were ours. A tab is named only if it is in the journal, was never reported closed, belongs to a run that is no longer running, and is open right now - so a tab this tool did not open is never named, which is how the user's own tabs stay out of it. It cannot see a tab opened by a run that died before the host recorded anything, and it does not promise the tabs can be closed: the same measurement that found the leak found that a known targetId could not be closed either. Hand the list to a person.",
   },

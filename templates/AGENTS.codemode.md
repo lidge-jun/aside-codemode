@@ -18,8 +18,8 @@ A signed-in batch shares one session: sign in natively first, pass its `loggedIn
 batch. If it expires partway the rest read a login page; a missing marker is `needs_input`.
 `ok`, `completed`, HTTP 200 and `contentVerified` say the call worked. None of them says
 the page holds what you asked for. Name the content you expect, or you have not checked it.
-A search says it the same way: `complete:false`, `truncated` or a `skippedSymlinks` count
-means rows are missing, so an empty result is not evidence of absence; project those out too.
+A search says the same: `complete:false`, `truncated` or `skippedSymlinks` mean rows are missing, so an empty result is not evidence of absence.
+Nor is a clean one: a pruned walk never sees a match, so absence needs every `scope.coverage` entry `off` too.
 
 An open API or a server-rendered page is a fetch; an SPA whose HTML arrives empty needs rendered
 browsing. The test is whether the expected text survives deleting the script tags.

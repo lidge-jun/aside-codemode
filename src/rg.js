@@ -183,6 +183,13 @@ const BASE_ARGS = ['--no-config', '--path-separator=/'];
 // symlinks). Without --no-messages those land on stderr; surfacing them keeps
 // the happy path clean while making an incomplete traversal detectable instead
 // of looking like a clean zero.
+// A record the JSON parser could not read may have been a match, so it belongs in the same
+// place as a soft rg error: it lowers completeness through the existing predicate rather
+// than needing a new rule.
+function withUnparsable(partial, unparsableRecords) {
+  return unparsableRecords > 0 ? [...partial, 'unparsable-records'] : partial;
+}
+
 function partialLines(stderr) {
   if (!stderr) return [];
   return stderr.split(/\r?\n/).filter(Boolean).slice(0, 5);
@@ -204,7 +211,7 @@ function lineText(d) {
 
 // Flags shared by files/content/count. Kept in one place so the entry points
 // cannot drift in what they do or do not respect.
-function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded }) {
+function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded, binary }) {
   // Defence in depth: host/search.js rejects this before we are reached, but a
   // direct runner caller must not be able to make us spawn --follow either.
   if (followSymlinks === true) {
@@ -218,6 +225,9 @@ function discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeG
   // -uu equivalent, split so callers can pick one axis at a time.
   if (noIgnore) args.push('--no-ignore');
   if (hidden) args.push('--hidden');
+  // ripgrep skips binary content SILENTLY — no row, no stderr, exit 0. Opt-in, because
+  // always passing --text would spend the result budget on bytes nobody asked for.
+  if (binary) args.push('--text');
   if (maxFilesize != null) args.push('--max-filesize', String(maxFilesize));
   return args;
 }
@@ -250,9 +260,10 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       maxFilesize,
       timeoutMs,
       includeExcluded = false,
+      binary = false,
     }) {
       signal?.throwIfAborted();
-      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded, binary });
       const rg = await checkedResolveRg();
       // --null: a path may legally contain a newline, and splitting --files on
       // '\n' turned one such file into two bogus rows (or dropped it after a
@@ -261,6 +272,8 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       if (glob) args.push('-g', glob);
       args.push(dir);
       const out = [];
+      // --files emits NUL-delimited paths, not JSON, so nothing here can be unparsable.
+      const unparsableRecords = 0;
       const { truncated, stderr, killedBySignal } = await runStream(rg, args, {
         signal,
         max,
@@ -278,7 +291,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
         },
         onOverflow: () => { out.pop(); },
       });
-      const partial = partialLines(stderr);
+      const partial = withUnparsable(partialLines(stderr), unparsableRecords);
       const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(out, {
         truncated,
@@ -295,6 +308,8 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           hidden,
           followSymlinks,
           includeExcluded,
+          binary,
+          unparsableRecords,
           excludeGlobs,
           skippedSymlinks,
         }),
@@ -317,9 +332,10 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       maxFilesize,
       timeoutMs,
       includeExcluded = false,
+      binary = false,
     }) {
       signal?.throwIfAborted();
-      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded, binary });
       const rg = await checkedResolveRg();
       const args = [...BASE_ARGS, '--json'];
       if (ignoreCase) args.push('-i');
@@ -339,6 +355,9 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       // Matching lines are also context for nearby matches. Keep a bounded
       // recent-row window and update every hit still awaiting trailing context.
       let recent = [];
+      // A record this parser cannot read may have been a match. Swallowing it returned a
+      // short result set that still called itself complete, so it is counted and surfaced.
+      let unparsableRecords = 0;
       let openHits = [];
       const resetFile = () => { recent = []; openHits = []; };
       const remember = (row) => {
@@ -359,6 +378,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           try {
             ev = JSON.parse(line);
           } catch {
+            unparsableRecords += 1;
             return false;
           }
           if (ev.type === 'begin' || ev.type === 'end') {
@@ -393,7 +413,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           openHits = openHits.filter(entry => entry.hit !== dropped);
         },
       });
-      const partial = partialLines(stderr);
+      const partial = withUnparsable(partialLines(stderr), unparsableRecords);
       const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(hits, {
         truncated,
@@ -411,6 +431,8 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           hidden,
           followSymlinks,
           includeExcluded,
+          binary,
+          unparsableRecords,
           excludeGlobs,
           skippedSymlinks,
         }),
@@ -430,9 +452,10 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       maxFilesize,
       timeoutMs,
       includeExcluded = false,
+      binary = false,
     }) {
       signal?.throwIfAborted();
-      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded });
+      const discovery = discoveryArgs({ noIgnore, hidden, followSymlinks, maxFilesize, excludeGlobs, includeExcluded, binary });
       const rg = await checkedResolveRg();
       const args = [...BASE_ARGS, '--json'];
       if (ignoreCase) args.push('-i');
@@ -442,6 +465,9 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       args.push('--', query, dir);
       let matches = 0;
       const files = new Set();
+      // Same reason as the content path: an unreadable record may have been a match, and a
+      // count that silently omits one is worse than a count that says it is unsure.
+      let unparsableRecords = 0;
       // Counting matches as ACCEPTED rows is what makes a soft rg failure
       // survivable here: before, count reported zero accepted rows, so a single
       // unreadable directory (rg's soft exit 2) threw the whole call away
@@ -455,6 +481,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           try {
             ev = JSON.parse(line);
           } catch {
+            unparsableRecords += 1;
             return false;
           }
           if (ev.type !== 'match') return false;
@@ -463,7 +490,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           return true;
         },
       });
-      const partial = partialLines(stderr);
+      const partial = withUnparsable(partialLines(stderr), unparsableRecords);
       const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult({ matches, files: files.size }, {
         truncated: false,
@@ -479,6 +506,8 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           hidden,
           followSymlinks,
           includeExcluded,
+          binary,
+          unparsableRecords,
           excludeGlobs,
           skippedSymlinks,
         }),

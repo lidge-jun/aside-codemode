@@ -64,6 +64,19 @@ shows only the numeric row indices. Returning the result whole, or serializing i
 emits the envelope `{ rows, complete, truncated, partial, scope }`; a spread or mapped array
 is a projection and does not retain that metadata.
 
+`r.complete` answers one question: did the walk lose anything. It does NOT answer whether a
+string exists, because a walk can be pruned before it ever sees a match. `r.scope.coverage`
+names each pruning mechanism — `ignoreRules`, `hiddenFiles`, `excludeGlobs`, `fileSize`,
+`binaryContent`, `symlinks`, `recordParse`, `encoding`, `unicodeForms` — as `off`, `on` or
+`unknown`. "This string is not in the project" needs `complete: true` AND every coverage
+entry `off`; in practice that means `noIgnore`, `hidden`, `includeExcluded` and `binary` all
+true with no `maxFilesize`. `encoding` stays `unknown` because no `--encoding` is passed,
+so absence over text in an unsupported encoding cannot be proven here.
+
+`binary` deserves its own sentence: it defaults to false and ripgrep skips binary content
+SILENTLY. A `search.content` for a string that really is inside a compiled file returns zero
+rows with `complete: true`, while `search.files` still lists the file.
+
 `search.count` is the exception: it returns the plain count object `{ matches, files }`,
 decorated with the same non-enumerable metadata. On that result, `.matches` is the count.
 

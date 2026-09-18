@@ -28,6 +28,32 @@ test('the search guidance names the row-array return contract and the wrong prop
   assert.match(section, /search\.count[^\n]*exception/i);
 });
 
+// #35's surviving complaint was a DISCOVERY gap, not an envelope gap: the reporter fed a
+// 1.3 MB page into code mode, got a clipped result, and concluded that code mode could not
+// handle large pages. The body had arrived whole the entire time — only the RETURN was
+// capped. The reference already carried the sentence that would have prevented the detour,
+// and nothing asserted it, so it could have been edited away silently.
+test('the reference says the cap is on the return, and names the way around it', () => {
+  const flat = callShapes.replace(/\s+/g, ' ');
+  assert.match(flat, /too large for the envelope is still cut/i);
+  assert.match(flat, /check `chars` against what you got/i);
+  // The escape hatch has to be reachable from the same page, or the warning only teaches
+  // the reader to give up.
+  assert.match(flat, /fs\.write/);
+  assert.match(flat, /fs\.grepFile/);
+});
+
+// The resident description is paid for on every call, so the budget fact lives there in one
+// line. If it drifts out, the reference above is the only place left that says it, and the
+// reporter's wrong conclusion becomes reachable again.
+test('the resident description names the return-path cap', async () => {
+  const { TOOL_DEF } = await import('../src/tools.js');
+  const doc = TOOL_DEF.description;
+  assert.match(doc, /64 KiB/);
+  assert.match(doc, /RETURN path|return path/);
+  assert.match(doc, /fs\.grepFile/);
+});
+
 test('a real content search returns the decorated array the guidance describes', async (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'codemode-call-shapes-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

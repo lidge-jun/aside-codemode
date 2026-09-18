@@ -15,7 +15,7 @@ import { replaceAtomically } from './file-write.js';
 import { withFileLock, DEFAULT_LOCK_TIMEOUT_MS } from './file-lock.js';
 import { readBounded, readLines, eachLine, READ_CAP } from './file-read.js';
 import { applyLineEdits } from './line-edit.js';
-import { decorateSearchResult } from '../search-result.js';
+import { decorateSearchResult } from '../result-envelope.js';
 import { hasNonAscii, nfc } from '../unicode.js';
 
 // A single returned line is bounded so one pathological minified file cannot
@@ -246,7 +246,11 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
       if (!recursive) {
         const entries = await readdir(target, { withFileTypes: true });
         const out = [];
-        for (const e of entries.slice(0, max)) {
+        // max+1 is what distinguishes "more existed" from a complete answer exactly max
+        // long. src/rg-stream.js:10-14 already owns that rule for search; issue #37 was
+        // this method slicing at max and returning a bare array, so 18 of 21 entries
+        // vanished with nothing in the value saying so.
+        for (const e of entries.slice(0, max + 1)) {
           let size = null;
           try {
             size = e.isFile() ? (await stat(path.join(target, e.name))).size : null;
@@ -255,19 +259,29 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
           }
           out.push({ name: e.name, type: e.isDirectory() ? 'dir' : e.isFile() ? 'file' : 'other', size });
         }
-        return out;
+        const truncated = out.length > max;
+        if (truncated) out.length = max;
+        return decorateSearchResult(out, {
+          truncated,
+          partial: [],
+          scope: { kind: 'list', path: target, max, recursive: false },
+        });
       }
       const out = [];
+      const unreadable = [];
       const walk = async (dir, rel, d) => {
-        if (out.length >= max || d > depth) return;
+        if (out.length > max || d > depth) return;
         let entries;
         try {
           entries = await readdir(dir, { withFileTypes: true });
         } catch {
+          // An unreadable directory may hide a whole subtree, so coverage is no longer
+          // provable. Swallowing it returned a short list that called itself complete.
+          unreadable.push(rel || '.');
           return;
         }
         for (const e of entries) {
-          if (out.length >= max) return;
+          if (out.length > max) return;
           const name = rel ? `${rel}/${e.name}` : e.name;
           const abs = path.join(dir, e.name);
           if (e.isDirectory()) {
@@ -281,7 +295,15 @@ export function createFs({ assertInside, signal, lockTimeoutMs = DEFAULT_LOCK_TI
         }
       };
       await walk(target, '', 1);
-      return out;
+      const truncated = out.length > max;
+      if (truncated) out.length = max;
+      return decorateSearchResult(out, {
+        truncated,
+        partial: unreadable.length ? ['unreadable-dirs'] : [],
+        // depth is a SELECTOR: asking for depth 3 defines the request and does not make the
+        // answer incomplete. max and an unreadable directory are losses.
+        scope: { kind: 'list', path: target, max, recursive: true, depth, unreadableDirs: unreadable.slice(0, 10) },
+      });
     },
 
     async read_file({ path: p, offset, limit } = {}) {

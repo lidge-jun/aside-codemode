@@ -64,7 +64,7 @@ export function createReport({ session, assertInside, deps = {} } = {}) {
 
     const item = (res.items || [])[0] || {};
     if (!item.ok) throw new ReportError(`the report page did not render: ${item.error || item.code || 'unknown'}`, item.code || 'ERENDER');
-    if (!item.pdfName) return { ok: false, code: 'ENOPDF', error: 'the run wrote no pdf artifact' };
+    if (!item.pdfName) return { ok: false, complete: false, code: 'ENOPDF', error: 'the run wrote no pdf artifact' };
     // Same containment as a screenshot: host-generated name, read jailed under the session.
     const buf = deps.readPdf ? await deps.readPdf(res) : await containedRead(res.pwd, item.pdfName, deps);
     const box = verifyPageBox(buf, paper);
@@ -75,6 +75,12 @@ export function createReport({ session, assertInside, deps = {} } = {}) {
       path: dest,
       bytes: buf.length,
       pageBox: box,
+      // The run that printed this page can finish every job and still have lost something
+      // inside it. Building a fresh result out of pageBox alone threw that away, so a
+      // report over a truncated render came back ok:true with nothing else said.
+      complete: box.matched && res.complete !== false,
+      lostTo: res.lostTo,
+      runStatus: res.status,
       code: box.matched ? null : 'EPAGEBOX',
       error: box.matched ? null : box.reason,
     };

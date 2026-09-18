@@ -152,6 +152,24 @@ test('the block says an incomplete search is not an empty one', () => {
   assert.match(flat, /not evidence of absence/i);
 });
 
+// complete:true answers "did the walk lose anything". It does NOT answer "does this string
+// exist", because a walk can be pruned before it sees a match — issue #41 was a default
+// search reporting complete over eight of fifteen matching files. The installed guidance has
+// to carry the distinction, or the field is invisible to the reader who needs it.
+test('the installed guidance teaches coverage, not just completeness', () => {
+  const { agents, ref } = rendered();
+  const flat = agents.replace(/\s+/g, ' ');
+  assert.match(flat, /scope\.coverage/);
+  assert.match(flat, /absence needs every/i);
+
+  // The block is budgeted, so the mechanism list and the binary trap live in the skill
+  // reference. That is the split the block-length test exists to enforce.
+  const shapes = ref('call-shapes.md').replace(/\s+/g, ' ');
+  assert.match(shapes, /scope\.coverage/);
+  assert.match(shapes, /binaryContent/);
+  assert.match(shapes, /skips binary content/i);
+});
+
 // The block used one word for two things: the discovery namespace and a browse job's list of
 // action verbs. Taking `actions` for a dispatcher was the single most frequent wrong first
 // call, so the block has to separate them itself.

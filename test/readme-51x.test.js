@@ -57,6 +57,68 @@ test('old general-50x denial strings are gone', () => {
   }
 });
 
+// #42, second correction. The baseline decision was right — POSIX grep and find, with
+// ripgrep as the ceiling — and the evidence offered for it was not: that searching the
+// installed app bundle finds no Grep, Glob, ripgrep, search_files, grep_search or
+// codebase_search tool.
+//
+// That method is void. Aside.app/Contents/Resources holds Assets.car, app.icns, the manifest
+// and scripting.sdef, and no JavaScript at all, so searching it for tool names cannot find
+// tools whether or not they exist. The agent is native — Aside Framework.framework plus
+// aside_resources.pak — and a strings scan of both returns no tool names and no ripgrep
+// reference either. The absence is UNPROVEN, not proven, and AGENTS.md is explicit that this
+// repository does not write down what was not measured.
+//
+// What IS observed is the absence of a DOCUMENTED route, which is all the baseline argument
+// needs. These are the ten phrasings of the stronger claim, in both languages, banned by
+// exact string so the claim cannot come back in either README, the benchmark page, or the
+// evidence note that feeds them.
+//
+// Bare "does not expose" is deliberately NOT on this list: README.md uses it correctly about
+// the guest API not exposing require, process or fetch. A substring ban would have failed on
+// honest prose, which is how a guard gets deleted.
+const unmeasuredAbsence = [
+  'no tool that calls it',
+  'no harness tool that calls it',
+  'installed app bundle finds',
+  'app bundle finds no',
+  'nothing is wired to it',
+  'The harness does not expose',
+  '그걸 호출하는 도구가 없습니다',
+  '그걸 부르는 도구는 없습니다',
+  '설치된 앱 번들을 뒤져도',
+  '연결된 건 없습니다',
+];
+
+test('no page claims a tool does not exist, only that no documented route does', () => {
+  const pages = {
+    'README.md': readmeEn,
+    'README.ko.md': readmeKo,
+    'BENCHMARKS.md': readFileSync(path.join(root, 'BENCHMARKS.md'), 'utf8'),
+    'evidence/bench-260918/agent-baseline.md': readFileSync(path.join(root, 'evidence', 'bench-260918', 'agent-baseline.md'), 'utf8'),
+  };
+  const found = [];
+  for (const [name, text] of Object.entries(pages)) {
+    for (const phrase of unmeasuredAbsence) {
+      if (text.includes(phrase)) found.push(name + ' claims: ' + phrase);
+    }
+  }
+  assert.deepEqual(found, [], found.join(String.fromCharCode(10)));
+});
+
+// The honest claim has to actually be there, or the ban above is satisfied by saying nothing
+// and the baseline loses its reason.
+test('the pages say what was observed instead', () => {
+  assert.match(readmeEn, /no documented way to reach it/);
+  assert.match(readmeEn, /undocumented implementation detail/);
+  assert.match(readmeKo, /문서화된 접근 경로가 없습니다/);
+  const bench = readFileSync(path.join(root, 'BENCHMARKS.md'), 'utf8');
+  assert.match(bench, /no documented harness tool reaches it/);
+  // And the evidence note has to record what the void method could not settle.
+  const note = readFileSync(path.join(root, 'evidence', 'bench-260918', 'agent-baseline.md'), 'utf8');
+  assert.match(note, /cannot settle that either way/);
+});
+
 // The pruning sentence quoted 331,709 and 1,565,078 files for two years with no note saying
 // where they came from, and a re-measurement on another machine reproduced neither. Both
 // READMEs now quote the recorded run, and the note has to agree with them.

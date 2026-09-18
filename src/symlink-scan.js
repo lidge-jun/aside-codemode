@@ -54,7 +54,7 @@ export async function scanSkippedSymlinks(dir, {
   maxEntries = SYMLINK_SCAN_DEFAULTS.maxEntries,
   maxExamples = SYMLINK_SCAN_DEFAULTS.maxExamples,
 } = {}) {
-  const out = { dirs: 0, files: 0, examples: [], capped: false, scanned: 0 };
+  const out = { dirs: 0, files: 0, examples: [], capped: false, depthCapped: false, scanned: 0 };
   if (!dir) return out;
 
   const queue = [{ abs: dir, depth: 0 }];
@@ -85,7 +85,15 @@ export async function scanSkippedSymlinks(dir, {
         if (out.examples.length < maxExamples) out.examples.push(child);
         continue;
       }
-      if (entry.isDirectory() && depth + 1 <= maxDepth) queue.push({ abs: child, depth: depth + 1 });
+      if (entry.isDirectory()) {
+        if (depth + 1 <= maxDepth) queue.push({ abs: child, depth: depth + 1 });
+        // The census stopped at its depth bound rather than because there was nothing
+        // further. `capped` only ever covered the ENTRY bound, so depth exhaustion was
+        // invisible: a symlink at depth four left dirs:0, files:0 and nothing saying the
+        // scan had not looked. This does not lower `complete` (see below); it is what
+        // scope.coverage.symlinks reads to answer "unknown" instead of "off".
+        else out.depthCapped = true;
+      }
     }
   }
   return out;

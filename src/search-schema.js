@@ -135,6 +135,11 @@ const OPTS = {
     required: false,
     description: 'Disable the configured excludeGlobs pruning (Library, node_modules, …) for this call. The effective policy is reported on the result as `.scope`.',
   },
+  binary: {
+    type: 'boolean',
+    required: false,
+    description: 'Search binary files too (rg --text). DEFAULT false, because ripgrep skips binary content SILENTLY: a string inside a compiled file is invisible to search.content while search.files still lists the file. Set true when you need to prove a string is absent; scope.coverage.binaryContent stays "unknown" until you do.',
+  },
   followSymlinks: {
     type: 'boolean',
     required: false,
@@ -144,7 +149,7 @@ const OPTS = {
   },
 };
 
-const DISCOVERY_ORDER = ['noIgnore', 'hidden', 'followSymlinks', 'includeExcluded', 'maxFilesize', 'timeoutMs'];
+const DISCOVERY_ORDER = ['noIgnore', 'hidden', 'followSymlinks', 'includeExcluded', 'binary', 'maxFilesize', 'timeoutMs'];
 
 const FILES_ORDER = ['path', 'pattern', 'glob', 'max', ...DISCOVERY_ORDER];
 const CONTENT_ORDER = [
@@ -170,21 +175,21 @@ export const SEARCH_ACTIONS = [
   {
     path: 'search.files',
     description: 'First call for any directory or project filename search. Returns file paths and streams to the `max` cap, so a large tree is safe.',
-    signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
+    signature: 'search.files({ path, pattern?, glob?, max?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, binary?, maxFilesize?, timeoutMs? }) => Promise<string[]>',
     notes: "Returns an array usable with .length/.map/.filter. Non-enumerable `.truncated`, `.partial`, `.complete` and `.scope` describe the search itself; JSON serialization emits {rows,complete,truncated,partial,scope}. Returning only .length or a .map() projection deliberately drops that state — it is not a claim that the search was complete. `pattern` is a substring filter and `glob` is the glob: pattern:'*.pdf' is rejected with the glob you probably meant, instead of returning zero rows. Non-ASCII patterns and globs search both NFC and NFD and union paths without changing the bytes returned. `.scope.normalization` reports the forms searched and whether both finished completely. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu). A skipped FILE symlink is counted in scope.skippedSymlinks but does not lower completeness; only a skipped directory does.",
     inputs: inputsFor(FILES_ORDER),
   },
   {
     path: 'search.content',
     description: 'First call for any directory or project content search. Searches file contents and returns matching lines with file, line number and optional context.',
-    signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text,context?}[]>',
+    signature: 'search.content({ query, path, glob?, context?, max?, ignoreCase?, fixedStrings?, wordRegexp?, multiline?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, binary?, maxFilesize?, timeoutMs? }) => Promise<{file,line,text,context?}[]>',
     notes: '`max` is a GLOBAL cap on returned rows (not ripgrep --max-count, which is per-file). `context` lines are attached as {before,after} on the hit and never consume the max budget. Non-ASCII queries and globs search both NFC and NFD and union hits by path/line/content; `.scope.normalization` reports whether both forms finished completely. Unknown options and invalid values are rejected rather than ignored. Inclusive glob can match some gitignored/hidden files even when noIgnore/hidden are false (ripgrep -g precedence, not -uuu).',
     inputs: inputsFor(CONTENT_ORDER),
   },
   {
     path: 'search.count',
     description: 'First call to size any directory or project content search. Returns match and matching-file counts without returning rows.',
-    signature: 'search.count({ query, path, glob?, ignoreCase?, fixedStrings?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, maxFilesize?, timeoutMs? }) => Promise<{matches,files}>',
+    signature: 'search.count({ query, path, glob?, ignoreCase?, fixedStrings?, noIgnore?, hidden?, followSymlinks?, includeExcluded?, binary?, maxFilesize?, timeoutMs? }) => Promise<{matches,files}>',
     notes: 'Stays a plain {matches,files} object; `.complete`, `.truncated`, `.partial` and `.scope` are non-enumerable, and JSON serialization emits them alongside the counts. An unreadable path makes the count partial instead of silently smaller. Non-ASCII queries and globs search both NFC and NFD. Because each run returns only scalar totals, the result uses the component-wise maximum as a lower bound instead of adding possibly overlapping counts; `.scope.normalization.countAccuracy` is `lower-bound`, and both the result and `.scope.normalization` remain incomplete because an exact union cannot be proved.',
     inputs: inputsFor(COUNT_ORDER),
   },
@@ -364,6 +369,58 @@ export function validateSearchOptions(fn, opts) {
  * The effective ignore/hidden/exclude/path policy behind a result, so a caller
  * can tell WHY a result set looks the way it does without re-deriving defaults.
  */
+// Which pruning mechanisms could have hidden a match on this call.
+//
+// Two earlier designs tried to answer absence with a single boolean and both were wrong. The
+// first counted ignore files between the target and the root, which misses the .gitignore in
+// a DESCENDANT directory and global excludes entirely. The second read the policy flags,
+// which misses ripgrep's silent binary suppression and a symlink census that stops at depth
+// three. A closed enumeration of the pipeline found mechanisms nobody can observe at all —
+// input encoding is the clearest — so a boolean claiming "nothing could hide" would always
+// have had unknowable terms. This records what is known instead of guessing.
+//
+// Selector options (glob, pattern, query, depth) define the request and are not listed: a
+// caller who asked for *.js did not lose the files they excluded.
+function symlinkCoverage(s) {
+  if (!s) return 'unknown';
+  if (s.dirs > 0 || s.files > 0) return 'on';
+  // A census that stopped early cannot prove there was nothing further to find. This does
+  // NOT lower `complete`, on purpose: symlink-scan.js explains why marking every large tree
+  // incomplete would make that field useless. Provable coverage is a different question.
+  if (s.capped || s.depthCapped) return 'unknown';
+  return 'off';
+}
+
+export function buildCoverage({
+  noIgnore = false, hidden = false, includeExcluded = false, excludeGlobs = [],
+  maxFilesize = null, binary = false, skippedSymlinks = null, unparsableRecords = 0,
+} = {}) {
+  return {
+    ignoreRules: noIgnore ? 'off' : 'on',
+    hiddenFiles: hidden ? 'off' : 'on',
+    // An empty configured list cannot exclude anything, so this reads the ARRAY and not just
+    // the flag. Otherwise every call reports 'on' and the entry stops being information.
+    excludeGlobs: (includeExcluded || !Array.isArray(excludeGlobs) || excludeGlobs.length === 0) ? 'off' : 'on',
+    fileSize: maxFilesize == null ? 'off' : 'on',
+    // Suppression is not observable when binary is false: ripgrep returns a silent zero, so
+    // there is nothing to count. Measured on this repository's own bin/rg.exe: a fully open
+    // search.content for a string inside it returns 0 rows with complete:true, while
+    // search.files still lists the file.
+    binaryContent: binary ? 'off' : 'unknown',
+    symlinks: symlinkCoverage(skippedSymlinks),
+    recordParse: unparsableRecords > 0 ? 'on' : 'off',
+    // No --encoding is passed and the line reader decodes UTF-8 only, so text in an
+    // unsupported legacy encoding is never matched and nothing observes that. Permanently
+    // unknown, which is why an all-'off' record is currently unreachable. Saying so is the
+    // point: the previous designs claimed a satisfiability they did not have.
+    encoding: 'unknown',
+    // Conservative default. Only the host aggregation layer knows whether NFC/NFD expansion
+    // actually ran, and all three search entry points return DIRECTLY when it does not, so a
+    // default of 'unknown' keeps a new code path honest without touching every call site.
+    unicodeForms: 'unknown',
+  };
+}
+
 export function buildScope({
   kind,
   path: target,
@@ -377,9 +434,14 @@ export function buildScope({
   hidden = false,
   followSymlinks = false,
   includeExcluded = false,
+  binary = false,
   excludeGlobs = [],
   skippedSymlinks = null,
+  unparsableRecords = 0,
 }) {
+  const coverage = buildCoverage({
+    noIgnore, hidden, includeExcluded, excludeGlobs, maxFilesize, binary, skippedSymlinks, unparsableRecords,
+  });
   return {
     kind,
     path: target,
@@ -394,6 +456,13 @@ export function buildScope({
     hidden,
     followSymlinks,
     includeExcluded,
+    binary,
+    // Which pruning mechanisms could have hidden a match on THIS call. 'off' means the
+    // mechanism cannot have hidden anything, 'on' means it was active, 'unknown' means the
+    // code cannot tell. An absence claim needs complete:true AND every entry 'off' — see
+    // structure/result-completeness.md. Issue #41 was complete:true over a walk that had
+    // been pruned, which is a different question than "did the walk lose anything".
+    coverage,
     // The globs actually in force for this call: includeExcluded means none.
     excludeGlobs: includeExcluded ? [] : [...excludeGlobs],
     // What a non-following search stepped over. Reported even when it is zero, so a caller

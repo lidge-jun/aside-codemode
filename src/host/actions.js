@@ -47,7 +47,7 @@ const REGISTRY = [
     if (entry.path !== 'browse.readText') return entry;
     return {
       ...entry,
-      signature: 'browse.readText(urlString) OR browse.readText({ url, timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>',
+      signature: 'browse.readText(urlString) OR browse.readText({ url, timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,complete,contentShape?,lostTo?,blockKind,fallbackReason}>',
       notes: entry.notes + " Direct calls accept either a URL string or one options object containing url. actions.check validates the catalog-shaped object, so check with actions.check('browse.readText', { url, ...options }).",
     };
   }),
@@ -160,7 +160,7 @@ const REGISTRY = [
     path: 'fs.list',
     description: 'List directory entries with type and size; optionally recursive to a depth.',
     notes: 'Returned names are the bytes on disk. When hand-filtering them, compare both sides with .normalize("NFC"); otherwise decomposed (NFD) macOS filenames can be missed even though they render identically.',
-    signature: 'fs.list(path, { max?, recursive?, depth? }?) => Promise<{name,type,size}[]>',
+    signature: 'fs.list(path, { max?, recursive?, depth? }?) => Promise<{name,type,size}[] + non-enumerable {complete,truncated,partial,scope}; JSON form {rows,complete,truncated,partial,scope}>',
     inputs: {
       path: { type: 'string', required: true, description: 'Directory path (inside roots)' },
       max: { type: 'number', required: false, description: 'Entry cap (default 1000)' },

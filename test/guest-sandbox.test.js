@@ -85,6 +85,11 @@ test('an unawaited import leaves a race, and both sides of it are well formed', 
   if (out.ok) {
     assert.equal(out.result, 'done');
   } else {
-    assert.equal(out.error.code, 'EGUESTIMPORT');
+    // out.code, not out.error.code. The envelope puts the code at the top level and leaves
+    // error as a string - the assertion two tests above this one reads it that way. Because
+    // only the winning side of the race is executed, this branch had never run until a CI
+    // scheduling difference let the refusal land first, and then it failed reading undefined
+    // off a string. A branch that is never taken is not a branch that passes.
+    assert.equal(out.code, 'EGUESTIMPORT');
   }
 });

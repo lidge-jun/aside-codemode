@@ -6,9 +6,10 @@ written before the numbers so the design could not be fitted to the result.
 ## The baseline is `grep` and `find`, not ripgrep
 
 Aside ships a real ripgrep — `runtime/native/bin/rg`, 6,476,288 bytes, 15.2.0 with pcre2,
-first on the agent PATH — and exposes **no harness tool that calls it**. A search of the
-installed app bundle finds no `Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search`, or
-`codebase_search` tool. The engine is installed; nothing is wired to it.
+first on the agent PATH — and **no documented harness tool reaches it**. That directory is the
+skill runtime's utility bin, holding `pdftotext`, `pdftoppm`, `pdfinfo`, `python3` and `node`
+alongside `rg`, all vendored from Homebrew (`runtime/manifest.txt`). The documented agent
+tools are `read_file`, `write_file`, `edit_file`, `bash` and `repl`; none is a content search.
 
 So an agent's actual options are POSIX `grep` and `find` through bash, or codemode. Comparing
 against `rg` would measure a route the agent cannot take. Ripgrep numbers are kept below as a
@@ -90,11 +91,15 @@ actually receives.
 
 ## Tool schema
 
-The MCP server exposes one tool. Its full definition is **2,418 bytes** (2,019 description,
-274 input schema) and covers **34 guest actions** whose own descriptions total **42,506
-bytes** — **17.6×**. `browse.exec` alone is 8,131 bytes described, more than three times the
+The MCP server exposes one tool. Its full definition is **2,433 bytes** (2,034 description,
+274 input schema) and covers **34 guest actions** whose own descriptions total **44,330
+bytes** — **18.2×**. `browse.exec` alone is 8,249 bytes described, more than three times the
 entire resident tool surface. Schema is paid every turn; action descriptions are fetched only
 when `actions.describe` is called.
+
+Re-measured at 0.9.0, after the completeness work widened eleven signatures and the resident
+description named the 64 KiB return-path cap. The four numbers moved together and the note
+records the run: [aside-mcp-attach-260918.md](evidence/aside-mcp-attach-260918.md).
 
 ## Where codemode loses
 

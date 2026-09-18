@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import { createRgRunner, createRgResolver } from '../src/rg.js';
-import { restoreSearchResult } from '../src/search-result.js';
+import { restoreSearchResult } from '../src/result-envelope.js';
 
 // Creating a symlink needs a privilege on Windows. Where the test cannot create one it skips,
 // which means this signal is proven on the unix runners and NOT on Windows - the runtime there

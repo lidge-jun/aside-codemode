@@ -26,10 +26,17 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
         const read = await readText(url, { timeoutMs: opts.timeoutMs, locale: opts.locale, fresh: true });
         // A 503, a rate limit or a login wall is not this page's new content. Writing it to
         // the baseline made the outage look like a change and the recovery look like another.
-        if (read.ok === false || read.degraded === true) {
+        //
+        // complete === false covers the case that does not announce itself: a 200 whose body
+        // is not what the URL promised, such as a .diff endpoint answering with a sign-in
+        // page. Hashing that as the new baseline is how an interstitial becomes "changed"
+        // and the real diff becomes "changed back". The comparison is === false so an
+        // injected observation without the field still counts as observed.
+        if (read.ok === false || read.degraded === true || read.complete === false) {
           return { url, ok: false, changed: null, code: 'EOBSERVE',
             blockKind: read.blockKind || null, status: read.status ?? null,
-            reason: read.degradedReason || read.fallbackReason || null };
+            reason: read.degradedReason || read.fallbackReason
+              || (read.contentShape ? read.contentShape.why : null) };
         }
         const text = read.text || '';
         const hash = textHash(text);
@@ -42,7 +49,16 @@ export function createWatch({ readText, cache, accountRoot = '' } = {}) {
         return { url, ok: false, code: e.code, error: String(e.message || e) };
       }
     }));
-    return { items, changed: items.filter((i) => i.changed).length, ok: items.every((i) => i.ok) };
+    // changed:null is what an unobserved url looks like, and counting it as "not changed"
+    // is how a watch reports quiet over an outage.
+    const observed = items.filter((i) => i.ok).length;
+    return {
+      items,
+      changed: items.filter((i) => i.changed).length,
+      ok: items.every((i) => i.ok),
+      observed,
+      complete: observed === urls.length,
+    };
   };
 }
 
@@ -83,7 +99,14 @@ export function createRecipes({ registry = {}, exec } = {}) {
       if (r.waitSelector) job.waitSelector = r.waitSelector;
       if (r.extract) job.extract = r.extract;
       const res = await exec(job);
-      return { recipe: name, url: r.url, ok: res.ok, items: res.items, partial: res.partial };
+      // A projection that drops fields erases them. This one dropped exactly the field the
+      // run had just been taught to set, so a recipe over a truncated page reported ok and
+      // nothing else.
+      return {
+        recipe: name, url: r.url, ok: res.ok, items: res.items, partial: res.partial,
+        status: res.status, complete: res.complete, truncated: res.truncated,
+        lostTo: res.lostTo,
+      };
     },
   });
 }
@@ -98,13 +121,26 @@ export function createPrefetch({ readText, cache, accountRoot = '' } = {}) {
       // readText owns this entry now. The second, thinner write that used to live here
       // replaced a full observation with { markdown, source }, and the next reader got an
       // answer with no status, no chars and no ok.
-      return read.ok === false
+      // An incomplete read is not a warm cache entry: readText refused to store it, so
+      // counting it as warmed would promise the next caller a hit that is not there.
+      return read.ok === false || read.complete === false
         ? { url, ok: false, chars: 0, source: read.source,
             blockKind: read.blockKind || null,
-            reason: read.degradedReason || read.fallbackReason || null }
+            reason: read.degradedReason || read.fallbackReason
+              || (read.contentShape ? read.contentShape.why : null) }
         : { url, ok: true, chars: (read.text || '').length, source: read.source };
     }));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));
-    return { items, warmed: items.filter((i) => i.ok).length, ok: true, note: 'prefetch is best-effort: failures are reported, never thrown' };
+    // ok stays true on purpose - DEC-6. A warm-up that reported failure as failure would make
+    // every caller branch on a result they asked for as an optimisation. complete is the
+    // field that says how much of the cache is actually warm, and it is a different question.
+    const warmed = items.filter((i) => i.ok).length;
+    return {
+      items,
+      warmed,
+      ok: true,
+      complete: warmed === urls.length,
+      note: 'prefetch is best-effort: failures are reported, never thrown',
+    };
   };
 }

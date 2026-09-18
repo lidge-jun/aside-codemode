@@ -95,7 +95,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.probe',
     description: 'What the installed Aside build will and will not do, measured rather than documented. Start here.',
-    signature: 'browse.probe() => Promise<{enabled,asideResolved,caps,capabilities}>',
+    signature: 'browse.probe() => Promise<{enabled,enableWith?,asidePath,asideResolved,asideError,caps,capabilities}>',
     inputs: {},
     notes: 'capabilities.refused explains WHY an option is rejected. capabilities.page.absent lists methods this surface does not have.',
   },
@@ -105,7 +105,7 @@ export const BROWSE_ACTIONS = [
     // The signature named ten of twenty-seven implemented options and omitted both `actions`
     // and `approveWrites`, so the first thing a reader saw described browse.exec as a
     // read-only fetcher. An action that can write has to say so where the reader looks first.
-    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, concurrency?, snapshot?, maxTreeChars?, treeNodes?, snapshotAfter?, screenshot?, pdf?, extract?, fullText?, maxTextChars?, requireSelector?, requireContent?, minTextChars?, loggedInMarker?, stopWhenLoggedOut?, detect?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, helper? }) => Promise<{ok,items,timings,partial,leakedUrls}>",
+    signature: "browse.exec({ urls, timeoutMs?, waitUntil?, waitSelector?, concurrency?, snapshot?, maxTreeChars?, treeNodes?, snapshotAfter?, screenshot?, pdf?, extract?, fullText?, maxTextChars?, requireSelector?, requireContent?, minTextChars?, loggedInMarker?, stopWhenLoggedOut?, detect?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, helper? }) => Promise<{ok,status,complete,truncated,lostTo?,items,requested,completed,unreturned,contentVerified,suspectEmpty?,effects,actionLog,timings,partial,leakedUrls,tabs}>",
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       timeoutMs: { type: 'number', required: false, description: 'Inner deadline, clamped to browseCaps.timeoutMs (default 25000)' },
@@ -143,7 +143,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.leakedTabs',
     description: "Tabs THIS TOOL opened that are still sitting in the browser with the run that opened them gone. Reports; never closes.",
-    signature: 'browse.leakedTabs() => Promise<{ok,tabs:[{targetId,url,jobId,runId,pid,leftAt}],checked}>',
+    signature: 'browse.leakedTabs() => Promise<{ok,tabs:[{targetId,url,jobId,runId,pid,leftAt}],checked?,code?,error?}>',
     inputs: {},
     notes: "A killed run cannot close its own tabs, and before this there was no way to tell which ones were ours. A tab is named only if it is in the journal, was never reported closed, belongs to a run that is no longer running, and is open right now - so a tab this tool did not open is never named, which is how the user's own tabs stay out of it. It cannot see a tab opened by a run that died before the host recorded anything, and it does not promise the tabs can be closed: the same measurement that found the leak found that a known targetId could not be closed either. Hand the list to a person.",
   },
@@ -175,7 +175,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.attach',
     description: 'Route for "this page" or an already-open tab: read its session, scroll position and current screen without opening or closing a tab.',
-    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, extract?, snapshotAfter? }) => Promise<{ok,tab,href,hash,title,scrollY,render,contentVerified,runId,effects}>',
+    signature: 'browse.attach({ targetId?, urlIncludes?, titleIncludes?, includeText?, maxTextChars?, sampleChars?, minTextChars?, requireSelector?, snapshot?, maxTreeChars?, treeNodes?, actions?, approveWrites?, stopOnError?, allowStaleRefs?, refsFingerprint?, actionBudgetMs?, extract?, snapshotAfter? }) => Promise<{ok,complete,truncated,lostTo?,code,tab,href,hash,pageUrl,title,scrollY,render,contentVerified,text,snapshot,actions,actionsOk,data,runId,effects,note}>',
     inputs: {
       targetId: { type: 'string', required: false, description: 'Exact tab targetId from browse.tabs. A leading "tab:" is stripped for you.' },
       urlIncludes: { type: 'string', required: false, description: 'Substring match against the tab url' },
@@ -202,7 +202,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.captureMany',
     description: 'Batch screenshot or pdf capture; artifacts are written to outDir and verified against the request.',
-    signature: 'browse.captureMany(urls, { outDir?, screenshot?, pdf?, snapshot?, timeoutMs?, waitUntil?, waitSelector?, concurrency? }) => Promise<{ok,items}>',
+    signature: 'browse.captureMany(urls, { outDir?, screenshot?, pdf?, snapshot?, timeoutMs?, waitUntil?, waitSelector?, concurrency? }) => Promise<the browse.exec envelope; each item adds a verified artifact>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of http(s) or data: url strings. file: is refused.' },
       outDir: { type: 'string', required: false, description: 'When present, write host-named files in this directory inside the configured roots' },
@@ -222,7 +222,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.readText',
     description: 'Fetch-first body reading for one URL: HTML to markdown-shaped text, with a browser only when fetch yields no usable body. Takes a url string or { url, ...options }.',
-    signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,source,text,format,chars,blockKind,fallbackReason}>",
+    signature: "browse.readText(url | { url, ... }, { timeoutMs?, minChars?, fresh?, locale? }) => Promise<{ok,url,status,source,text,format,chars,complete,contentShape?,lostTo?,blockKind?,fallbackReason,finalUrl?,cached?,degraded?,degradedReason?}>",
     // treeNodes is documented on the job that carries it, below.
     inputs: {
       url: { type: 'string', required: true, description: 'http(s) url' },
@@ -236,7 +236,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.searchMany',
     description: 'Run several queries in parallel with url dedupe and an optional date filter.',
-    signature: "browse.searchMany(queries, { engine?, since?: string|Date }) => Promise<{engine,items,ok}>",
+    signature: "browse.searchMany(queries, { engine?, since?: string|Date }) => Promise<{engine,items,ok,complete,partial,deduped,filtered,dateFilter,suspectEmpty?}>",
     inputs: {
       queries: { type: 'array', required: true, description: 'Array of query strings' },
       engine: { type: 'string', required: false, description: 'duckduckgo (default) | youtube | google' },
@@ -247,7 +247,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.downloadMedia',
     description: 'Download original images directly instead of screenshotting the page around them.',
-    signature: 'browse.downloadMedia(urls, { outDir, maxBytes? }) => Promise<{ok,items}>',
+    signature: 'browse.downloadMedia(urls, { outDir, maxBytes? }) => Promise<{ok,complete,requested,delivered,items,partial}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of image urls' },
       outDir: { type: 'string', required: true, description: 'Directory inside the configured roots' },
@@ -258,7 +258,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.watch',
     description: 'Hash each url and return a diff only for the ones that changed.',
-    signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{items,changed}>',
+    signature: 'browse.watch(urls, { timeoutMs?, locale? }) => Promise<{ok,complete,items,changed,observed}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of urls to watch' },
       timeoutMs: { type: 'number', required: false, description: 'Per-url deadline for the read' },
@@ -269,7 +269,7 @@ export const BROWSE_ACTIONS = [
   {
     path: 'browse.prefetch',
     description: 'Warm the shared cache for a watch list. Best effort; failures are reported, never thrown.',
-    signature: 'browse.prefetch(urls, { timeoutMs?, locale? }) => Promise<{items,warmed}>',
+    signature: 'browse.prefetch(urls, { timeoutMs?, locale? }) => Promise<{ok,complete,items,warmed,note}>',
     inputs: {
       urls: { type: 'array', required: true, description: 'Array of urls to warm' },
       timeoutMs: { type: 'number', required: false, description: 'Per-url deadline handed to the underlying read' },
@@ -282,7 +282,7 @@ export const REPORT_ACTIONS = [
   {
     path: 'report.build',
     description: 'Assemble a paged HTML report and print it to PDF, verifying the real page size.',
-    signature: 'report.build({ items?, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,path,bytes,pageBox}>',
+    signature: 'report.build({ items?, outFile, title?, paper?, timeoutMs? }) => Promise<{ok,complete,runStatus?,lostTo?,path?,bytes?,pageBox?,code,error}>',
     inputs: {
       items: { type: 'array', required: false, description: 'Rows: { url, title?, ok, data?, error?, figure? }. Defaults to [].' },
       outFile: { type: 'string', required: true, description: 'Destination pdf path inside the configured roots' },
@@ -300,7 +300,7 @@ export const API_ACTIONS = [
     description: 'Parallel API-first lookups with per-item isolation.',
     // The one positional argument had no name in the signature while the catalog called it
     // `requests`, so a reader checking the two against each other found a phantom option.
-    signature: "api.batch(requests: [{ adapter, ...args }]) => Promise<{ok,items}>",
+    signature: "api.batch(requests: [{ adapter, ...args }]) => Promise<{ok,complete,items,partial}>",
     inputs: { requests: { type: 'array', required: true, description: "[{ adapter: 'youtube', url }] or [{ adapter: 'itunes', term | id }]" } },
     notes: 'youtube and itunes are public no-key endpoints. play and slack return ENOTSUP because neither has an honest public path.',
   },
@@ -313,7 +313,7 @@ export const RECIPE_ACTIONS = [
   {
     path: 'recipes.run',
     description: 'Execute a stored site recipe with no model turn.',
-    signature: 'recipes.run(name, args?) => Promise<{recipe,url,ok,items}>',
+    signature: 'recipes.run(name, args?) => Promise<{recipe,url,ok,status,complete,truncated,lostTo?,items,partial}>',
     inputs: { name: { type: 'string', required: true, description: 'Recipe name' }, args: { type: 'object', required: false, description: 'Values interpolated into the recipe url' } },
     notes: 'A recipe is DATA ({ url, waitSelector, extract }). A .js recipe is refused: host-loaded code would bypass the guest sandbox.',
   },

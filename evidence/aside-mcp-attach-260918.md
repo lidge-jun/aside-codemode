@@ -126,3 +126,20 @@ Install a ripgrep into one of those locations and the inference no longer holds.
   Linux has no bundled candidate, and a moved or unexecutable bundle exhausts the ladder.
 - The bundled binary serving a search is an inference from the premises above, not a reading of
   the resolved path out of the MCP response.
+
+0.9.0 re-measures the same four numbers with the same method, because the completeness work
+moved all of them. Eleven action signatures were corrected to declare the fields their calls
+actually return, `browse.readText` gained `complete`, `contentShape` and `lostTo` in both of
+its discovery definitions, and the resident description gained the sentence naming the 64 KiB
+return-path cap. Measured with `Buffer.byteLength` over `TOOL_DEF` and over
+`actions.describe()` for each of the 34 rows:
+
+- resident description **2,034 bytes**, still under the 2,048-byte budget the suite enforces
+- full tool definition **2,433 bytes** (2,034 description, 274 input schema)
+- the 34 action descriptions **44,330 bytes** together, **18.2x** the resident definition
+- `browse.exec` alone **8,249 bytes**
+
+What it does not mean, same as before: these are byte measurements of text, not measurements
+of agent behaviour. The ratio is the argument for fetching action descriptions on demand
+rather than shipping them resident, and nothing more.
+

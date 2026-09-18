@@ -87,6 +87,16 @@ export function createDownloadMedia({ fetchImpl, assertInside, deps = {} } = {})
     const maxBytes = Number.isSafeInteger(opts.maxBytes) ? opts.maxBytes : DEFAULT_MAX_BYTES;
     const settled = await Promise.allSettled(urls.map((u) => one(u, outDir, maxBytes)));
     const items = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : { url: urls[i], ok: false, code: s.reason && s.reason.code, error: String(s.reason && s.reason.message ? s.reason.message : s.reason) }));
-    return { items, ok: items.every((i) => i.ok), partial: items.some((i) => !i.ok) ? ['item-failure'] : [] };
+    // A refused or oversized url shows up in items[].code and nowhere else, so a caller
+    // reading the top level could not tell twelve files from eleven without counting.
+    const delivered = items.filter((i) => i.ok).length;
+    return {
+      items,
+      ok: items.every((i) => i.ok),
+      requested: urls.length,
+      delivered,
+      complete: delivered === urls.length,
+      partial: items.some((i) => !i.ok) ? ['item-failure'] : [],
+    };
   };
 }

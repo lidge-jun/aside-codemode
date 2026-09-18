@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createRgResolver, createRgRunner } from '../src/rg.js';
 import { createSearch } from '../src/host/search.js';
 import { makeRootGuard } from '../src/paths.js';
-import { decorateSearchResult } from '../src/search-result.js';
+import { decorateSearchResult } from '../src/result-envelope.js';
 
 const NFC = '\ud559\uc810\uc778\uc815';
 const NFD = NFC.normalize('NFD');

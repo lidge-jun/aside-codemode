@@ -1,8 +1,8 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
-<h3 align="center">code mode for a browser that does not speak CDP</h3>
+<h3 align="center">code mode over Aside's native REPL</h3>
 <p align="center"><b>Search, read and filter in one call, so only the answer reaches the model</b><br>
-Aside ships a 6.5 MB ripgrep and no tool that calls it. This puts it on the surface,<br>
-along with parallel browsing, inside the browser's own process.</p>
+Aside ships ripgrep and no documented way to reach it. This puts it on the surface,<br>
+along with parallel browsing, through one code-mode tool.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -21,9 +21,9 @@ codemode --doctor
 
 ### Browsing: 1.87 MB in, 4.4 KB out
 
-Every number below was measured on 2026-09-18 against codemode 0.8.1 on the MCP path, N=7
-after a discarded warm-up, with result counts checked on both sides. Method, full tables and
-the cells where this loses: **[BENCHMARKS.md](BENCHMARKS.md)**.
+The table below comes from three runs on 2026-09-15. The [measurement
+note](evidence/browse-compression-260915.md) records the method, per-page bytes, timings and
+the pages excluded from the set.
 
 Five pages, and one thing to know about each — its title and its first link.
 
@@ -42,9 +42,9 @@ const res = await browse.exec({
 return res.items;   // five typed rows, 4,430 bytes, status completed
 ```
 
-**421x against the raw pages, 16x against what Aside itself would have shown the model.** Both
-numbers are in [the measurement](evidence/browse-compression-260915.md) with the per-page bytes,
-three runs, and the two pages that were dropped because they answered with a captcha. The
+**421x against the raw pages, 16x against what Aside itself would have shown the model.** The
+[2026-09-15 measurement](evidence/browse-compression-260915.md) includes the per-page bytes and
+the two pages that were dropped because they answered with a captcha. The
 compression is of the **answer**: ask for the whole page and you get the whole page. Three of
 the five accessibility trees hit the 20,000-character cap, so on those pages the native path was
 not holding a complete answer either.
@@ -65,11 +65,15 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 ```
 
 On a real development folder, `find`+`grep` took **55s** and one `codemode --code` search took
-**1s**, about **51x**. That pair is an operator report: the [note](evidence/dev-folder-51x.md)
-says so plainly, and says that the folder, the unrounded clocks and the exact options behind it
-were not recorded.
+**1s**, about **51x**. That pair is an [operator report](evidence/dev-folder-51x.md), not an
+independently reproduced measurement; the note carries no measurement date and says that the
+folder, unrounded clocks and exact options were not recorded.
 
-A controlled run on 2026-09-18 reproduced the shape of it and found something sharper. Asked to
+The next two comparisons come from the controlled 2026-09-18 MCP measurement against codemode
+0.8.1, N=7 after a discarded warm-up, with result counts checked on both sides. Method, full
+tables and the cells where this loses: **[BENCHMARKS.md](BENCHMARKS.md)**.
+
+That run reproduced the shape of the operator report and found something sharper. Asked to
 count `function` across a 127,000-file tree, `grep -r -I` did not finish: it passed **128
 seconds having emitted 3.23 GB across 3.7 million lines** and was aborted. `search.count`
 answered in **2,966 ms** and returned **778 bytes** — 502,963 matching lines in 57,403 files.
@@ -82,10 +86,13 @@ Older paired Aside-turn timings (model + daemon overhead) were 1.05–1.81x for 
 
 ### The engine was already there
 
-Aside installs ripgrep 15.2.0 with PCRE2 — 6,476,288 bytes at `runtime/native/bin/rg`, first on
-the agent PATH — and exposes **no tool that calls it**. Searching the installed app bundle finds
-no `Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search` or `codebase_search`. The binary
-ships; nothing is wired to it.
+A 2026-09-18 [attachment check](evidence/aside-mcp-attach-260918.md) found Aside's bundled
+ripgrep reporting version 15.2.0 with PCRE2 at `runtime/native/bin/rg`, and **no documented tool
+reaches it**. That path is the skill runtime's utility
+bin: `rg` sits there beside `pdftotext`, `pdftoppm`, `python3` and `node`, vendored from
+Homebrew (`runtime/manifest.txt`). The documented agent tools are `read_file`, `write_file`,
+`edit_file`, `bash` and `repl`, and none of them is a content search. An agent that types `rg`
+in bash is using an undocumented implementation detail, not a provided tool.
 
 So an agent's real options were POSIX `grep` and `find` through bash, which is why the numbers
 above are measured against those and not against ripgrep. Ripgrep is the ceiling, not the
@@ -95,21 +102,13 @@ Against ripgrep called directly the two are level, because `search.*` shells out
 binary. This is not a faster search engine. It is the engine Aside already shipped, reachable,
 with the result filtered before it reaches the model.
 
-### Code mode for a browser that does not speak CDP
+### Code mode over Aside's REPL
 
-Every other agentic browser drives pages over the Chrome DevTools Protocol. BrowserOS patches
-Chromium in 528 places and still sends `Input.dispatchMouseEvent` to a CDP socket on port 9000;
-Playwright, Puppeteer and Selenium all call `Runtime.enable`, which is the leak Cloudflare and
-DataDome watch for and the reason stealth forks exist at all.
+`aside-codemode` compiles each browser batch into JavaScript and invokes `aside repl`.
+[`session.js`](src/host/browse/session.js) starts that command, and
+[`script.js`](src/host/browse/script.js) builds the code passed to it.
 
-Aside is a Chromium fork — a 2.0 GB framework with its own renderer, GPU and alert helpers, its
-own `.pak` resources and V8 snapshot — and it does not open a CDP port. No
-`--remote-debugging-port`, nothing listening on 9222 or 9000, and `/json/version` on its one
-local port answers `Missing or invalid Authorization header.` rather than a CDP version object.
-Page control runs inside the browser process itself.
-
-What it did not have was code mode. This adds it: one tool, thirty-four actions, batched pages
-and filtered results — on a path that never speaks the protocol everyone else is trying to hide.
+This package exposes one tool for batched pages and filtered results over that REPL path.
 
 **aside-codemode** gives Aside a single place to search, filter, read and summarize local files —
 and, once browsing is turned on, to run twenty pages through one session and come back with rows
@@ -203,7 +202,7 @@ entry still points at an older installation. Anything but `activated` comes with
 step. The CLI never writes Aside's inventory cache by hand; doing so would go stale when
 the tool definition changes.
 
-The agent then calls `mcp__aside-codemode__execute_code` directly. Its **2,019-byte** tool
+The agent then calls `mcp__aside-codemode__execute_code` directly. Its **2,034-byte** tool
 description is always resident in every MCP session. That is less resident context than the CLI
 route's 3,808-byte account block, one reason MCP is the first-class route.
 
@@ -417,7 +416,7 @@ Do not replace code mode with a native `read_file` loop, a bash `find`/`grep` pi
 repeated grep calls. Make one `search.content`, `search.files` or `search.count` call, filter
 the result, and read only the hits in the same body.
 
-**Resident context cost, measured.** The MCP route keeps its **2,019-byte** tool description
+**Resident context cost, measured.** The MCP route keeps its **2,034-byte** tool description
 resident in every MCP session. The CLI route keeps the **3,808-byte** account `AGENTS.md` block
 resident and loads the **8,973-byte** user skill only on demand. The smaller always-resident
 footprint favours MCP as the first-class route. The CLI route remains supported where MCP does

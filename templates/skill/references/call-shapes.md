@@ -64,6 +64,19 @@ shows only the numeric row indices. Returning the result whole, or serializing i
 emits the envelope `{ rows, complete, truncated, partial, scope }`; a spread or mapped array
 is a projection and does not retain that metadata.
 
+`r.complete` answers one question: did the walk lose anything. It does NOT answer whether a
+string exists, because a walk can be pruned before it ever sees a match. `r.scope.coverage`
+names each pruning mechanism — `ignoreRules`, `hiddenFiles`, `excludeGlobs`, `fileSize`,
+`binaryContent`, `symlinks`, `recordParse`, `encoding`, `unicodeForms` — as `off`, `on` or
+`unknown`. "This string is not in the project" needs `complete: true` AND every coverage
+entry `off`; in practice that means `noIgnore`, `hidden`, `includeExcluded` and `binary` all
+true with no `maxFilesize`. `encoding` stays `unknown` because no `--encoding` is passed,
+so absence over text in an unsupported encoding cannot be proven here.
+
+`binary` deserves its own sentence: it defaults to false and ripgrep skips binary content
+SILENTLY. A `search.content` for a string that really is inside a compiled file returns zero
+rows with `complete: true`, while `search.files` still lists the file.
+
 `search.count` is the exception: it returns the plain count object `{ matches, files }`,
 decorated with the same non-enumerable metadata. On that result, `.matches` is the count.
 
@@ -121,6 +134,13 @@ converted the html, `text` when the browser returned its rendered body. There is
 `markdown` field any more: one body, so the budget is not spent twice and the shrinker
 cannot drop one copy while you are reading the other. A body too large for the envelope is
 still cut - check `chars` against what you got before treating it as the whole page.
+
+`complete` is on every return. `ok: true, complete: false` means the fetch worked and the
+body is not what you asked for: a `.diff` or `.patch` URL that answers with no diff marker
+gets `contentShape: { expected: 'diff', matched: false, why }`. A sign-in page served as
+200 for a diff endpoint is the case this exists for, and a size check will not catch it
+because the interstitial is small. An incomplete read is not cached, does not update a
+`browse.watch` baseline, and does not count as warmed by `browse.prefetch`.
 
 ## browse.exec / browse.attach: asking for structure
 

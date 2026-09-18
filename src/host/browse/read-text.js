@@ -46,6 +46,33 @@ function decodeEntities(s) {
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
 }
 
+// An extension that promises a shape is a checkable promise. This does not guess WHY the body
+// is wrong — an interstitial, a redirect to a marketing page and a proxy error page all look
+// the same here — only that it is not what the URL said it would be. Issue #36: a
+// patch-diff.githubusercontent.com .diff URL answered 200 with 7,308 chars of GitHub's
+// signed-out interstitial, converted to markdown, and nothing in the envelope said so.
+const DIFF_URL = /\.(diff|patch)(?:[?#]|$)/i;
+// Three shapes, because "a diff" is not one format, and each branch was paid for by an audit
+// finding. The unified pair because diff -u, svn and hg emit no git header and the first
+// version called all of them fabricated. \r?\n because a patch produced on Windows is still a
+// patch and the second version failed it at the \r. 40 OR 64 rather than {40,64} because a
+// range accepted an invented 48-hex preamble as a real one. Both --- and +++ are required so
+// a markdown horizontal rule or YAML front matter cannot masquerade as a patch.
+const DIFF_MARKER = /^diff --git |^From (?:[0-9a-f]{40}|[0-9a-f]{64}) |^--- .*\r?\n\+\+\+ /m;
+
+// Known residual, deliberately not chased: a binary-only diff body ("Binary files a and b
+// differ") carries no marker and is reported incomplete. The alternative is matching prose,
+// which brings back the false-positive class that would get this warning switched off.
+function contentShape(url, text) {
+  if (!DIFF_URL.test(String(url || ''))) return null;
+  if (DIFF_MARKER.test(String(text || ''))) return null;
+  return {
+    expected: 'diff',
+    matched: false,
+    why: 'the URL extension promises a diff and the body carries no diff --git header, From <sha> preamble, or --- / +++ unified pair',
+  };
+}
+
 export function toMarkdown(html) {
   let s = stripNonContent(bodyOf(html));
   s = s.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, n, inner) => `\n\n${'#'.repeat(Number(n))} ${inner.replace(/<[^>]+>/g, ' ').trim()}\n\n`);
@@ -120,14 +147,17 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     // cached at all, so a hit is always something we were willing to call an answer.
     // 0.7.0 entries predate HTTP-status refusal and truthful body formats. A readText-only
     // namespace generation retires those observations without invalidating other features.
-    const cacheKeyParts = { namespace: 'readText-v2', subject: url, accountRoot, locale: opts.locale || null };
+    const cacheKeyParts = { namespace: 'readText-v3', subject: url, accountRoot, locale: opts.locale || null };
     if (cache && opts.fresh !== true) {
       const hit = await cache.get(cacheKeyParts);
       // Reuse only a complete, successful observation, and only one at least as long as this
       // caller asked for. minChars is not in the key, so a short answer stored for a caller
       // that accepted anything must not become the answer for one that did not.
       const warm = hit.hit ? hit.value : null;
-      if (warm && warm.ok === true && (warm.chars || 0) >= (opts.minChars || 0)) {
+      // complete === false rather than falsiness: an entry written before this field existed
+      // has no key at all, and treating those as incomplete would throw away every warm
+      // observation. The v3 namespace is what retires the genuinely suspect ones.
+      if (warm && warm.ok === true && warm.complete !== false && (warm.chars || 0) >= (opts.minChars || 0)) {
         // An entry written before the body moved from 'markdown' to 'text' would come back
         // with the content under a key nobody reads any more. Rename on the way out rather
         // than invalidating a cache that is otherwise still an answer.
@@ -171,7 +201,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const httpBad = status !== null && status >= 400 && status <= 599;
     if (httpBad) {
       return {
-        url, source: 'fetch', status, ...body0(text, format), ok: false,
+        url, source: 'fetch', status, ...body0(text, format), ok: false, complete: false,
         blockKind: status === 429 ? 'rate-limited' : (status >= 500 ? 'upstream' : ([401, 403].includes(status) ? 'auth' : 'blocked')),
         fallbackReason: 'http-' + status,
       };
@@ -182,7 +212,7 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const wall = fetchError || !isHtml ? null : detect({ requestedUrl: url, finalUrl, tree: text });
     if (wall && wall.kind === 'login-wall') {
       return {
-        url, finalUrl, source: 'fetch', status, ...body0(text, format), ok: false,
+        url, finalUrl, source: 'fetch', status, ...body0(text, format), ok: false, complete: false,
         blockKind: 'login-wall', fallbackReason: 'login-wall',
       };
     }
@@ -191,12 +221,20 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
       : (isHtml ? needsBrowser(html, text) : { needed: false, reason: null });
 
     if (!verdict.needed) {
-      const out = { url, source: 'fetch', status, ...body0(text, format), ok: true, fallbackReason: null };
-      if (cache) await cache.put(cacheKeyParts, out);
+      const shape = contentShape(url, text);
+      const out = { url, source: 'fetch', status, ...body0(text, format), ok: true,
+        fallbackReason: null,
+        // Always present, never only on the bad branch: a key that appears solely on failure
+        // is a key callers forget to read.
+        complete: shape === null,
+        ...(shape ? { contentShape: shape } : {}) };
+      // Do not cache a body that is not what was asked for, or the interstitial becomes this
+      // URL's answer for every later reader.
+      if (cache && out.complete) await cache.put(cacheKeyParts, out);
       return out;
     }
     if (!browse) {
-      return { url, source: 'fetch', status, ...body0(text, format), ok: false, fallbackReason: verdict.reason, degraded: true };
+      return { url, source: 'fetch', status, ...body0(text, format), ok: false, complete: false, fallbackReason: verdict.reason, degraded: true };
     }
     // fullText asks the page for its rendered body. Without it the only text the batch
     // returns is a 160-character sample, and promoting a summary to "the article" is the
@@ -205,14 +243,18 @@ export function createReadText({ fetchImpl, browse = null, timeoutMs = 15000, ca
     const item = (res.items || [])[0] || {};
     const body = item.ok ? String(item.text || '') : '';
     const enough = body.length >= Math.max(1, opts.minChars || 1);
+    // Issue #39: a successful item came from a capped run, but readText replaced that
+    // run's complete:false with complete:true and hid the reported text loss.
+    const complete = res.complete !== false && res.truncated !== true;
+    const lostTo = Array.isArray(res.lostTo) && res.lostTo.length ? [...res.lostTo] : undefined;
     const out = enough
       ? { url, source: 'browser', status, ...body0(body, 'text'),
-          fallbackReason: verdict.reason, browserOk: true, ok: true, blockKind: item.blockKind || null }
+          fallbackReason: verdict.reason, browserOk: true, ok: true, complete, lostTo, blockKind: item.blockKind || null }
       : { url, source: 'browser', status, ...body0(text, format),
-          fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, degraded: true,
+          fallbackReason: verdict.reason, browserOk: Boolean(item.ok), ok: false, complete: false, degraded: true,
           degradedReason: item.ok ? 'the browser returned no text' : 'the browser could not read the page',
-          blockKind: item.blockKind || null };
-    if (cache && out.ok) await cache.put(cacheKeyParts, out);
+          lostTo, blockKind: item.blockKind || null };
+    if (cache && out.ok && out.complete) await cache.put(cacheKeyParts, out);
     return out;
   };
 }

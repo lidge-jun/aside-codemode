@@ -17,7 +17,7 @@
 // The option contract itself is owned by ../search-schema.js so this file, the
 // discovery catalog and the runner cannot drift.
 import { validateSearchOptions } from '../search-schema.js';
-import { decorateSearchResult } from '../search-result.js';
+import { decorateSearchResult } from '../result-envelope.js';
 import { hasNonAscii } from '../unicode.js';
 
 function normalizationCases(opts, fields) {
@@ -61,6 +61,12 @@ function mergeRows(results, max, rowKey, normalization) {
     scope: {
       ...results[0].scope,
       ...normalization.original,
+      // UPGRADE-ONLY overlay. The runner defaults coverage.unicodeForms to 'unknown' because
+      // it cannot know whether the host ran both forms, and all three entry points return
+      // DIRECTLY when expansion does not trigger. mergeRows is the only place that knows it
+      // did, so this is the only place that may say 'off'. A future code path that skips
+      // mergeRows stays conservative by construction rather than silently claiming coverage.
+      coverage: { ...results[0].scope?.coverage, unicodeForms: 'off' },
       normalization: {
         fields: normalization.fields,
         formsSearched: ['NFC', 'NFD'],

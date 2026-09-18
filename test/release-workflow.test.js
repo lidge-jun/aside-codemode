@@ -12,7 +12,11 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKFLOW = path.join(repoRoot, '.github', 'workflows', 'release.yml');
-const src = readFileSync(WORKFLOW, 'utf8');
+// Normalised, because .gitattributes gives .yml no eol rule and `text=auto` hands the Windows
+// runner a CRLF checkout. Every assertion below is about the workflow's content; one of them
+// anchored to a line ending and was red on Windows alone while four other platforms were green.
+const src = readFileSync(WORKFLOW, 'utf8').replace(/\r\n/g, '\n');
+const header = src.slice(0, src.indexOf('\non:'));
 // Prose explaining why a thing is absent is not the thing being present.
 const code = src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
 
@@ -53,6 +57,24 @@ test('publication is gated on this commit, and refuses a version that already ex
   assert.match(code, /--event push/);
   assert.match(code, /npm view/);
   assert.match(code, /npm test/);
+});
+
+// The header used to call green CI an absolute gate while skip-ci-check exited successfully.
+// Release instructions are an operator surface, so the declared input, its executed bypass,
+// and the header that explains the gate must name the same exception.
+test('the release header names the green-CI bypass exposed by the dispatch input', () => {
+  const input = code.match(/^      (skip-ci-check):\n((?:^ {8}.+(?:\n|$))*)/m);
+  assert.ok(input, 'missing skip-ci-check workflow_dispatch input');
+  const [, inputName, inputBody] = input;
+  assert.match(inputBody, /description: .*without a green ci run/i);
+  assert.match(inputBody, /default: false/);
+  assert.ok(code.includes(`inputs.${inputName}`), `${inputName} is declared but not used`);
+  assert.match(code, /if \[ "\$SKIP_CI_CHECK" = "true" \]; then[\s\S]*?exit 0/);
+  assert.match(
+    header,
+    new RegExp(`requires a green ci run[\\s\\S]*unless[^\\n]*${inputName}`, 'i'),
+    `release header does not make its green-CI claim conditional on ${inputName}`,
+  );
 });
 
 // There is no lockfile in this package and nothing to install. ci.yml is held to the same rule.

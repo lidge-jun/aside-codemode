@@ -1,8 +1,8 @@
 <p align="center"><img src="assets/logo.png" alt="aside-codemode" width="112"></p>
-<h3 align="center">CDP를 쓰지 않는 브라우저를 위한 코드 모드</h3>
+<h3 align="center">Aside 네이티브 REPL을 이용한 코드 모드</h3>
 <p align="center"><b>검색·읽기·필터링을 호출 한 번에 묶어 답만 모델에 넘깁니다</b><br>
-Aside는 6.5MB ripgrep을 담고 있지만 그걸 부르는 도구는 없습니다.<br>
-이 패키지가 그 엔진과 병렬 브라우징을 브라우저 프로세스 안에서 표면으로 올립니다.</p>
+Aside에는 ripgrep이 들어 있지만, 문서에는 이를 쓰는 방법이 나와 있지 않습니다.<br>
+이 패키지는 그 엔진과 병렬 브라우징을 코드 모드에서 쓸 수 있게 합니다.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/aside-codemode"><img src="https://img.shields.io/npm/v/aside-codemode?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
@@ -77,10 +77,13 @@ return [...new Set(hits.rows.map((r) => r.file))].slice(0, 5);
 
 ### 엔진은 이미 거기 있었습니다
 
-Aside는 PCRE2가 들어간 ripgrep 15.2.0을 설치합니다. `runtime/native/bin/rg`에 6,476,288바이트,
-에이전트 PATH 맨 앞. 그런데 **그걸 호출하는 도구가 없습니다.** 설치된 앱 번들을 뒤져도
-`Grep`, `Glob`, `ripgrep`, `search_files`, `grep_search`, `codebase_search` 어느 것도 없습니다.
-바이너리는 들어있고, 연결된 건 없습니다.
+2026-09-18 [MCP 연결 점검](evidence/aside-mcp-attach-260918.md)에서 Aside에 번들된 ripgrep이
+PCRE2를 포함한 15.2.0으로 확인됐습니다. 바이너리는 `runtime/native/bin/rg`에 있지만,
+**문서화된 접근 경로가 없습니다.** 그 경로는 스킬 런타임의 도구 bin이고, `rg`는 `pdftotext`,
+`pdftoppm`, `python3`, `node` 옆에 Homebrew에서 가져온 채로 놓여 있습니다
+(`runtime/manifest.txt`). 문서화된 에이전트 도구는 `read_file`, `write_file`,
+`edit_file`, `bash`, `repl`이고 그중 내용 검색은 없습니다. bash에서 `rg`를 치는 건 제공된
+도구를 쓰는 게 아니라 문서화되지 않은 구현 세부를 쓰는 것입니다.
 
 그래서 에이전트의 실제 선택지는 bash로 부르는 POSIX `grep`과 `find`였고, 위 수치를 ripgrep이
 아니라 그쪽에 대고 재는 이유도 그것입니다. ripgrep은 베이스라인이 아니라 천장입니다. 이 패키지는
@@ -89,21 +92,14 @@ Aside는 PCRE2가 들어간 ripgrep 15.2.0을 설치합니다. `runtime/native/b
 ripgrep을 직접 부를 때와는 비슷합니다. `search.*`가 바로 그 바이너리를 부르니까요. 더 빠른 검색
 엔진이 아니라, Aside가 이미 담아둔 엔진을 닿게 만들고 결과를 모델 앞에서 거르는 겁니다.
 
-### CDP를 쓰지 않는 브라우저의 코드 모드
+### Aside REPL을 이용한 코드 모드
 
-다른 에이전틱 브라우저는 전부 Chrome DevTools Protocol로 페이지를 조작합니다. BrowserOS는
-Chromium을 528곳 패치하고도 포트 9000의 CDP 소켓으로 `Input.dispatchMouseEvent`를 보냅니다.
-Playwright·Puppeteer·Selenium은 모두 `Runtime.enable`을 호출하고, 그게 Cloudflare와 DataDome이
-감시하는 누출이며 스텔스 포크가 존재하는 이유입니다.
+`aside-codemode`의 브라우징 경로는 요청 묶음을 자바스크립트로 만들고 `aside repl`에 넘깁니다.
+[`session.js`](src/host/browse/session.js)가 이 명령을 실행하고,
+[`script.js`](src/host/browse/script.js)가 그 안에서 돌 코드를 만듭니다.
 
-Aside는 Chromium 포크이고(자체 렌더러·GPU·알림 헬퍼와 자체 `.pak`, V8 스냅샷을 가진 2.0GB
-프레임워크), **CDP 포트를 열지 않습니다.** `--remote-debugging-port`도 없고, 9222나 9000에
-듣는 것도 없으며, 유일한 로컬 포트의 `/json/version`은 CDP 버전 객체 대신
-`Missing or invalid Authorization header.`를 돌려줍니다. 페이지 조작은 브라우저 프로세스 안에서
-돕니다.
-
-없던 건 코드 모드였습니다. 이 패키지가 그걸 더합니다. 도구 하나, 액션 서른네 개, 배치 페이지와
-걸러진 결과 — 다른 모든 곳이 숨기려고 애쓰는 그 프로토콜을 애초에 말하지 않는 경로 위에서.
+이 패키지는 그 REPL 경로에 코드 모드 도구 하나를 붙입니다. 여러 페이지를 묶어 다루고 필요한
+결과만 돌려받을 수 있습니다.
 
 **aside-codemode**는 Aside의 로컬 검색·필터링·다파일 읽기·요약을 코드 호출 한 번으로 묶습니다.
 브라우징을 켜면 페이지 스무 개를 세션 하나로 도는 일도 같은 자리에서 합니다. 중간 데이터를 모델에
@@ -192,7 +188,7 @@ Aside는 2.0초에 그 서버를 껐고 복원은 3.6초에 다시 켰습니다.
 CLI는 Aside의 도구 목록 캐시를 손으로 쓰지 않습니다. 그렇게 만든 캐시는 도구 정의가 바뀌는
 순간 조용히 낡습니다.
 
-이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **2,019바이트**짜리 도구
+이제 에이전트는 `mcp__aside-codemode__execute_code`를 바로 호출합니다. **2,034바이트**짜리 도구
 설명은 모든 MCP 세션의 문맥에 항상 들어갑니다. CLI의 3,808바이트짜리 계정 블록보다 상주 문맥이
 작다는 점도 MCP를 주 경로로 삼은 이유입니다.
 
@@ -394,7 +390,7 @@ TODO, all, every, each, across, repository, project라는 말은 검색 결과�
 `search.content`, `search.files`, `search.count` 가운데 하나를 한 번 부르고, 같은 코드 본문에서
 결과를 거른 뒤 적중한 파일만 읽습니다.
 
-**상주 문맥 비용, 실측값.** MCP 경로는 **2,019바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
+**상주 문맥 비용, 실측값.** MCP 경로는 **2,034바이트**짜리 도구 설명을 모든 MCP 세션에 계속 둡니다.
 CLI 경로는 **3,808바이트**짜리 계정 `AGENTS.md` 블록을 계속 두고, **8,973바이트**짜리 사용자 스킬은
 필요할 때만 읽습니다. 상주 문맥이 더 작은 MCP가 주 경로에 유리합니다. MCP를 붙이지 못하거나 bash
 카드를 선호할 때는 지원되는 CLI 경로를 씁니다. 이 비용은 작업을 묶어 줄인 왕복 횟수와 별개입니다.

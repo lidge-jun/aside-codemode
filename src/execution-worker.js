@@ -24,7 +24,7 @@ parentPort.on('message', async msg => {
   try {
     // Only known search RPC replies take this path; arbitrary guest objects
     // with a `rows` field are never reinterpreted as search envelopes.
-    if (msg.search && !restoreSearch) ({ restoreSearchResult: restoreSearch } = await import('./search-result.js'));
+    if (msg.search && !restoreSearch) ({ restoreSearchResult: restoreSearch } = await import('./result-envelope.js'));
     call.resolve(msg.search ? restoreSearch(msg.value) : msg.value);
   } catch (e) { call.reject(e); }
 });

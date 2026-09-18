@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { verifyCapture } from './image.js';
 import { verifyPageBox } from './pagebox.js';
 import { A4_INCHES } from './schema.js';
+import { lossMarkers } from './result-contract.js';
 
 export class ArtifactError extends Error {
   constructor(message, code) {
@@ -240,7 +241,10 @@ export function createCaptureMany({ session, assertInside, deps = {} } = {}) {
     return {
       ...res, items, partial, status,
       ok: status === 'completed',
-      complete: status === 'completed',
+      // Same three conditions the batch answers, because this IS the batch with artifacts
+      // joined onto it. Deriving complete from status alone here reintroduced the exact
+      // false green the run had just stopped making.
+      complete: status === 'completed' && res.truncated !== true && lossMarkers(partial).length === 0,
       completed: done,
     };
   };

@@ -139,6 +139,52 @@ test('the pattern still recognises the shapes it was written for', () => {
   assert.equal([...ok.matchAll(HOME_PATH)].every((m) => PLACEHOLDERS.has(m[1])), true);
 });
 
+// A FILENAME is a tracked string too, and both scans above read file bodies. Four probe
+// scripts sat at the repository root differing only by the hostname in their names, and
+// `git ls-files` carried all four past a green suite of 978 tests.
+//
+// The host-derived scan below cannot catch them, which is why this assertion names the shape
+// instead. Of the four leaked names, knownMachineNames() drops two of them before any
+// comparison because neither has a hyphen or a digit and both are under seven characters;
+// the other two survive that filter and then fail the word-boundary test,
+// because the character after each is `s`, from "side". Zero of four. A guard that is green
+// while the defect is present is worse than no guard.
+test('the fleet probe is tracked once, under a name that is nobody', () => {
+  const probes = tracked.filter((f) => f.endsWith('fleet-probe.mjs'));
+  assert.deepEqual(probes, ['scripts/aside-fleet-probe.mjs']);
+});
+
+// This one is for the NEXT filename rather than that one. It is an early warning, not
+// enforcement: it only knows names this machine can see, so a CI runner has almost nothing
+// to compare against, and the distinctive filter drops short names entirely. Its value is
+// that a path is no longer invisible; its limit is written here so nobody reads it as proof.
+test('no tracked PATH names a machine or an account this one knows', () => {
+  const names = knownMachineNames();
+  const found = [];
+  for (const rel of tracked) {
+    if (rel === 'test/no-machine-identity.test.js') continue;
+    const lower = rel.toLowerCase();
+    for (const name of names) {
+      let at = lower.indexOf(name);
+      while (at !== -1) {
+        // A path separator is a word boundary; a letter is not. That is exactly why the four
+        // *side-fleet-probe.mjs names slipped past, and the assertion above covers them.
+        const before = lower[at - 1] || '/';
+        const after = lower[at + name.length] || '/';
+        if (!/[a-z0-9]/.test(before) && !/[a-z0-9-]/.test(after)) {
+          found.push(rel + ' names a host this machine knows');
+          break;
+        }
+        at = lower.indexOf(name, at + name.length);
+      }
+    }
+    for (const m of rel.matchAll(HOME_PATH)) {
+      if (!PLACEHOLDERS.has(m[1])) found.push(rel + ' carries a real account name in its path');
+    }
+  }
+  assert.deepEqual(found, [], found.join(String.fromCharCode(10)));
+});
+
 // The three trees where a machine describes itself. Ignoring them is only half of it: a
 // `git add -f` or a stale index entry puts them back, and nothing else would notice.
 test('the local-record trees are not tracked', () => {

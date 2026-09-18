@@ -39,3 +39,10 @@ evidence/*
 !evidence/bench-260918/completeness.md
 !evidence/bench-260918/local-search.md
 !evidence/bench-260918/make-completeness-fixture.sh
+
+# The directory negation above re-exposed everything inside it, because evidence/* only
+# matches one level. These carry absolute home paths and must stay out however they are
+# staged; last-match precedence puts them back on the ignore side. *.raw.json is redundant,
+# *.json already covers it.
+evidence/bench-260918/*.json
+evidence/bench-260918/run-agent-baseline.py

@@ -36,6 +36,7 @@ import { ASIDE_REPL_CAP_MS } from './schema.js';
 import { ACTION_STEP_SRC } from './actions-run.js';
 import { REF_READ_SRC } from './script.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
+import { routingReport } from '../../browser-context.js';
 
 export const ATTACH_TEMPLATE = `"use strict";
 const REQ = __REQ__;
@@ -271,7 +272,7 @@ function disabled(name) {
   return e;
 }
 
-export function createAttach({ config = {}, session, tabJournal = null }) {
+export function createAttach({ config = {}, session, tabJournal = null, browserContext = null }) {
   const caps = config.browseCaps || {};
   // The host deadline has to outlast whatever the step list is allowed to take. A 20s
   // action budget under a fixed 26.5s host deadline left ~6.5s for a snapshot and seven
@@ -308,13 +309,14 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
     /** Every tab the user currently has open. Read-only; opens and closes nothing. */
     async tabs() {
       if (caps.enabled !== true) throw disabled('browse.tabs');
+      const rep = routingReport(browserContext);
       const { rows } = await callRepl({ mode: 'list' });
       const row = rows.find((r) => r && r.kind === 'tabs');
       if (!row) {
         const err = rows.find((r) => r && r.kind === 'error');
-        return { ok: false, tabs: [], code: (err && err.code) || 'ENOROWS', error: err && err.message };
+        return { ok: false, tabs: [], code: (err && err.code) || 'ENOROWS', error: err && err.message, routing: rep, browserContext: rep };
       }
-      return { ok: true, tabs: row.tabs || [] };
+      return { ok: true, tabs: row.tabs || [], routing: rep, browserContext: rep };
     },
 
     /**
@@ -324,6 +326,7 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
     async attach(opts = {}) {
       if (caps.enabled !== true) throw disabled('browse.attach');
       const req = validateAttach(opts);
+      const rep = routingReport(browserContext);
       // Before compileAttach, before session.raw, before anything exists. The batch gate
       // guards a tab this tool opened; this one guards the tab the person is signed into
       // and looking at, which is the more dangerous of the two, and it was the path that
@@ -348,6 +351,8 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
           boundAt: null,
           effectsUnknown: false,
           effects: [],
+          routing: rep,
+          browserContext: rep,
         };
       }
       // attach is not a batch and the host issues no run id for it, so one is made here:
@@ -388,6 +393,8 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
           // here is a verdict on an action: if a write was sent before the tab vanished, its
           // outcome is unknown, and the tab being gone is an observation about the tab.
           effectsUnknown: gone,
+          routing: rep,
+          browserContext: rep,
         };
       }
       const attachLoss = itemLoss(page, {
@@ -437,6 +444,8 @@ export function createAttach({ config = {}, session, tabJournal = null }) {
         navigatedDuringActions: page.navigatedDuringActions ?? null,
         hrefAfterActions: page.hrefAfterActions ?? null,
         note: 'attached to an existing tab; it was not closed',
+        routing: rep,
+        browserContext: rep,
       };
     },
   };

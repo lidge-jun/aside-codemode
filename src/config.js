@@ -36,6 +36,7 @@ const DEFAULTS = {
   // Opt-in. `timeoutMs` is the INNER script deadline and sits below Aside's measured
   // ~30s internal screenshot timeout; the host deadline is derived as inner + slack.
   browseCaps: { enabled: true, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
+  browseContext: null,
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 
@@ -129,6 +130,15 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
       if ('timeoutMs' in obj.browseCaps) cfg.browseCaps.timeoutMs = requireInteger('browseCaps.timeoutMs', obj.browseCaps.timeoutMs);
       if ('maxTabs' in obj.browseCaps) cfg.browseCaps.maxTabs = requireInteger('browseCaps.maxTabs', obj.browseCaps.maxTabs);
       if ('concurrency' in obj.browseCaps) cfg.browseCaps.concurrency = requireInteger('browseCaps.concurrency', obj.browseCaps.concurrency);
+    }
+    if (obj.browseContext && typeof obj.browseContext === 'object') {
+      if (!cfg.browseContext) cfg.browseContext = {};
+      if ('account' in obj.browseContext) {
+        cfg.browseContext.account = obj.browseContext.account === null ? null : String(obj.browseContext.account);
+      }
+      if ('host' in obj.browseContext) {
+        cfg.browseContext.host = obj.browseContext.host === null ? null : String(obj.browseContext.host);
+      }
     }
     cfg._sources.push(source);
   };

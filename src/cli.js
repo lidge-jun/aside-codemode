@@ -21,15 +21,24 @@ import { resolveCwd } from './host/cwd.js';
 import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
 import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
-import { requireInteger } from './execution-output.js';
+import { requireInteger, fitEnvelope } from './execution-output.js';
+import { resolveBrowserContext, parseExecutionArgv, validateAccount, validateHost, routingReport } from './browser-context.js';
 
 const argv = process.argv.slice(2);
+// Mode detection must not inspect option VALUES (guest code may itself be '--doctor').
+const optionValues = new Set(['--code', '--code-file', '--config', '--timeout-ms', '--cwd', '--account', '--host', '--probe-url']);
+const optionIndexes = new Map();
+for (let i = 0; i < argv.length; i++) {
+  const token = argv[i];
+  if (!optionIndexes.has(token)) optionIndexes.set(token, i);
+  if (optionValues.has(token)) i++;
+}
 function flag(name) {
-  const i = argv.indexOf(name);
-  return i !== -1 ? argv[i + 1] : null;
+  const i = optionIndexes.get(name);
+  return i !== undefined ? argv[i + 1] : null;
 }
 function has(name) {
-  return argv.includes(name);
+  return optionIndexes.has(name);
 }
 
 function readStdin() {
@@ -55,7 +64,7 @@ if (has('--enable-browse')) {
   const { enableBrowse } = await import('./enable-browse.js');
   try {
     const result = enableBrowse({ env: process.env });
-    if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2));
+    if (has('--json')) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(result.alreadyEnabled
         ? 'browsing was already on (' + result.path + ')'
@@ -184,14 +193,14 @@ if (has('--install-mcp')) {
 
 let config;
 try {
-  config = loadConfig(argv);
+  config = loadConfig(has('--config') ? ['--config', flag('--config')] : []);
 } catch (e) {
   fail(`config: ${e.message}`);
 }
 
 let workCwd;
 try {
-  workCwd = resolveCwd({ argv });
+  workCwd = resolveCwd({ argv: has('--cwd') ? ['--cwd', flag('--cwd')] : [] });
 } catch (e) {
   fail(e.message);
 }
@@ -205,7 +214,6 @@ try {
 }
 
 const rgResolver = createDetailedRgResolver(config);
-const globals = signal => createHostGlobals(config, assertInside, signal);
 
 const MCP_ACCOUNT_LIMIT = 32;
 // The one command comes first because it is the whole step. The settings window is the
@@ -353,6 +361,16 @@ if (has('--doctor')) {
       : 'rgPath is unset and no executable ripgrep binary was discoverable in the daemon environment.';
     if (e.candidates) report.rgCandidates = e.candidates;
   }
+  if (has('--account')) {
+    const val = flag('--account');
+    if (!val || val.startsWith('--')) fail('--account needs an account id, for example --account u1');
+    try { validateAccount(val); } catch (e) { fail(e.message); }
+  }
+  if (has('--host')) {
+    const val = flag('--host');
+    if (!val || val.startsWith('--')) fail('--host requires a value, for example --host local');
+    try { validateHost(val); } catch (e) { fail(e.message); }
+  }
   // `--doctor --browse` answers "what will Aside actually do" from measurements rather
   // than from its documentation, so a refused option is explainable before it is debugged.
   if (has('--browse')) {
@@ -368,7 +386,11 @@ if (has('--doctor')) {
       // actionable part for someone whose install put the CLI somewhere else.
       asideError = { code: e.code, message: e.message, candidates: e.candidates || [] };
     }
-    report.browse = doctorPayload(config, resolved, asideError);
+    const doctorContext = resolveBrowserContext({ parsedFlags: new Map([
+      ...(has('--account') ? [['--account', flag('--account')]] : []),
+      ...(has('--host') ? [['--host', flag('--host')]] : []),
+    ]), config });
+    report.browse = doctorPayload(config, resolved, asideError, doctorContext);
     // Issue #20 asks for a navigate/snapshot/screenshot bottleneck report. A static matrix
     // is not that, and printing zeros would read as a fast page — so the measurement is
     // real or it is explicitly absent. Gated because CI must never launch a browser.
@@ -378,6 +400,7 @@ if (has('--doctor')) {
         const { createBrowse } = await import('./host/browse/browse.js');
         const live = createBrowse({
           config: { ...config, browseCaps: { ...config.browseCaps, enabled: true } },
+          browserContext: doctorContext,
         });
         const res = await live.exec({ urls: [probeUrl], snapshot: true, screenshot: {}, timeoutMs: 20000 });
         report.browse.liveProbe = {
@@ -403,8 +426,15 @@ if (has('--doctor')) {
 
 // Three ways in, on purpose. --code is convenient for a one-liner; --code-file and stdin
 // are the ones that survive a shell, because guest code carries its own quotes.
+let parsedFlags;
+try {
+  parsedFlags = parseExecutionArgv(argv);
+} catch (e) {
+  fail(e.message);
+}
+
 let code = null;
-const codeFile = flag('--code-file');
+const codeFile = parsedFlags.get('--code-file');
 if (codeFile) {
   try {
     code = readFileSync(codeFile, 'utf8');
@@ -412,7 +442,7 @@ if (codeFile) {
     fail(`--code-file could not be read: ${e.message}`);
   }
 } else {
-  const inline = flag('--code');
+  const inline = parsedFlags.get('--code');
   // `--code -` reads the script from stdin, so nothing has to survive quoting at all.
   code = inline === '-' ? readStdin() : inline;
 }
@@ -421,7 +451,7 @@ if (!code || !code.trim()) {
   // "node src/cli.js" is telling you about a directory you do not have.
   const self = /(^|[\\/])cli\.js$/.test(process.argv[1] || '') ? 'node src/cli.js' : 'codemode';
   console.error('usage: ' + self + ' --install-mcp [--account u1] [--json]  # MCP: register and activate in one command');
-  console.error('       ' + self + " --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
+  console.error('       ' + self + " --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>] [--account <id>] [--host <host>]");
   console.error('       ' + self + ' --code-file <path>   # safest: no shell quoting');
   console.error('       ' + self + ' --code - < script.js  # same, via stdin');
   console.error('       ' + self + ' --doctor [--browse] [--config <file>] [--cwd <dir>]');
@@ -429,11 +459,18 @@ if (!code || !code.trim()) {
   process.exit(2);
 }
 
+const browserContext = resolveBrowserContext({ argv, parsedFlags, config });
+const globals = signal => createHostGlobals(config, assertInside, signal, { browserContext });
+
 let timeoutMs;
 try {
-  const requested = has('--timeout-ms') ? requireInteger('--timeout-ms', Number(flag('--timeout-ms'))) : 30000;
+  const requested = parsedFlags.has('--timeout-ms') ? requireInteger('--timeout-ms', Number(parsedFlags.get('--timeout-ms'))) : 30000;
   timeoutMs = Math.min(requested, config.maxTimeoutMs);
 } catch (e) { fail(e.message); }
 const out = await runCode(code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes });
-process.stdout.write(JSON.stringify(out) + '\n');
-process.exitCode = out.ok ? 0 : 1;
+if (browserContext) {
+  out.browserContext = routingReport(browserContext);
+}
+const finalOut = fitEnvelope(out, config.maxResultBytes);
+process.stdout.write(JSON.stringify(finalOut) + '\n');
+process.exitCode = finalOut.ok ? 0 : 1;

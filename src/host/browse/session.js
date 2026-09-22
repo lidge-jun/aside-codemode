@@ -15,6 +15,7 @@ import { helperStamp } from './helper-bundle.js';
 import { DEAD_END } from './policy.js';
 import { createTabJournal } from './tab-journal.js';
 import { lossMarkers } from './result-contract.js';
+import { browserContextToArgv, routingReport } from '../../browser-context.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
 // \u001b[2m[ok | 395ms]\u001b[0m. Anchoring to end-of-string missed it entirely and every
@@ -304,16 +305,19 @@ export function runStatus({ marker, items = [], leakedUrls = [], killed = false,
 // the counts are zero, the lists are empty, and the status is stamped rather than computed.
 // runStatus cannot compute it — with nothing spawned there is no marker, and a null marker
 // means "we never heard back", which is the opposite of what happened here.
-export function writeApprovalRefusal({ runId, requested, wants, job, approvalId = null, expiresAt = null }) {
+export function writeApprovalRefusal({ runId, requested, wants, job, approvalId = null, expiresAt = null, routing = null }) {
   const items = requested.map((r) => ({
     jobId: r.jobId, url: r.url, ok: false, status: 'needs_input', code: 'EWRITEAPPROVAL', wants,
   }));
+  const rep = routingReport(routing);
   return {
     schema: 'browse/2',
     runId,
     status: 'needs_input',
     ok: false,
     code: 'EWRITEAPPROVAL',
+    routing: rep,
+    browserContext: rep,
     // What to name when approving. A run id would not do: this envelope and the one the
     // approved run returns are two different answers, and one id pointing at both stops
     // being an identifier. The approved run carries this id back so the pair can be joined.
@@ -353,7 +357,7 @@ export function buildRunSource(job, { plan = null, runId = null, requested = nul
   return compile({ ...job, runId }, rows);
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal() } = {}) {
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal(), browserContext = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
 
@@ -364,6 +368,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       e.code = 'ECANCELLED';
       throw e;
     }
+    const routing = opts.browserContext || browserContext;
+    const routingArgs = browserContextToArgv(routing);
+    const report = routingReport(routing);
     // Validated on every path, including the approved one. What approval changes is the
     // gate, not the checking: the record it replays sits in a shared temp directory, and a
     // job that skipped validation because it had been validated once, somewhere else,
@@ -388,11 +395,12 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // which is a smaller surface, not a weaker one.
       // The RAW job is stored, not the normalized one, so approving replays exactly what
       // the caller asked for and it goes through validateJob again on the way out.
-      const held = approvals ? approvals.open({ job: rawJob, wants, urls: job.urls.slice() }) : null;
+      const held = approvals ? approvals.open({ job: rawJob, wants, urls: job.urls.slice(), context: report }) : null;
       return writeApprovalRefusal({
         runId, requested, wants, job,
         approvalId: held ? held.approvalId : null,
         expiresAt: held ? held.expiresAt : null,
+        routing,
       });
     }
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
@@ -429,7 +437,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const bin = await resolveAside();
     const startedAt = now();
 
-    const child = await spawnAside(bin, ['repl', source], { hostMs, signal: effective });
+    const child = await spawnAside(bin, [...routingArgs, 'repl', source], { hostMs, signal: effective });
     const stdout = String(child && child.stdout !== undefined ? child.stdout : '');
     const killed = Boolean(child && child.killed);
     const { marker, ms } = parseMarker(stdout);
@@ -438,7 +446,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     // Before any verdict is computed, because this is the one thing that matters whether
     // the run succeeded or was killed mid-close. A tab the script opened and did not report
     // closing is a tab somebody will be looking at later with no idea where it came from.
-    try { if (tabJournal) tabJournal.record({ runId, stdout, urls: job.urls.slice() }); } catch { /* the journal is a convenience, never a reason to lose a result */ }
+    try { if (tabJournal) tabJournal.record({ runId, stdout, urls: job.urls.slice(), context: report }); } catch { /* the journal is a convenience, never a reason to lose a result */ }
 
     if (killed || marker === null) {
       // The script never got to print, so it never got to close its tabs. Every url we
@@ -452,6 +460,8 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
         runId,
         status: 'indeterminate',
         ok: false,
+        routing: report,
+        browserContext: report,
         requested: requested.length,
         completed: 0,
         unreturned: 0,
@@ -572,6 +582,8 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       runId,
       status,
       ok: status === 'completed',
+      routing: report,
+      browserContext: report,
       requested: requested.length,
       // Which helper answered, when one was shipped. The body is not echoed; the hash is
       // what lets an installed copy be checked against the one this run actually ran.
@@ -635,6 +647,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
   async function raw(replSource, opts = {}) {
     const effective = opts.signal || signal;
     if (effective && effective.aborted) { const e = new Error('browse cancelled'); e.code = 'ECANCELLED'; throw e; }
+    const routing = opts.browserContext || browserContext;
+    const routingArgs = browserContextToArgv(routing);
+    const report = routingReport(routing);
     // Same wire limit as the generated job path. This entry point skipped the check, so a
     // caller that injected a helper found out by way of a platform error from the OS rather
     // than a sentence naming the limit.
@@ -644,7 +659,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       throw e;
     }
     const bin = await resolveAside();
-    const child = await spawnAside(bin, ['repl', replSource], { hostMs: opts.hostMs || 30000, signal: effective });
+    const child = await spawnAside(bin, [...routingArgs, 'repl', replSource], { hostMs: opts.hostMs || 30000, signal: effective });
     const stdout = String(child && child.stdout !== undefined ? child.stdout : '');
     const { marker } = parseMarker(stdout);
     const final = parseFinal(stdout);
@@ -656,9 +671,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // The transcript travels with the failure, not only with the success. An effect line
       // is printed the moment a step is requested, so this is the only place a click that
       // went out on a live tab before the run died can still be recovered from.
-      return { error: text || 'the run produced no marker', rows: [], raw: { stdout, marker } };
+      return { error: text || 'the run produced no marker', rows: [], raw: { stdout, marker }, routing: report, browserContext: report };
     }
-    return { rows: (final && final.rows) || [], raw: { stdout, marker } };
+    return { rows: (final && final.rows) || [], raw: { stdout, marker }, routing: report, browserContext: report };
   }
 
   return Object.freeze({ run, raw, innerCapMs: (caps) => deadlineMath(undefined, caps || {}).innerMs });

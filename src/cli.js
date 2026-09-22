@@ -22,7 +22,7 @@ import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
 import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
 import { requireInteger, fitEnvelope } from './execution-output.js';
-import { resolveBrowserContext, parseExecutionArgv, validateAccount, validateHost, routingReport } from './browser-context.js';
+import { resolveBrowserContext, parseCliArgv, parseExecutionArgv, validateAccount, validateHost, routingReport } from './browser-context.js';
 
 const argv = process.argv.slice(2);
 // Mode detection must not inspect option VALUES (guest code may itself be '--doctor').
@@ -57,6 +57,9 @@ function fail(error, extra = {}) {
   process.stdout.write(JSON.stringify({ ok: false, error, ...extra }) + '\n');
   process.exit(1);
 }
+
+try { parseCliArgv(argv); }
+catch (e) { fail(e.message, { code: 'EBADARGV' }); }
 
 // Before the config is loaded, on purpose. The file this command exists to fix is one of the
 // files loadConfig reads, so a broken one would block the only easy way to repair it.

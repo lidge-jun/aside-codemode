@@ -5,12 +5,13 @@ import { createAsideSpawner } from './browse/spawn.js';
 import { createReport as createReportCore } from './report/report.js';
 import { createApi } from './browse/adapters.js';
 import { ENABLE_BROWSE_COMMAND } from '../enable-browse.js';
+import { requireLocalArtifacts } from '../browser-context.js';
 
-export function createReport({ config = {}, signal, assertInside, env = process.env, browserContext = null } = {}) {
+export function createReport({ config = {}, signal, assertInside, env = process.env, browserContext = null, spawnAside, resolveAside } = {}) {
   const caps = config.browseCaps || {};
   const session = createBrowseSession({
-    spawnAside: createAsideSpawner(),
-    resolveAside: createAsideResolver(config, env),
+    spawnAside: spawnAside || createAsideSpawner(),
+    resolveAside: resolveAside || createAsideResolver(config, env),
     signal,
     browserContext,
   });
@@ -22,6 +23,7 @@ export function createReport({ config = {}, signal, assertInside, env = process.
         e.code = 'EDISABLED';
         throw e;
       }
+      requireLocalArtifacts(browserContext, 'report.build');
       return core.build({ ...opts, browseCaps: caps });
     },
   });

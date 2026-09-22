@@ -49,7 +49,10 @@ optional `account` and `host` fields. The selection is scoped to one execution's
 not local file access. Omitted selectors inherit native Aside defaults, which are not mutated.
 `src/browser-context.js` validates selectors and builds native argv. Routing metadata describes
 the selection, not a verified account identity or resolved remote machine. Invalid selectors
-and unknown execution arguments fail before guest execution.
+and unknown execution arguments fail before guest execution. All CLI modes validate their allowed
+options before dispatch, including before enable-browse or install-MCP writes. Mixed modes fail.
+Enable-browse accepts only `--json`; install-MCP accepts `--account`, `--json`, `--force`, and
+`--no-discovery`. Host selectors reject leading dashes and control characters on CLI, config and MCP.
 
 ## What the guest may reach
 

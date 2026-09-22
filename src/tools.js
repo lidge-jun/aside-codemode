@@ -38,6 +38,13 @@ export const TOOL_DEF = {
 
 export function createToolHandler({ config, globals }) {
   return async function handleToolCall(args, { signal } = {}) {
+    const unknown = args && typeof args === 'object'
+      ? Object.keys(args).filter(key => key !== 'code' && key !== 'timeoutMs') : [];
+    if (unknown.length) {
+      const err = new Error('unknown execute_code field(s): ' + unknown.join(', '));
+      err.invalidParams = true;
+      throw err;
+    }
     if (!args || typeof args.code !== 'string' || args.code.length === 0) {
       const err = new Error('code (non-empty string) is required');
       err.invalidParams = true;

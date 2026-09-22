@@ -18,7 +18,7 @@ export function normalizeAccount(value, label = 'browseContext.account') {
 
 export function normalizeHost(value, label = 'browseContext.host') {
   if (typeof value !== 'string' || value.length === 0 || value !== value.trim()
-      || value.startsWith('--') || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value)) {
+      || value.startsWith('-') || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value)) {
     throw contextError(`${label} must be a non-empty Aside host id or device name`);
   }
   return value;

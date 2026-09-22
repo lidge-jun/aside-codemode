@@ -182,3 +182,13 @@ test('CLI rejects unknown execution flags and reports validated selector overrid
   assert.deepEqual(out.browseContext.source, { account: 'cli-override', host: 'cli-override' });
   assert.equal(out.browseContext.actualIdentity, 'unverified');
 });
+
+
+test('flag-shaped hosts and undeclared MCP selectors fail before guest code', async () => {
+  const { createToolHandler } = await import('../src/tools.js');
+  assert.throws(() => normalizeBrowseContext({host:'-p'}), /host/);
+  let ran = false;
+  const handler = createToolHandler({config:{maxTimeoutMs:1000,maxResultBytes:65536},globals:()=>{ran=true;return {};}});
+  await assert.rejects(handler({code:'return 1',host:'different-host'}), error=>error.invalidParams===true);
+  assert.equal(ran,false);
+});

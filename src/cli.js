@@ -22,7 +22,7 @@ import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
 import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
 import { requireInteger } from './execution-output.js';
-import { parseCliArgs, assertExecutionArgs } from './cli-args.js';
+import { parseCliArgs, assertCliArgs } from './cli-args.js';
 import { browseContextReport, mergeBrowseContext, normalizeAccount, normalizeHost } from './host/browse/context.js';
 
 const argv = process.argv.slice(2);
@@ -47,7 +47,10 @@ function fail(error, extra = {}) {
   process.exit(1);
 }
 
-try { parsedArgv = parseCliArgs(argv); }
+try {
+  parsedArgv = parseCliArgs(argv);
+  assertCliArgs(parsedArgv);
+}
 catch (e) { fail(e.message, { code: 'EBADARGV' }); }
 
 // Before the config is loaded, on purpose. The file this command exists to fix is one of the
@@ -184,10 +187,6 @@ if (has('--install-mcp')) {
 }
 
 const executionMode = has('--code') || has('--code-file');
-if (executionMode) {
-  try { assertExecutionArgs(parsedArgv); }
-  catch (e) { fail(e.message, { code: 'EBADARGV' }); }
-}
 
 let config;
 try {

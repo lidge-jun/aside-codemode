@@ -89,11 +89,7 @@ test('cache and approval storage differ across requested browser contexts', asyn
 test('partial selectors cannot become a reusable inherited identity', async () => {
   assert.equal(contextScope({ account: 'u1' }, '/local/u/0'), null);
   assert.equal(contextScope({ host: 'remote-a' }, '/local/u/0'), null);
-  assert.notEqual(
-    contextDirectory('/tmp/approvals', { account: 'u1' }),
-    contextDirectory('/tmp/approvals', { account: 'u1' }),
-    'each unresolved context gets a private store',
-  );
+  assert.throws(() => contextDirectory('/tmp/approvals', { account: 'u1' }), /requires both account and host/);
 
   const browse = createBrowse({
     config: { browseContext: { account: 'u1' }, browseCaps: { enabled: true } },

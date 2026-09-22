@@ -29,6 +29,7 @@ export function parseCliArgs(argv = []) {
       if (token !== '--code' && String(value).startsWith('--')) {
         throw new Error(missingValue(token, value));
       }
+      if (token !== '--code' && !String(value).trim()) throw new Error(missingValue(token));
       values.set(token, value);
       i += 1;
       continue;
@@ -56,14 +57,24 @@ export function parseCliArgs(argv = []) {
   });
 }
 
-export function assertExecutionArgs(parsed) {
+export function assertCliArgs(parsed) {
+  const execution = parsed.has('--code') || parsed.has('--code-file');
+  const modes = ['--enable-browse', '--install-mcp', '--doctor'].filter((name) => parsed.has(name));
+  if (modes.length + Number(execution) > 1) throw new Error('choose one CLI mode: execution, --doctor, --enable-browse, or --install-mcp');
+  const mode = execution ? 'execution' : modes[0] || 'usage';
   if (parsed.unknown.length) {
-    throw new Error(`unknown execution argument(s): ${parsed.unknown.join(', ')}`);
+    throw new Error(`unknown ${mode} argument(s): ${parsed.unknown.join(', ')}`);
   }
   if (parsed.has('--code') && parsed.has('--code-file')) {
     throw new Error('pass exactly one of --code or --code-file');
   }
-  const allowed = new Set(['--account', '--code', '--code-file', '--config', '--cwd', '--host', '--timeout-ms']);
-  const wrong = [...BOOLEAN_FLAGS].filter((name) => parsed.has(name) && !allowed.has(name));
-  if (wrong.length) throw new Error(`unsupported execution flag(s): ${wrong.join(', ')}`);
+  const allowed = new Set({
+    execution: ['--account', '--code', '--code-file', '--config', '--cwd', '--host', '--timeout-ms'],
+    '--enable-browse': ['--enable-browse', '--json'],
+    '--install-mcp': ['--install-mcp', '--account', '--json', '--force', '--no-discovery'],
+    '--doctor': ['--doctor', '--browse', '--config', '--cwd', '--json'],
+    usage: ['--config', '--cwd'],
+  }[mode]);
+  const wrong = [...VALUE_FLAGS, ...BOOLEAN_FLAGS].filter((name) => parsed.has(name) && !allowed.has(name));
+  if (wrong.length) throw new Error(`unsupported ${mode} flag(s): ${wrong.join(', ')}`);
 }

@@ -14,7 +14,6 @@ import { compile, deadlineMath, WIRE_LIMIT } from './script.js';
 import { attachDiff } from './diff.js';
 import { helperStamp } from './helper-bundle.js';
 import { DEAD_END } from './policy.js';
-import { createTabJournal } from './tab-journal.js';
 import { lossMarkers } from './result-contract.js';
 
 // The CLI colourises its own trailing marker, so the raw bytes are
@@ -354,7 +353,7 @@ export function buildRunSource(job, { plan = null, runId = null, requested = nul
   return compile({ ...job, runId }, rows);
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal(), browseContext = {}, contextReport = null } = {}) {
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = null, browseContext = {}, contextReport = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
   const selectedContext = normalizeBrowseContext(browseContext);

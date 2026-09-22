@@ -9,15 +9,19 @@ job, and the rest are the checks that keep a batch honest.
 `context.js` validates and freezes the optional account and host selectors. Every run path and raw
 REPL path builds its command from that same value, placing `--account` and `--host` before `repl`.
 The requested context also scopes cache keys, pending approvals, and tab journals, so work requested
-for one account or host cannot reuse another context's browser state. A partial selector leaves the
-other identity unresolved, so it disables shared cache and approval persistence and uses a private
-tab journal; the literal word `inherited` is never used as a reusable identity. With no selector,
-the existing Aside-inherited behavior and local current-account cache scope remain unchanged.
+for one account or host cannot reuse another context's browser state. Any incomplete context,
+including the empty default, disables shared cache, approval persistence and tab journals. Inherited
+identity can change between calls; local accounts.json cannot prove the selected remote identity.
+Default browser execution still passes no selectors to Aside. To use persistent approvals or tab
+ownership, configure both fields, for example `{ "account": "u1", "host": "local" }`. Legacy
+unscoped approvals and journals are not reused; obtain fresh observations and approvals after
+configuring the context. `leakedTabs` reports `EUNRESOLVEDCONTEXT` when ownership cannot be checked.
 
 A remote REPL may return ordinary rows and text. Artifact APIs need a stronger contract because the
 `pwd` printed by a remote session is not a local filesystem fact. There is no verified transfer path
-in this package, so `browse.captureMany` and `report.build` refuse remote-host materialization before
-spawning instead of passing the remote path to local file APIs.
+in this package, so `browse.captureMany` and `report.build` require explicit `host: "local"` before
+spawning. An omitted host is unresolved even with an explicit account and is refused with
+`EREMOTEARTIFACT`, just like a remote host, before any session path reaches local file APIs.
 
 ## The job, validated before anything spawns
 

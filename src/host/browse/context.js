@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 const FIELDS = new Set(['account', 'host']);
@@ -52,9 +52,8 @@ export function replArgs(context, source) {
   return args;
 }
 
-export function contextScope(context, inheritedAccountRoot = '') {
+export function contextScope(context) {
   const selected = normalizeBrowseContext(context);
-  if (!selected.account && !selected.host) return String(inheritedAccountRoot || '');
   if (!selected.account || !selected.host) return null;
   return JSON.stringify({
     account: selected.account,
@@ -64,16 +63,15 @@ export function contextScope(context, inheritedAccountRoot = '') {
 
 export function contextDirectory(base, context) {
   const selected = normalizeBrowseContext(context);
-  if (!selected.account && !selected.host) return base;
   const scope = contextScope(selected);
-  if (scope === null) return path.join(base, 'unresolved-' + randomUUID());
+  if (scope === null) throw contextError('persistent browser state requires both account and host');
   const digest = createHash('sha256').update(scope).digest('hex').slice(0, 24);
   return path.join(base, 'context-' + digest);
 }
 
-export function isPartialBrowseContext(context) {
+export function isIncompleteBrowseContext(context) {
   const selected = normalizeBrowseContext(context);
-  return Boolean(selected.account) !== Boolean(selected.host);
+  return !selected.account || !selected.host;
 }
 
 export function browseContextReport(config = {}) {
@@ -91,5 +89,5 @@ export function browseContextReport(config = {}) {
 
 export function remoteArtifactsUnsupported(context) {
   const host = normalizeBrowseContext(context).host;
-  return Boolean(host && host !== 'local');
+  return host !== 'local';
 }

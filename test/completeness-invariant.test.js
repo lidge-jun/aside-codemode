@@ -119,7 +119,7 @@ function childOutput(item) {
 
 function browseWith(item, extraCaps = {}) {
   return createBrowse({
-    config: { browseCaps: { enabled: true, ...extraCaps } },
+    config: { browseContext: { account: 'u1', host: 'local' }, browseCaps: { enabled: true, ...extraCaps } },
     resolveAside,
     spawnAside: async () => ({ stdout: childOutput(item), killed: false }),
   });

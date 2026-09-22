@@ -48,8 +48,11 @@ expression with no quotes of its own.
 Browser execution has one immutable `browseContext` with optional `account` and `host` selectors.
 Machine config supplies it to both MCP and CLI runs; direct `--code`/`--code-file` calls may
 override either field with `--account` or `--host`. Parsing consumes the guest source as one opaque
-argument, so flag-looking text inside `--code` is code rather than an execution option. Unknown or
-malformed execution flags are refused before the guest worker starts. Results and doctor output
+argument, so flag-looking text inside `--code` is code rather than an execution option. Every mode
+validates its own allowed flags before dispatch: unknown, malformed, mixed-mode, or unsupported
+options fail before the guest worker, enable-browse config write, or install-MCP settings write.
+Enable-browse accepts only `--json`; install-MCP accepts `--account`, `--json`, `--force`, and
+`--no-discovery`. Results and doctor output
 report the requested selector and whether it came from config, a CLI override, or Aside's inherited
 default. They keep actual identity `unverified`, because a successful spawn does not prove which
 profile or device the daemon resolved.

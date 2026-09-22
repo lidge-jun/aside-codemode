@@ -26,7 +26,7 @@ export function createReport({ config = {}, signal, assertInside, env = process.
         throw e;
       }
       if (remoteArtifactsUnsupported(browseContext)) {
-        const e = new Error('report.build cannot materialize a PDF from a requested remote host: no verified transfer path is available');
+        const e = new Error('report.build requires explicit browseContext.host: "local" for local artifacts; inherited or remote hosts have no verified transfer path');
         e.code = 'EREMOTEARTIFACT';
         throw e;
       }

@@ -15,19 +15,18 @@ import { createSearchMany } from './search.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
 import { createWatch, createRecipes, createPrefetch } from './watch.js';
 import { createAttach } from './attach.js';
-import os from 'node:os';
 import path from 'node:path';
 import { listAccountRoots } from '../../register.js';
 import {
   browseContextReport, contextDirectory, contextScope, normalizeBrowseContext,
-  isPartialBrowseContext, remoteArtifactsUnsupported,
+  isIncompleteBrowseContext, remoteArtifactsUnsupported,
 } from './context.js';
 
 export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
   const caps = config.browseCaps || {};
   const browseContext = normalizeBrowseContext(config.browseContext || {});
   const reportedContext = browseContextReport(config);
-  const unresolvedContext = isPartialBrowseContext(browseContext);
+  const unresolvedContext = isIncompleteBrowseContext(browseContext);
   // Injectable for tests; a real install gets the portable resolver and spawner so the
   // namespace works on a machine nobody developed on.
   const resolver = resolveAside || createAsideResolver(config, env, { verify: (bin) => verifyAside(bin) });
@@ -52,7 +51,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
       browseContext,
     ),
   });
-  const tabJournal = createTabJournal({
+  const tabJournal = unresolvedContext ? null : createTabJournal({
     dir: contextDirectory(
       typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : JOURNAL_DIR,
       browseContext,
@@ -69,10 +68,9 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     contextReport: reportedContext,
   });
   const captureManyImpl = createCaptureMany({ session, assertInside });
-  // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
-  // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
-  const asideHome = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside');
-  const accountRoot = contextScope(browseContext, resolveAccountRoot(asideHome));
+  // Inherited selectors can change between calls; local accounts.json cannot identify
+  // the account or host selected by a remote daemon.
+  const accountRoot = contextScope(browseContext);
   const cache = unresolvedContext ? null : createCache({
     ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined,
   });
@@ -100,7 +98,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
       throw e;
     }
     if (remoteArtifactsUnsupported(browseContext)) {
-      const e = new Error('browse.captureMany cannot materialize artifacts from a requested remote host: no verified transfer path is available; use browse.exec or browse.attach for textual results');
+      const e = new Error('browse.captureMany requires explicit browseContext.host: "local" for local artifacts; inherited or remote hosts have no verified transfer path. Use browse.exec or browse.attach for textual results');
       e.code = 'EREMOTEARTIFACT';
       throw e;
     }
@@ -124,6 +122,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // user's own tabs out of this.
   async function leakedTabs() {
     if (caps.enabled !== true) throw disabledError();
+    if (!tabJournal) return { ok: false, code: 'EUNRESOLVEDCONTEXT', tabs: [], error: 'tab ownership requires both browseContext.account and browseContext.host; inherited identity is unverified' };
     const listed = await attachImpl.tabs();
     if (!listed || listed.ok !== true) {
       return { ok: false, code: listed && listed.code ? listed.code : 'ENOTABS', error: 'could not read the open tabs, so nothing can be called abandoned', tabs: [] };
@@ -142,7 +141,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.approve', opts);
     if (!approvals) {
-      const e = new Error('browse.approve needs both browseContext.account and browseContext.host when either selector is explicit; inherited identity is unverified and approvals cannot cross it safely');
+      const e = new Error('browse.approve needs both browseContext.account and browseContext.host; inherited identity is unverified and approvals cannot cross it safely');
       e.code = 'EUNRESOLVEDCONTEXT';
       throw e;
     }
@@ -160,7 +159,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.reject', opts);
     if (!approvals) {
-      const e = new Error('browse.reject needs both browseContext.account and browseContext.host when either selector is explicit; inherited identity is unverified and approvals cannot cross it safely');
+      const e = new Error('browse.reject needs both browseContext.account and browseContext.host; inherited identity is unverified and approvals cannot cross it safely');
       e.code = 'EUNRESOLVEDCONTEXT';
       throw e;
     }

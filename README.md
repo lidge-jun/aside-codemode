@@ -502,14 +502,18 @@ MCP uses that server config. A direct `--code` or `--code-file` call may overrid
 `--account u1` and `--host local` (or a remote host id/device name). Results and `--doctor` report
 the requested values and their source, with actual identity marked `unverified`; a successful CLI
 spawn is not proof of what the daemon resolved. Account/host selectors are passed to both browser
-run paths. Unknown or malformed execution flags fail before guest code runs, while flag-looking text
-inside the `--code` value stays guest code.
+run paths. Every CLI mode rejects unknown, malformed or unsupported flags before execution or
+settings writes; mixed modes are refused. Flag-looking text inside `--code` stays guest code.
+`--enable-browse` accepts only `--json`; `--install-mcp` accepts `--account`, `--json`, `--force`,
+and `--no-discovery`.
 
-Shared browser caches, approvals and tab journals are scoped by the complete requested context. If
-only one selector is explicit, the other identity is unresolved: shared cache and approval
-persistence are disabled rather than keyed under a guessed identity. Remote textual reads still
-work, but `browse.captureMany` and `report.build` refuse remote artifact materialization because this
-package has no verified file-transfer path. `host: "local"` keeps local artifact behavior.
+Shared browser caches, approvals and tab journals require both selectors. Any incomplete context,
+including the empty default, disables their reuse because inherited identity can change between
+calls. Browser reads still use Aside's inherited defaults when no selectors are supplied. To restore
+persistent approvals and tab ownership, configure both fields as above and obtain fresh observations
+and approvals; old unscoped records are not reused. `browse.captureMany` and `report.build` require
+explicit `host: "local"` before materializing files. An omitted host may inherit a remote host and
+is refused too; this package has no verified file-transfer path. Remote textual reads remain available.
 
 With no config, `roots` defaults to `$HOME` (`--doctor` reports `default:$HOME`). Wide roots are pruned by `excludeGlobs` (`Library`, `node_modules`, caches, media, …). [Measured on one machine](evidence/exclude-pruning-260918.md) with `node scripts/measure-excludes.mjs`: the default excludes walked 348,353 files, `includeExcluded: true` walked 756,239, and the same walk took 0.69s and 1.22s on the first pair of runs. How much that saves is a property of what is in the root, so measure your own. Set `"excludeGlobs": []` to disable pruning. `codemode.config.json` is machine-specific and gitignored.
 

@@ -39,6 +39,7 @@
       "scope": "The product boundary, the four execution paths, their environments, and the guest sandbox surface.",
       "documents": [
         "bin/",
+        "src/cli-args.js",
         "src/cli.js",
         "src/sandbox.js",
         "src/guest-guidance.js",

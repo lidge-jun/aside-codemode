@@ -1,6 +1,7 @@
 // execute_code tool definition + handler (A-D2/A-D5).
 import { runCode } from './sandbox.js';
 import { requireInteger } from './execution-output.js';
+import { browseContextReport } from './host/browse/context.js';
 
 export const TOOL_NAME = 'execute_code';
 
@@ -45,7 +46,13 @@ export function createToolHandler({ config, globals }) {
     let timeoutMs;
     try { timeoutMs = Math.min(args.timeoutMs === undefined ? 30000 : requireInteger('timeoutMs', args.timeoutMs), config.maxTimeoutMs); }
     catch (e) { e.invalidParams = true; throw e; }
-    const out = await runCode(args.code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes, signal });
+    const out = await runCode(args.code, {
+      timeoutMs,
+      globals,
+      maxResultBytes: config.maxResultBytes,
+      signal,
+      resultMeta: { browseContext: browseContextReport(config) },
+    });
     return {
       content: [{ type: 'text', text: JSON.stringify(out) }],
       ...(out.ok ? {} : { isError: true }),

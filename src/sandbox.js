@@ -24,19 +24,19 @@ function hostMethods(globals) {
   return methods;
 }
 
-export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResultBytes = 65536, signal } = {}) {
+export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResultBytes = 65536, signal, resultMeta = {} } = {}) {
   const started = Date.now();
   try {
     requireInteger('timeoutMs', timeoutMs);
     requireInteger('maxResultBytes', maxResultBytes, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
     if (typeof code !== 'string' || !code.trim()) throw new Error('code (non-empty string) is required');
   } catch (e) {
-    return { ok: false, error: e.message, logs: [], elapsedMs: Date.now() - started };
+    return fitEnvelope({ ok: false, error: e.message, logs: [], ...resultMeta, elapsedMs: Date.now() - started }, maxResultBytes);
   }
   const controller = new AbortController();
   let host;
   try { host = typeof globals === 'function' ? globals(controller.signal) : globals; }
-  catch (e) { return fitEnvelope({ ok: false, ...errorFields(e), elapsedMs: Date.now() - started }, maxResultBytes); }
+  catch (e) { return fitEnvelope({ ok: false, ...errorFields(e), ...resultMeta, elapsedMs: Date.now() - started }, maxResultBytes); }
   const methods = hostMethods(host);
   const manifest = [...methods.keys()];
   const { port1, port2 } = new MessageChannel();
@@ -65,7 +65,7 @@ export async function runCode(code, { timeoutMs = 30000, globals = {}, maxResult
         clearTimeout(drainTimer);
       }
       const pending = active.size ? { pendingHostCalls: active.size, sideEffectsMayContinue: true } : {};
-      resolve(fitEnvelope({ ...out, logs: out.logs ?? logs, ...pending, elapsedMs: Date.now() - started }, maxResultBytes));
+      resolve(fitEnvelope({ ...out, logs: out.logs ?? logs, ...pending, ...resultMeta, elapsedMs: Date.now() - started }, maxResultBytes));
     }
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener('abort', abort, { once: true });

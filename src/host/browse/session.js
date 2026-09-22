@@ -8,6 +8,7 @@
 //      never printed its payload and the tabs are unrecoverable — that is reported as a
 //      host-kill leak rather than quietly dropped.
 import { randomUUID } from 'node:crypto';
+import { browseContextReport, normalizeBrowseContext, replArgs } from './context.js';
 import { validateJob, gatedVerbs } from './schema.js';
 import { compile, deadlineMath, WIRE_LIMIT } from './script.js';
 import { attachDiff } from './diff.js';
@@ -353,9 +354,11 @@ export function buildRunSource(job, { plan = null, runId = null, requested = nul
   return compile({ ...job, runId }, rows);
 }
 
-export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal() } = {}) {
+export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, signal, breaker = null, approvals = null, tabJournal = createTabJournal(), browseContext = {}, contextReport = null } = {}) {
   if (typeof spawnAside !== 'function') throw new TypeError('spawnAside is required');
   if (typeof resolveAside !== 'function') throw new TypeError('resolveAside is required');
+  const selectedContext = normalizeBrowseContext(browseContext);
+  const reportedContext = contextReport || browseContextReport({ browseContext: selectedContext });
 
   async function run(rawJob, opts = {}) {
     const effective = opts.signal || signal;
@@ -389,11 +392,11 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // The RAW job is stored, not the normalized one, so approving replays exactly what
       // the caller asked for and it goes through validateJob again on the way out.
       const held = approvals ? approvals.open({ job: rawJob, wants, urls: job.urls.slice() }) : null;
-      return writeApprovalRefusal({
+      return { ...writeApprovalRefusal({
         runId, requested, wants, job,
         approvalId: held ? held.approvalId : null,
         expiresAt: held ? held.expiresAt : null,
-      });
+      }), browseContext: reportedContext };
     }
     const { innerMs, hostMs } = deadlineMath(job.timeoutMs, opts.browseCaps || {});
     const caps = opts.browseCaps || {};
@@ -429,7 +432,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
     const bin = await resolveAside();
     const startedAt = now();
 
-    const child = await spawnAside(bin, ['repl', source], { hostMs, signal: effective });
+    const child = await spawnAside(bin, replArgs(selectedContext, source), { hostMs, signal: effective });
     const stdout = String(child && child.stdout !== undefined ? child.stdout : '');
     const killed = Boolean(child && child.killed);
     const { marker, ms } = parseMarker(stdout);
@@ -449,6 +452,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // written before it was killed; we simply never heard about it.
       return {
         schema: 'browse/2',
+        browseContext: reportedContext,
         runId,
         status: 'indeterminate',
         ok: false,
@@ -569,6 +573,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
 
     return {
       schema: 'browse/2',
+      browseContext: reportedContext,
       runId,
       status,
       ok: status === 'completed',
@@ -644,7 +649,7 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       throw e;
     }
     const bin = await resolveAside();
-    const child = await spawnAside(bin, ['repl', replSource], { hostMs: opts.hostMs || 30000, signal: effective });
+    const child = await spawnAside(bin, replArgs(selectedContext, replSource), { hostMs: opts.hostMs || 30000, signal: effective });
     const stdout = String(child && child.stdout !== undefined ? child.stdout : '');
     const { marker } = parseMarker(stdout);
     const final = parseFinal(stdout);
@@ -656,9 +661,9 @@ export function createBrowseSession({ spawnAside, resolveAside, now = Date.now, 
       // The transcript travels with the failure, not only with the success. An effect line
       // is printed the moment a step is requested, so this is the only place a click that
       // went out on a live tab before the run died can still be recovered from.
-      return { error: text || 'the run produced no marker', rows: [], raw: { stdout, marker } };
+      return { error: text || 'the run produced no marker', rows: [], raw: { stdout, marker }, browseContext: reportedContext };
     }
-    return { rows: (final && final.rows) || [], raw: { stdout, marker } };
+    return { rows: (final && final.rows) || [], raw: { stdout, marker }, browseContext: reportedContext };
   }
 
   return Object.freeze({ run, raw, innerCapMs: (caps) => deadlineMath(undefined, caps || {}).innerMs });

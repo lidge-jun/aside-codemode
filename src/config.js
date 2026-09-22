@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireInteger, MIN_OUTPUT_BYTES, MAX_OUTPUT_BYTES } from './execution-output.js';
+import { normalizeBrowseContext } from './host/browse/context.js';
 
 // Directories that cost a lot to walk and almost never hold an answer. How much they cost is
 // a property of the machine, so the number belongs to a note rather than to this comment:
@@ -33,6 +34,7 @@ const DEFAULTS = {
   maxTimeoutMs: 120000,
   searchCaps: { files: 5000, content: 500 },
   asidePath: null,
+  browseContext: {},
   // Opt-in. `timeoutMs` is the INNER script deadline and sits below Aside's measured
   // ~30s internal screenshot timeout; the host deadline is derived as inner + slack.
   browseCaps: { enabled: true, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
@@ -101,6 +103,7 @@ export function userConfigPath(env = process.env, homedir = os.homedir()) {
 export function loadConfig(argv = process.argv.slice(2), env = process.env) {
   const cfg = structuredClone(DEFAULTS);
   cfg._sources = ['built-in'];
+  cfg._browseContextSources = {};
 
   const apply = (obj, source) => {
     if (!obj || typeof obj !== 'object') return;
@@ -121,6 +124,11 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
     }
     if ('asidePath' in obj && (typeof obj.asidePath === 'string' || obj.asidePath === null)) {
       cfg.asidePath = obj.asidePath;
+    }
+    if ('browseContext' in obj) {
+      const next = normalizeBrowseContext(obj.browseContext);
+      cfg.browseContext = { ...cfg.browseContext, ...next };
+      for (const field of Object.keys(next)) cfg._browseContextSources[field] = source;
     }
     // Field-wise, exactly like searchCaps: a later layer adds keys instead of replacing
     // the object, so one config file cannot silently drop another's browse settings.
@@ -169,5 +177,7 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
   // "/Users/.../C:\\Users\\..." and the resulting error blames the wrong path.
   cfg.rawRoots = [...cfg.roots];
   cfg.roots = cfg.roots.map((r) => (isAbsoluteAnyPlatform(r) ? r : path.resolve(r)));
+  cfg.browseContext = normalizeBrowseContext(cfg.browseContext);
+  cfg._browseContextSources = Object.freeze({ ...cfg._browseContextSources });
   return cfg;
 }

@@ -4,6 +4,7 @@
 // `--doctor --browse` can tell an operator why a request is refused before they debug it.
 import { UNSUPPORTED, WAIT_STATES, DEFAULT_INNER_CAP_MS, ASIDE_REPL_CAP_MS } from './schema.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
+import { browseContextReport } from './context.js';
 
 export const CAPABILITY_MATRIX = Object.freeze({
   measuredOn: '2026-09-14',
@@ -46,6 +47,7 @@ export function doctorPayload(config = {}, resolved = null, error = null) {
     asidePath: config.asidePath ?? null,
     asideResolved: resolved,
     asideError: error,
+    browseContext: browseContextReport(config),
     caps: {
       timeoutMs: caps.timeoutMs ?? DEFAULT_INNER_CAP_MS,
       maxTabs: caps.maxTabs ?? 8,

@@ -38,3 +38,32 @@ test('empty roots deny every fs call', () => {
   const guard = makeRootGuard([]);
   assert.throws(() => guard(tmpdir()), RootEscapeError);
 });
+
+test('browseContext merges field-wise by config precedence and stays frozen', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-'));
+  const lower = writeCfg(dir, 'lower.json', {
+    roots: [dir], browseContext: { account: 'u1', host: 'lower-host' },
+  });
+  const higher = writeCfg(dir, 'higher.json', { browseContext: { host: 'higher-host' } });
+  const out = loadConfig(['--config', higher], {
+    CODEMODE_CONFIG: lower,
+    CODEMODE_IGNORE_REPO_CONFIG: '1',
+    XDG_CONFIG_HOME: path.join(dir, 'no-user-config'),
+  });
+  assert.deepEqual(out.browseContext, { account: 'u1', host: 'higher-host' });
+  assert.equal(Object.isFrozen(out.browseContext), true);
+  assert.equal(out._browseContextSources.account, lower);
+  assert.equal(out._browseContextSources.host, higher);
+});
+
+test('malformed browseContext fails while an absent one preserves inherited defaults', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'codemode-cfg-'));
+  const bad = writeCfg(dir, 'bad.json', { browseContext: { account: 'profile-one' } });
+  assert.throws(() => loadConfig(['--config', bad], {
+    CODEMODE_IGNORE_REPO_CONFIG: '1', XDG_CONFIG_HOME: path.join(dir, 'none'),
+  }), /profile id like u1/);
+  const inherited = loadConfig([], {
+    CODEMODE_IGNORE_REPO_CONFIG: '1', XDG_CONFIG_HOME: path.join(dir, 'none'),
+  });
+  assert.deepEqual(inherited.browseContext, {});
+});

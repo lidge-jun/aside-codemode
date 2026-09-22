@@ -8,8 +8,8 @@ import { createBreaker } from './policy.js';
 import { createCaptureMany } from './capture.js';
 import { createReadText } from './read-text.js';
 import { createCache } from './cache.js';
-import { createApprovals, requireApprovalId } from './approvals.js';
-import { createTabJournal } from './tab-journal.js';
+import { APPROVAL_DIR, createApprovals, requireApprovalId } from './approvals.js';
+import { JOURNAL_DIR, createTabJournal } from './tab-journal.js';
 import { createDownloadMedia } from './media.js';
 import { createSearchMany } from './search.js';
 import { ENABLE_BROWSE_COMMAND } from '../../enable-browse.js';
@@ -18,9 +18,16 @@ import { createAttach } from './attach.js';
 import os from 'node:os';
 import path from 'node:path';
 import { listAccountRoots } from '../../register.js';
+import {
+  browseContextReport, contextDirectory, contextScope, normalizeBrowseContext,
+  isPartialBrowseContext, remoteArtifactsUnsupported,
+} from './context.js';
 
 export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
   const caps = config.browseCaps || {};
+  const browseContext = normalizeBrowseContext(config.browseContext || {});
+  const reportedContext = browseContextReport(config);
+  const unresolvedContext = isPartialBrowseContext(browseContext);
   // Injectable for tests; a real install gets the portable resolver and spawner so the
   // namespace works on a machine nobody developed on.
   const resolver = resolveAside || createAsideResolver(config, env, { verify: (bin) => verifyAside(bin) });
@@ -38,20 +45,37 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // suite was writing every refusal, claim and rejection into the shared one and leaving
   // them there, which is litter in somebody's temp directory and a test that can see
   // another run's records.
-  const approvals = createApprovals({
+  const approvals = unresolvedContext ? null : createApprovals({
     ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined,
-    dir: typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : undefined,
+    dir: contextDirectory(
+      typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : APPROVAL_DIR,
+      browseContext,
+    ),
   });
   const tabJournal = createTabJournal({
-    dir: typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : undefined,
+    dir: contextDirectory(
+      typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : JOURNAL_DIR,
+      browseContext,
+    ),
   });
-  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal });
+  const session = createBrowseSession({
+    spawnAside: spawner,
+    resolveAside: resolver,
+    signal,
+    breaker,
+    approvals,
+    tabJournal,
+    browseContext,
+    contextReport: reportedContext,
+  });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
   // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
   const asideHome = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside');
-  const accountRoot = resolveAccountRoot(asideHome);
-  const cache = createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined });
+  const accountRoot = contextScope(browseContext, resolveAccountRoot(asideHome));
+  const cache = unresolvedContext ? null : createCache({
+    ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined,
+  });
 
   async function probe() {
     let resolved = null;
@@ -73,6 +97,11 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     if (caps.enabled !== true) {
       const e = new Error(`browse is turned off on this machine. Turn it back on with: ${ENABLE_BROWSE_COMMAND} (writes browseCaps.enabled into your user config)`);
       e.code = 'EDISABLED';
+      throw e;
+    }
+    if (remoteArtifactsUnsupported(browseContext)) {
+      const e = new Error('browse.captureMany cannot materialize artifacts from a requested remote host: no verified transfer path is available; use browse.exec or browse.attach for textual results');
+      e.code = 'EREMOTEARTIFACT';
       throw e;
     }
     return captureManyImpl(urls, { ...opts, browseCaps: caps });
@@ -112,6 +141,11 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   async function approve(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.approve', opts);
+    if (!approvals) {
+      const e = new Error('browse.approve needs both browseContext.account and browseContext.host when either selector is explicit; inherited identity is unverified and approvals cannot cross it safely');
+      e.code = 'EUNRESOLVEDCONTEXT';
+      throw e;
+    }
     const claimed = approvals.claim(id);
     // Nothing moved. Whatever state it is in is the answer, and the caller is told which
     // one rather than being left to infer it from a failure.
@@ -125,6 +159,11 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   async function reject(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.reject', opts);
+    if (!approvals) {
+      const e = new Error('browse.reject needs both browseContext.account and browseContext.host when either selector is explicit; inherited identity is unverified and approvals cannot cross it safely');
+      e.code = 'EUNRESOLVEDCONTEXT';
+      throw e;
+    }
     const done = approvals.reject(id);
     // A claimed record is never reported as rejected. By then the steps may have run, and
     // saying otherwise is the one wrong answer this surface can give.

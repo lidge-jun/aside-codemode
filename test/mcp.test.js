@@ -9,10 +9,10 @@ import { fileURLToPath } from 'node:url';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'server.js');
 
-function fixtureConfig() {
+function fixtureConfig(extra = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-mcp-'));
   const cfg = path.join(dir, 'config.json');
-  writeFileSync(cfg, JSON.stringify({ roots: [dir] }));
+  writeFileSync(cfg, JSON.stringify({ roots: [dir], ...extra }));
   return { dir, cfg };
 }
 
@@ -69,6 +69,18 @@ test('AC2: execute_code returns 2 for 1+1', async () => {
   const out = JSON.parse(r.result.content[0].text);
   assert.equal(out.ok, true);
   assert.equal(out.result, 2);
+  child.stdin.end();
+});
+
+test('MCP execution reports configured browser context without claiming resolved identity', async () => {
+  const { cfg } = fixtureConfig({ browseContext: { account: 'u3', host: 'remote-mcp' } });
+  const { child, call } = startServer(cfg);
+  await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+  const response = await call('tools/call', { name: 'execute_code', arguments: { code: 'return 3;' } });
+  const out = JSON.parse(response.result.content[0].text);
+  assert.deepEqual(out.browseContext.requested, { account: 'u3', host: 'remote-mcp' });
+  assert.equal(out.browseContext.actualIdentity, 'unverified');
+  assert.match(out.browseContext.source.account, /config\.json$/);
   child.stdin.end();
 });
 

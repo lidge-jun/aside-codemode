@@ -4,6 +4,21 @@ Everything under `src/host/browse/` exists to turn a list of urls into rows with
 the caller cannot account for. One module spawns Aside, one compiles the script, one validates the
 job, and the rest are the checks that keep a batch honest.
 
+## Execution context
+
+`context.js` validates and freezes the optional account and host selectors. Every run path and raw
+REPL path builds its command from that same value, placing `--account` and `--host` before `repl`.
+The requested context also scopes cache keys, pending approvals, and tab journals, so work requested
+for one account or host cannot reuse another context's browser state. A partial selector leaves the
+other identity unresolved, so it disables shared cache and approval persistence and uses a private
+tab journal; the literal word `inherited` is never used as a reusable identity. With no selector,
+the existing Aside-inherited behavior and local current-account cache scope remain unchanged.
+
+A remote REPL may return ordinary rows and text. Artifact APIs need a stronger contract because the
+`pwd` printed by a remote session is not a local filesystem fact. There is no verified transfer path
+in this package, so `browse.captureMany` and `report.build` refuse remote-host materialization before
+spawning instead of passing the remote path to local file APIs.
+
 ## The job, validated before anything spawns
 
 `schema.js` is the option source of truth. Unknown keys are rejected with the valid list, and a key

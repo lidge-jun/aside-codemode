@@ -40,9 +40,19 @@ The MCP server exposes the same execution surface as `execute_code`. Aside launc
 per-account server registration and attaches it to new sessions only when the tool inventory is
 cached.
 
-The CLI is this package's follow-on route. `bin/` holds the entry point, `bin/codemode.mjs`, and
-`src/cli.js` parses the invocation behind it. Guest code arrives as `--code-file`, as `--code -`
-on stdin, or as `--code` for a short expression with no quotes of its own.
+The CLI is this package's follow-on route. `bin/` holds the entry point, `bin/codemode.mjs`,
+`src/cli-args.js` parses fields without inspecting guest source, and `src/cli.js` dispatches the
+invocation. Guest code arrives as `--code-file`, as `--code -` on stdin, or as `--code` for a short
+expression with no quotes of its own.
+
+Browser execution has one immutable `browseContext` with optional `account` and `host` selectors.
+Machine config supplies it to both MCP and CLI runs; direct `--code`/`--code-file` calls may
+override either field with `--account` or `--host`. Parsing consumes the guest source as one opaque
+argument, so flag-looking text inside `--code` is code rather than an execution option. Unknown or
+malformed execution flags are refused before the guest worker starts. Results and doctor output
+report the requested selector and whether it came from config, a CLI override, or Aside's inherited
+default. They keep actual identity `unverified`, because a successful spawn does not prove which
+profile or device the daemon resolved.
 
 ## What the guest may reach
 

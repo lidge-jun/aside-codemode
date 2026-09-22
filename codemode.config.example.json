@@ -3,6 +3,7 @@
   "rgPath": null,
   "maxResultBytes": 65536,
   "maxTimeoutMs": 120000,
+  "browseContext": {},
   "searchCaps": {
     "files": 5000,
     "content": 500

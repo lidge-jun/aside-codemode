@@ -459,6 +459,25 @@ Aside 기본 셸은 Git Bash입니다. 같은 절대 경로 `node`와 `bin/codem
 
 환경 변수가 더 강합니다. `CODEMODE_ROOTS`, `CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`, `CODEMODE_OUTPUT_BYTES`.
 
+Aside 프로필과 세션 호스트는 Aside의 영구 설정을 바꾸지 않고 실행 컨텍스트로 지정할 수 있습니다.
+
+```json
+{ "browseContext": { "account": "u1", "host": "local" } }
+```
+
+MCP는 서버 설정의 이 값을 사용합니다. 직접 실행하는 `--code`·`--code-file`은 `--account
+u1`, `--host local` 또는 원격 호스트 ID/기기 이름으로 각 필드를 덮어쓸 수 있습니다. 결과와
+`--doctor`는 요청값과 출처를 보고하지만 실제 아이덴티티는 `unverified`로 둡니다. CLI 실행
+성공만으로 데몬이 어떤 프로필·기기를 선택했는지 증명할 수 없기 때문입니다. 알 수 없거나
+형식이 잘못된 실행 플래그는 게스트 코드 전에 거절하고, `--code` 값 안에서 플래그처럼 보이는
+텍스트는 그대로 코드로 취급합니다.
+
+공유 브라우저 캐시·승인·탭 저널은 완전한 요청 컨텍스트별로 나뉩니다. 선택자 하나만 명시하면
+다른 아이덴티티를 확인할 수 없으므로, 추측한 키를 쓰는 대신 공유 캐시와 승인 저장을 끕니다.
+원격 텍스트 읽기는 가능하지만 검증된 파일 전송 경로가 없어서 `browse.captureMany`와
+`report.build`의 원격 아티팩트 저장은 거절합니다. `host: "local"`은 기존 로컬 아티팩트 동작을
+유지합니다.
+
 설정이 없으면 `roots`는 `$HOME`입니다 (`--doctor`에 `default:$HOME`). 넓은 루트는 `excludeGlobs`로 자릅니다 (`Library`, `node_modules`, 캐시, 미디어 등). `node scripts/measure-excludes.mjs`로 [한 머신에서 실측](evidence/exclude-pruning-260918.md)한 값은 기본 제외 348,353개, `includeExcluded: true` 756,239개이고, 첫 쌍의 소요 시간은 0.69초와 1.22초였습니다. 얼마나 줄어드는지는 루트에 무엇이 들어 있느냐에 달렸으니 각자 재보는 편이 낫습니다. 가지치기를 끄려면 `"excludeGlobs": []`. `codemode.config.json`은 머신마다 다르고 gitignore됩니다.
 
 ## Trust model

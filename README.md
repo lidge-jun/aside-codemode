@@ -491,6 +491,26 @@ Later entries win:
 
 Env keys still win: `CODEMODE_ROOTS`, `CODEMODE_RG`, `CODEMODE_EXCLUDES`, `CODEMODE_TIMEOUT_MS`, `CODEMODE_OUTPUT_BYTES`.
 
+Browser execution can request an Aside profile and session host without changing persistent Aside
+settings:
+
+```json
+{ "browseContext": { "account": "u1", "host": "local" } }
+```
+
+MCP uses that server config. A direct `--code` or `--code-file` call may override either field with
+`--account u1` and `--host local` (or a remote host id/device name). Results and `--doctor` report
+the requested values and their source, with actual identity marked `unverified`; a successful CLI
+spawn is not proof of what the daemon resolved. Account/host selectors are passed to both browser
+run paths. Unknown or malformed execution flags fail before guest code runs, while flag-looking text
+inside the `--code` value stays guest code.
+
+Shared browser caches, approvals and tab journals are scoped by the complete requested context. If
+only one selector is explicit, the other identity is unresolved: shared cache and approval
+persistence are disabled rather than keyed under a guessed identity. Remote textual reads still
+work, but `browse.captureMany` and `report.build` refuse remote artifact materialization because this
+package has no verified file-transfer path. `host: "local"` keeps local artifact behavior.
+
 With no config, `roots` defaults to `$HOME` (`--doctor` reports `default:$HOME`). Wide roots are pruned by `excludeGlobs` (`Library`, `node_modules`, caches, media, …). [Measured on one machine](evidence/exclude-pruning-260918.md) with `node scripts/measure-excludes.mjs`: the default excludes walked 348,353 files, `includeExcluded: true` walked 756,239, and the same walk took 0.69s and 1.22s on the first pair of runs. How much that saves is a property of what is in the root, so measure your own. Set `"excludeGlobs": []` to disable pruning. `codemode.config.json` is machine-specific and gitignored.
 
 ## Trust model

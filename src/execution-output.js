@@ -217,9 +217,21 @@ export function fitEnvelope(input, limit) {
     if (size() > limit) delete out[key];
   }
   if (size() > limit) {
-    // At the smallest supported budget, preserve the outcome and loss marker.
-    return { ok: out.ok, [field]: '', logs: [], truncated: true,
-      ...(out.sideEffectsMayContinue ? { sideEffectsMayContinue: true } : { elapsedMs: out.elapsedMs }) };
+    // At the smallest supported budget, preserve the outcome and loss marker. Requested
+    // browser identity is also part of execution truth: keep it when possible, otherwise
+    // retain the key as null so a caller can distinguish budget loss from inheritance.
+    const minimal = { ok: out.ok, [field]: '', logs: [], truncated: true };
+    if ('browseContext' in out) {
+      const withContext = { ...minimal, browseContext: out.browseContext };
+      minimal.browseContext = Buffer.byteLength(JSON.stringify(withContext)) + 1 <= limit
+        ? out.browseContext
+        : null;
+    }
+    const tail = out.sideEffectsMayContinue
+      ? { sideEffectsMayContinue: true }
+      : { elapsedMs: out.elapsedMs };
+    if (Buffer.byteLength(JSON.stringify({ ...minimal, ...tail })) + 1 <= limit) Object.assign(minimal, tail);
+    return minimal;
   }
   out[field] = fitString(raw, limit - size() + 2);
   return out;

@@ -22,15 +22,13 @@ import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
 import { createHostGlobals } from './host/globals.js';
 import { runCode } from './sandbox.js';
 import { requireInteger } from './execution-output.js';
+import { parseCliArgs, assertExecutionArgs } from './cli-args.js';
+import { browseContextReport, mergeBrowseContext, normalizeAccount, normalizeHost } from './host/browse/context.js';
 
 const argv = process.argv.slice(2);
-function flag(name) {
-  const i = argv.indexOf(name);
-  return i !== -1 ? argv[i + 1] : null;
-}
-function has(name) {
-  return argv.includes(name);
-}
+let parsedArgv;
+function flag(name) { return parsedArgv.value(name); }
+function has(name) { return parsedArgv.has(name); }
 
 function readStdin() {
   try { return readFileSync(0, 'utf8'); } catch (_) { return ''; }
@@ -48,6 +46,9 @@ function fail(error, extra = {}) {
   process.stdout.write(JSON.stringify({ ok: false, error, ...extra }) + '\n');
   process.exit(1);
 }
+
+try { parsedArgv = parseCliArgs(argv); }
+catch (e) { fail(e.message, { code: 'EBADARGV' }); }
 
 // Before the config is loaded, on purpose. The file this command exists to fix is one of the
 // files loadConfig reads, so a broken one would block the only easy way to repair it.
@@ -182,16 +183,38 @@ if (has('--install-mcp')) {
   process.exit(report.ok ? 0 : 1);
 }
 
+const executionMode = has('--code') || has('--code-file');
+if (executionMode) {
+  try { assertExecutionArgs(parsedArgv); }
+  catch (e) { fail(e.message, { code: 'EBADARGV' }); }
+}
+
 let config;
 try {
-  config = loadConfig(argv);
+  config = loadConfig(parsedArgv.argvFor(['--config']));
 } catch (e) {
   fail(`config: ${e.message}`);
 }
 
+if (executionMode) {
+  try {
+    const override = {};
+    if (has('--account')) override.account = normalizeAccount(flag('--account'), '--account');
+    if (has('--host')) override.host = normalizeHost(flag('--host'), '--host');
+    config.browseContext = mergeBrowseContext(config.browseContext, override);
+    config._browseContextSources = Object.freeze({
+      ...config._browseContextSources,
+      ...(override.account ? { account: 'cli-override' } : {}),
+      ...(override.host ? { host: 'cli-override' } : {}),
+    });
+  } catch (e) {
+    fail(e.message, { code: e.code || 'EBADCONTEXT' });
+  }
+}
+
 let workCwd;
 try {
-  workCwd = resolveCwd({ argv });
+  workCwd = resolveCwd({ argv: parsedArgv.argvFor(['--cwd']) });
 } catch (e) {
   fail(e.message);
 }
@@ -335,6 +358,7 @@ if (has('--doctor')) {
     configSources: config._sources,
     rgPath: config.rgPath,
     excludeGlobs: config.excludeGlobs,
+    browseContext: browseContextReport(config),
     mcp: mcpDoctorReport(),
   };
   try {
@@ -421,7 +445,7 @@ if (!code || !code.trim()) {
   // "node src/cli.js" is telling you about a directory you do not have.
   const self = /(^|[\\/])cli\.js$/.test(process.argv[1] || '') ? 'node src/cli.js' : 'codemode';
   console.error('usage: ' + self + ' --install-mcp [--account u1] [--json]  # MCP: register and activate in one command');
-  console.error('       ' + self + " --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>]");
+  console.error('       ' + self + " --code '<js>' [--config <file>] [--timeout-ms N] [--cwd <dir>] [--account u1] [--host <host>]");
   console.error('       ' + self + ' --code-file <path>   # safest: no shell quoting');
   console.error('       ' + self + ' --code - < script.js  # same, via stdin');
   console.error('       ' + self + ' --doctor [--browse] [--config <file>] [--cwd <dir>]');
@@ -434,6 +458,11 @@ try {
   const requested = has('--timeout-ms') ? requireInteger('--timeout-ms', Number(flag('--timeout-ms'))) : 30000;
   timeoutMs = Math.min(requested, config.maxTimeoutMs);
 } catch (e) { fail(e.message); }
-const out = await runCode(code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes });
+const out = await runCode(code, {
+  timeoutMs,
+  globals,
+  maxResultBytes: config.maxResultBytes,
+  resultMeta: { browseContext: browseContextReport(config) },
+});
 process.stdout.write(JSON.stringify(out) + '\n');
 process.exitCode = out.ok ? 0 : 1;

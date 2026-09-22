@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -449,46 +449,28 @@ test('cache identity is partitioned per account and host context via readText', 
   }
 });
 
-test('report.build session receives routing context and passes context to spawn', async () => {
+test('report.build session receives routing context and passes context to spawn', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'codemode-report-route-'));
-  const logFile = path.join(dir, 'argv.json');
-  const fakeBin = path.join(dir, 'fake-aside');
-
-  const script = `#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
-if (process.argv.includes('--version')) {
-  console.log('1.26.0');
-  process.exit(0);
-}
-writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
-console.log(JSON.stringify({
-  type: 'final',
-  items: [{ jobId: 'j000', url: 'http://loopback', ok: true }],
-  partial: [],
-  leakedUrls: []
-}));
-console.log('[ok | 5ms]');
-`;
-
-  writeFileSync(fakeBin, script, { mode: 0o755 });
-
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let recordedArgs;
+  // Exercise the real report -> session -> transport path without an extensionless
+  // ESM/shebang executable, which is not portable to Node 18 or Windows.
   const report = createReport({
-    config: {
-      browseCaps: { enabled: true },
-      asidePath: fakeBin,
-    },
+    config: { browseCaps: { enabled: true } },
     assertInside: (p) => p,
     browserContext: { account: 'u9', host: 'local' },
+    resolveAside: async () => 'fixture-aside',
+    spawnAside: async (_bin, args) => {
+      recordedArgs = args;
+      return { stdout: JSON.stringify({ type: 'final', items: [], partial: [], leakedUrls: [] }) + '\n[ok | 5ms]' };
+    },
   });
-
   try {
     await report.build({ items: [], outFile: path.join(dir, 'out.pdf') });
-  } catch (_) {
-    // Expected post-spawn verification error since fakeBin produces mock output
+  } catch (error) {
+    assert.ok(recordedArgs, 'failure occurred before report transport: ' + error.message);
   }
-
-  assert.ok(existsSync(logFile), 'report.build must spawn the Aside binary');
-  const recordedArgs = JSON.parse(readFileSync(logFile, 'utf8'));
+  assert.ok(recordedArgs, 'report.build must spawn the Aside binary');
 
   const replIdx = recordedArgs.indexOf('repl');
   assert.notEqual(replIdx, -1, 'argv must contain "repl"');

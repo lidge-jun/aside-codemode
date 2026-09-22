@@ -7,11 +7,11 @@ import { createApi } from './browse/adapters.js';
 import { ENABLE_BROWSE_COMMAND } from '../enable-browse.js';
 import { requireLocalArtifacts } from '../browser-context.js';
 
-export function createReport({ config = {}, signal, assertInside, env = process.env, browserContext = null } = {}) {
+export function createReport({ config = {}, signal, assertInside, env = process.env, browserContext = null, spawnAside, resolveAside } = {}) {
   const caps = config.browseCaps || {};
   const session = createBrowseSession({
-    spawnAside: createAsideSpawner(),
-    resolveAside: createAsideResolver(config, env),
+    spawnAside: spawnAside || createAsideSpawner(),
+    resolveAside: resolveAside || createAsideResolver(config, env),
     signal,
     browserContext,
   });

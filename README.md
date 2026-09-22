@@ -330,6 +330,15 @@ codemode --account u1 --host local --code-file task.js
 
 Unknown execution flags and malformed selectors fail before guest code runs. An omitted selector inherits the native Aside default; this is not evidence of which account or device that default currently resolves to. Returned routing metadata reports the selected context, not independently verified browser identity. Remote host names are validated by native Aside when a browser operation runs, not by a browser-free `return 1` probe.
 
+Shared browser caches, persistent approvals and tab journals require both account and host,
+from config or per-call selectors. An incomplete context, including the empty default, disables
+their reuse. To use these features, specify both selectors and obtain fresh observations and
+approvals; old unscoped records are not reused. Browser reads still inherit Aside defaults.
+`browse.captureMany` and `report.build` require explicit `host: "local"` for local files. Omitted
+hosts may inherit remote devices and are refused too, because no verified artifact transfer exists.
+All CLI modes validate flags before execution or settings writes. `--enable-browse` accepts only
+`--json`; `--install-mcp` accepts `--account`, `--json`, `--force`, and `--no-discovery`.
+
 ### Browsing is on by default
 
 A fresh install can call `browse` with no extra step. A machine that would rather it could not

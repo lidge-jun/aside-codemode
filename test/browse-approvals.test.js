@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createBrowse } from '../src/host/browse/browse.js';
 import { createApprovals, isApprovalId } from '../src/host/browse/approvals.js';
+import { browserContextDirectory, resolveBrowserContext } from '../src/browser-context.js';
 import { readFileSync, writeFileSync, statSync } from 'node:fs';
 
 const FINAL = JSON.stringify({
@@ -23,12 +24,14 @@ let harnessSeq = 0;
 function harness() {
   const spawns = [];
   const approvalDir = path.join(os.tmpdir(), 'codemode-approvals-test-' + process.pid + '-h' + (harnessSeq += 1));
+  const browserContext = resolveBrowserContext({ mcpArgs: { account: 'u1', host: 'local' } });
   const browse = createBrowse({
+    browserContext,
     config: { browseCaps: { enabled: true, approvalDir } },
     resolveAside: async () => 'C:/fake/aside.exe',
     spawnAside: async (bin, args) => { spawns.push(args); return { stdout: FINAL, killed: false }; },
   });
-  return { browse, spawns, approvalDir };
+  return { browse, spawns, approvalDir: browserContextDirectory(approvalDir, browserContext) };
 }
 
 const writingJob = (url = 'https://a.test/1') => ({ urls: [url], refsFingerprint: 'r1-test', actions: [{ ref: 'e1', click: true }] });

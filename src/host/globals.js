@@ -6,11 +6,13 @@ import { createApplyPatch } from './patch.js';
 import { createActions } from './actions.js';
 import { createBrowse } from './browse/browse.js';
 import { createReport, createApiNamespace } from './namespaces.js';
+import { resolveBrowserContext } from '../browser-context.js';
 
-export function createHostGlobals(config, assertInside, signal) {
+export function createHostGlobals(config, assertInside, signal, { browserContext } = {}) {
   const rgRunner = createRgRunner(createRgResolver(config, process.env, { signal }), { excludeGlobs: config.excludeGlobs, signal });
   const hostFs = createFs({ assertInside, signal });
-  const browse = createBrowse({ config, signal, assertInside });
+  const resolvedContext = browserContext || resolveBrowserContext({ config });
+  const browse = createBrowse({ config, signal, assertInside, browserContext: resolvedContext });
   return {
     search: createSearch({ rgRunner, assertInside, caps: config.searchCaps }),
     fs: hostFs,
@@ -22,7 +24,7 @@ export function createHostGlobals(config, assertInside, signal) {
     // recipes.run does; it is this instance's data, not something the catalog can know.
     actions: createActions({ recipes: (config && config.recipes) || {} }),
     browse,
-    report: createReport({ config, signal, assertInside }),
+    report: createReport({ config, signal, assertInside, browserContext: resolvedContext }),
     api: createApiNamespace(),
     recipes: browse._recipes,
   };

@@ -320,6 +320,16 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `recipes.list / describe / run` | Site recipes as **data** (`{ url, waitSelector, extract }`), executed with no model turn. A `.js` recipe is refused: host-loaded code would bypass the guest sandbox |
 | `browse.prefetch(urls)` | Best-effort cache warm-up. Failures are reported, never thrown — a warm-up that breaks the real run is worse than a cold cache |
 
+### Selecting the browser account and host
+
+CLI executions accept `--account u1 --host local` alongside `--code`, `--code-file` or stdin. MCP `execute_code` accepts optional top-level `account` and `host` fields. These selectors apply only to native Aside browser calls, not local filesystem operations, and do not change Aside's global account or host defaults. Optional config defaults use `browseContext: { account, host }`; per-call selectors take precedence. `await browse.context()` reports the selection inside guest code.
+
+```sh
+codemode --account u1 --host local --code-file task.js
+```
+
+Unknown execution flags and malformed selectors fail before guest code runs. An omitted selector inherits the native Aside default; this is not evidence of which account or device that default currently resolves to. Returned routing metadata reports the selected context, not independently verified browser identity. Remote host names are validated by native Aside when a browser operation runs, not by a browser-free `return 1` probe.
+
 ### Browsing is on by default
 
 A fresh install can call `browse` with no extra step. A machine that would rather it could not
@@ -356,6 +366,8 @@ than as a clean result.
 Inclusive `glob` values (for example `**/*.js`) are ripgrep `-g` / `--glob` globs. They can match some gitignored or hidden files even when `noIgnore` and `hidden` are false. That is ripgrep glob precedence, not a workspace escape, and it is **not** the same as `-uuu`: ignore rules still apply to paths the glob does not force in. Exclusive globs (`-g '!…'`) still hide paths. Set `noIgnore` / `hidden` explicitly when you want ignore-or-dotfile control without an inclusive glob.
 
 **`max` is a global row cap**, not ripgrep `--max-count` (per file). The reader probes one extra match to distinguish a complete result of exactly `max` rows from a truncated one, then stops.
+
+**Content and count searches also have byte budgets.** An rg JSON record over 256 KiB is discarded before parsing; cumulative raw stdout over 4 MiB stops the search. Content results have a separate 4 MiB logical JSON budget that also counts repeated context entries. Budget losses return `complete: false` with a reason in `partial`; an output-budget stop also sets `truncated: true`. Counts are then lower bounds, not exact totals. These limits do not silently change the file-size or ignore filters. Narrow `path`/`glob` to recover smaller searches, or use byte-range `fs.read` for an oversized file. An explicit `maxFilesize` instead excludes files from the selected scope, so it cannot prove absence in those files. ripgrep's `--max-columns` and `--only-matching` do not shrink `--json` records.
 
 Search arrays still support `.map`, `.filter` and `.length` inside guest code. Returning a search result directly (including nested results) serializes a **search envelope**: `{ rows, complete, truncated, partial, scope }`. Counts retain `{ matches, files }` and serialize the same metadata. `complete` means the selected scope was traversed without truncation or reported read errors, not that ignored or excluded files were searched. `scope` records the effective options. Explicitly returning `.length` or a mapped array is a projection: preserve metadata yourself when completeness matters.
 

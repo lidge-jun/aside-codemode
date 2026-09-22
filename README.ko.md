@@ -293,6 +293,16 @@ npm install -g --prefix=/opt/homebrew .
 | `browse.probe()` | 설치된 Aside 빌드를 실제로 재서 만든 기능표. 어떤 page 메서드가 있는지, 어떤 옵션이 조용히 무시되는지, 왜 거절되는지를 돌려줍니다 |
 | `browse.exec(job)` | URL 묶음을 Aside REPL 세션 하나로 처리합니다. `{ items, partial, leakedUrls }`를 돌려주고, 한 URL이 실패해도 나머지 결과가 비지 않습니다 |
 
+### 브라우저 계정과 호스트 선택
+
+CLI에서는 `--code`·`--code-file`·표준 입력 실행에 `--account u1 --host local`을 붙일 수 있습니다. MCP `execute_code`는 최상위 `account`, `host` 필드를 받습니다. 이 선택은 해당 실행의 Aside 브라우저 호출에만 적용됩니다. 로컬 파일 접근이나 Aside의 전역 기본 계정·호스트는 바꾸지 않습니다. 설정 파일의 기본값은 `browseContext: { account, host }`로 지정하며 호출별 선택값이 우선합니다. 게스트 코드에서는 `await browse.context()`로 선택값을 확인할 수 있습니다.
+
+```sh
+codemode --account u1 --host local --code-file task.js
+```
+
+알 수 없는 실행 옵션이나 잘못된 선택값은 게스트 코드를 실행하기 전에 거절합니다. 선택값을 생략하면 네이티브 Aside의 기본값을 따릅니다. 반환된 라우팅 정보는 지정한 선택값이지, 실제 로그인 계정이나 원격 기기를 검증했다는 뜻은 아닙니다. 원격 호스트 이름은 브라우저 작업 때 Aside가 확인하므로, `return 1` 같은 실행만으로 해당 기기의 존재를 검증할 수는 없습니다.
+
 ### 브라우징은 기본으로 켜져 있습니다
 
 설치한 그대로 `browse`를 부를 수 있습니다. 끄고 싶은 기계는 설정에서 `browseCaps.enabled`를
@@ -328,6 +338,8 @@ CLI를 죽이면 그 탭이 영구히 남아 이후 세션에서도 닫을 수 �
 포함형 `glob`(예: `**/*.js`)은 ripgrep `-g` / `--glob`입니다. `noIgnore`와 `hidden`이 false여도 gitignore나 숨김 파일 일부가 맞을 수 있습니다. 워크스페이스 탈출이 아니라 ripgrep의 glob 우선순위이며, `-uuu`와는 다릅니다. 제외 glob(`-g '!…'`)은 여전히 가립니다. ignore/점파일을 glob 없이 다루려면 `noIgnore` / `hidden`을 직접 켜세요.
 
 **`max`는 전체 행 상한**입니다. 파일마다 자르는 ripgrep `--max-count`가 아닙니다. 한 행을 추가로 확인해 정확히 `max`개인 완전한 결과와 그보다 많은 결과를 구분한 뒤 중단합니다.
+
+**content와 count 검색에는 바이트 상한도 있습니다.** rg JSON 레코드가 256 KiB를 넘으면 파싱 전에 건너뛰고, 누적 출력이 4 MiB를 넘으면 검색을 멈춥니다. content 결과에도 별도로 4 MiB JSON 상한을 두며, 여러 결과에 반복 첨부되는 문맥도 그만큼 계산합니다. 상한 때문에 결과가 빠지면 `complete: false`와 `partial`에 사유를 반환하며, 누적 출력 상한으로 멈추면 `truncated: true`도 표시합니다. 이때 count는 정확한 총수가 아니라 확인한 최소 개수입니다. 파일 크기나 ignore 필터를 몰래 바꾸지는 않습니다. `path`·`glob`으로 범위를 나눠 재검색하거나, 큰 파일은 `fs.read`에 바이트 범위를 지정해 읽으세요. `maxFilesize`를 직접 지정하면 큰 파일이 검색 범위에서 제외되므로 그 파일에 내용이 없다는 근거로 쓸 수 없습니다. ripgrep의 `--max-columns`와 `--only-matching`은 `--json` 레코드를 줄이지 않습니다.
 
 게스트 안에서는 검색 결과에 `.map`, `.filter`, `.length`를 그대로 사용할 수 있습니다. 검색 결과를 직접 또는 다른 객체 안에 넣어 반환하면 `{ rows, complete, truncated, partial, scope }` 형태로 직렬화됩니다. count는 `{ matches, files }`에 같은 메타데이터를 담아 반환합니다. `complete`는 선택한 검색 범위를 잘림·읽기 오류 없이 확인했다는 뜻이지, ignore나 제외 설정 밖의 파일까지 찾았다는 뜻이 아닙니다. 실제 범위는 `scope`로 확인합니다. `.length`나 가공한 배열만 반환할 때는 필요한 메타데이터를 명시적으로 함께 반환하세요.
 

@@ -45,7 +45,10 @@ Two rules that are easy to get wrong:
 **The overflow witness.** A cap is honest only when the implementation reads `max + 1`.
 Accepting the extra row and dropping it is what tells "more existed" apart from a complete
 answer that happens to be exactly `max` long. `src/rg-stream.js` owns this for search;
-`fs.list` follows it.
+`fs.list` follows it. Content/count byte limits are separate from this row witness: an
+oversized skipped JSON record adds a `partial` warning and lowers completeness even if no
+rows survive. Exhausting the cumulative stdout budget also sets `truncated`. Neither loss
+is an exact count or evidence of absence; neither silently narrows the discovery filters.
 
 **The brand, not the name.** Whether metadata crosses the guest wire is decided by a brand
 the decorator attaches, never by the action's name. The previous name list — `search.*` plus

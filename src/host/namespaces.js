@@ -6,12 +6,13 @@ import { createReport as createReportCore } from './report/report.js';
 import { createApi } from './browse/adapters.js';
 import { ENABLE_BROWSE_COMMAND } from '../enable-browse.js';
 
-export function createReport({ config = {}, signal, assertInside, env = process.env } = {}) {
+export function createReport({ config = {}, signal, assertInside, env = process.env, browserContext = null } = {}) {
   const caps = config.browseCaps || {};
   const session = createBrowseSession({
     spawnAside: createAsideSpawner(),
     resolveAside: createAsideResolver(config, env),
     signal,
+    browserContext,
   });
   const core = createReportCore({ session, assertInside });
   return Object.freeze({

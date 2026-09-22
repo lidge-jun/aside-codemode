@@ -12,6 +12,13 @@ name, and when the value itself looks like a glob the refusal offers both, becau
 what was meant.
 
 `src/search-schema.js` is the option authority and `src/rg.js` runs ripgrep behind it.
+`src/rg-stream.js` bounds content/count JSON records before parsing: records above 256 KiB
+are skipped, and raw stdout above 4 MiB stops the child. Content results also have a 4 MiB
+logical JSON budget, counting every repeated context entry before retaining it. `partial` explains loss and
+`complete` is false; stopping on the output budget also sets `truncated`. Counts after a loss
+are lower bounds. File-size and discovery filters are not changed implicitly. Narrow the
+search scope or read an oversized file with byte-range `fs.read` instead of treating a partial
+empty result as absence.
 
 **A partial search is not proof that a file is absent.** Results carry `complete`, `truncated`,
 `partial` and `scope`, and a projection that drops them throws away the only evidence that the

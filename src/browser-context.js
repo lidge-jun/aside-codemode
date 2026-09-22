@@ -1,6 +1,7 @@
 // Browser execution routing context validation and argv generation.
 // Enforces per-execution routing for CLI (--account uN, --host host) and MCP execute_code.
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
 export function normalizeAccount(id) {
   if (id === null || id === undefined) return null;
@@ -32,11 +33,12 @@ export function validateHost(host) {
   if (typeof host !== 'string') {
     throw new TypeError('--host must be a string, got ' + typeof host);
   }
+  if (/[\u0000-\u001f\u007f]/.test(host)) throw new Error('--host cannot contain control characters');
   const s = host.trim();
   if (!s) {
     throw new Error('--host cannot be empty');
   }
-  if (s.startsWith('--')) {
+  if (s.startsWith('-')) {
     throw new Error('--host requires a value, for example --host local');
   }
   // Native Aside validates host identity ('local', remote ID, or device name).
@@ -91,8 +93,34 @@ const OPT_WITH_VALUE = new Set([
   '--host',
 ]);
 
-export function parseExecutionArgv(argv = []) {
+const MODE_FLAGS = {
+  '--enable-browse': ['--enable-browse', '--json'],
+  '--install-mcp': ['--install-mcp', '--json', '--force', '--no-discovery'],
+  '--doctor': ['--doctor', '--browse', '--json'],
+};
+const MODE_VALUES = {
+  '--enable-browse': [],
+  '--install-mcp': ['--account'],
+  '--doctor': ['--config', '--cwd', '--account', '--host'],
+};
+
+// Detect modes without interpreting opaque --code values, then validate before dispatch.
+export function parseCliArgv(argv = []) {
+  const modes = new Set();
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (Object.hasOwn(MODE_FLAGS, token)) modes.add(token);
+    if (token === '--code' || token === '--code-file') modes.add('execution');
+    if (OPT_WITH_VALUE.has(token)) i++;
+  }
+  if (modes.size > 1) throw new Error('choose one CLI mode: execution, --doctor, --enable-browse, or --install-mcp');
+  return parseExecutionArgv(argv, [...modes][0] || 'execution');
+}
+
+export function parseExecutionArgv(argv = [], mode = 'execution') {
   const flags = new Map();
+  const booleanFlags = new Set(MODE_FLAGS[mode] || []);
+  const valueFlags = new Set(MODE_VALUES[mode] || OPT_WITH_VALUE);
   let i = 0;
 
   while (i < argv.length) {
@@ -106,12 +134,13 @@ export function parseExecutionArgv(argv = []) {
     }
 
     if (token.startsWith('--')) {
-      if (!OPT_WITH_VALUE.has(token)) {
-        throw new Error(`unknown execution flag: ${token}`);
+      if (!valueFlags.has(token) && !booleanFlags.has(token)) {
+        throw new Error(`unknown ${mode} flag: ${token}`);
       }
       if (flags.has(token)) {
         throw new Error(`duplicate flag: ${token}`);
       }
+      if (booleanFlags.has(token)) { flags.set(token, true); i++; continue; }
       if (i + 1 >= argv.length) {
         if (token === '--account') throw new Error('--account needs an account id, for example --account u1');
         if (token === '--host') throw new Error('--host requires a value, for example --host local');
@@ -123,6 +152,7 @@ export function parseExecutionArgv(argv = []) {
         throw new Error(`${token} requires a value`);
       }
       const val = argv[i + 1];
+      if (token !== '--code' && !val.trim()) throw new Error(`${token} requires a non-empty value`);
       // For flags other than --code, a value starting with -- that matches known flags is a missing value error
       if (token !== '--code' && val.startsWith('--') && (OPT_WITH_VALUE.has(val) || val.length > 2)) {
         if (token === '--account') throw new Error('--account needs an account id, for example --account u1');
@@ -138,6 +168,8 @@ export function parseExecutionArgv(argv = []) {
       throw new Error(`unexpected argument: ${token}`);
     }
   }
+
+  if (flags.has('--code') && flags.has('--code-file')) throw new Error('pass exactly one of --code or --code-file');
 
   if (flags.has('--account')) {
     validateAccount(flags.get('--account'));
@@ -260,6 +292,7 @@ export function resolveBrowserContext({ argv, parsedFlags, mcpArgs, config } = {
 }
 
 export function buildCacheIdentity(baseAccountRoot, browserContext) {
+  if (!hasCompleteBrowserContext(browserContext)) return null;
   const routing = routingReport(browserContext);
   const tuple = [
     'v1',
@@ -271,4 +304,21 @@ export function buildCacheIdentity(baseAccountRoot, browserContext) {
   ];
   const hash = createHash('sha256').update(JSON.stringify(tuple)).digest('hex').slice(0, 32);
   return `${baseAccountRoot}#ctx=${hash}`;
+}
+
+export function hasCompleteBrowserContext(context) {
+  return Boolean(context?.account && context?.host);
+}
+
+export function browserContextDirectory(base, context) {
+  if (!hasCompleteBrowserContext(context)) throw new Error('persistent browser state requires both account and host');
+  const tag = createHash('sha256').update(JSON.stringify([normalizeAccount(context.account), context.host])).digest('hex').slice(0, 16);
+  return path.join(base, `ctx-${tag}`);
+}
+
+export function requireLocalArtifacts(context, action) {
+  if (context?.host === 'local') return;
+  const error = new Error(`${action} requires explicit host: "local" for local artifacts; inherited or remote hosts have no verified transfer path`);
+  error.code = 'EREMOTEARTIFACT';
+  throw error;
 }

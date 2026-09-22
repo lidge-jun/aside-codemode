@@ -478,7 +478,7 @@ console.log('[ok | 5ms]');
       asidePath: fakeBin,
     },
     assertInside: (p) => p,
-    browserContext: { account: 'u9', host: 'remote-box' },
+    browserContext: { account: 'u9', host: 'local' },
   });
 
   try {
@@ -501,7 +501,7 @@ console.log('[ok | 5ms]');
   assert.ok(acctIdx < replIdx, '--account must appear before "repl"');
 
   assert.notEqual(hostIdx, -1, 'report session spawn argv must contain "--host"');
-  assert.equal(recordedArgs[hostIdx + 1], 'remote-box', '--host value must be remote-box');
+  assert.equal(recordedArgs[hostIdx + 1], 'local', '--host value must be local for artifact materialization');
   assert.ok(hostIdx < replIdx, '--host must appear before "repl"');
 });
 

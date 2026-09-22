@@ -17,9 +17,8 @@ import { createWatch, createRecipes, createPrefetch } from './watch.js';
 import { createAttach } from './attach.js';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { listAccountRoots } from '../../register.js';
-import { routingReport, normalizeAccount, buildCacheIdentity } from '../../browser-context.js';
+import { routingReport, buildCacheIdentity, hasCompleteBrowserContext, browserContextDirectory, requireLocalArtifacts } from '../../browser-context.js';
 import { APPROVAL_DIR } from './approvals.js';
 import { JOURNAL_DIR } from './tab-journal.js';
 
@@ -42,23 +41,20 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // suite was writing every refusal, claim and rejection into the shared one and leaving
   // them there, which is litter in somebody's temp directory and a test that can see
   // another run's records.
-  const hasSelection = Boolean(browserContext?.account || browserContext?.host);
-  const contextTag = hasSelection
-    ? createHash('sha256').update(JSON.stringify([normalizeAccount(browserContext?.account), browserContext?.host || null])).digest('hex').slice(0, 16)
-    : null;
+  const completeContext = hasCompleteBrowserContext(browserContext);
   const baseApprovalDir = typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : APPROVAL_DIR;
-  const approvalDir = contextTag ? path.join(baseApprovalDir, `ctx-${contextTag}`) : baseApprovalDir;
+  const approvalDir = completeContext ? browserContextDirectory(baseApprovalDir, browserContext) : null;
 
   const baseJournalDir = typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : JOURNAL_DIR;
-  const journalDir = contextTag ? path.join(baseJournalDir, `ctx-${contextTag}`) : baseJournalDir;
+  const journalDir = completeContext ? browserContextDirectory(baseJournalDir, browserContext) : null;
 
-  const approvals = createApprovals({
+  const approvals = completeContext ? createApprovals({
     ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined,
     dir: approvalDir,
-  });
-  const tabJournal = createTabJournal({
+  }) : null;
+  const tabJournal = completeContext ? createTabJournal({
     dir: journalDir,
-  });
+  }) : null;
   const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal, browserContext });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
@@ -66,7 +62,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const asideHome = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside');
   const baseAccountRoot = resolveAccountRoot(asideHome, browserContext?.account);
   const accountRoot = buildCacheIdentity(baseAccountRoot, browserContext);
-  const cache = createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined });
+  const cache = completeContext ? createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined }) : null;
 
   async function probe() {
     let resolved = null;
@@ -90,6 +86,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
       e.code = 'EDISABLED';
       throw e;
     }
+    requireLocalArtifacts(browserContext, 'browse.captureMany');
     return captureManyImpl(urls, { ...opts, browseCaps: caps });
   }
 
@@ -110,6 +107,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // user's own tabs out of this.
   async function leakedTabs() {
     if (caps.enabled !== true) throw disabledError();
+    if (!tabJournal) return { ok: false, code: 'EUNRESOLVEDCONTEXT', tabs: [], error: 'tab ownership requires both account and host; inherited identity is unverified' };
     const listed = await attachImpl.tabs();
     if (!listed || listed.ok !== true) {
       return { ok: false, code: listed && listed.code ? listed.code : 'ENOTABS', error: 'could not read the open tabs, so nothing can be called abandoned', tabs: [] };
@@ -127,6 +125,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   async function approve(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.approve', opts);
+    if (!approvals) throw unresolvedApprovalError();
     const existing = approvals.read(id);
     const selected = routingReport(browserContext);
     if (existing.record?.context && (existing.record.context.account !== selected.account || existing.record.context.host !== selected.host)) {
@@ -157,6 +156,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   async function reject(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.reject', opts);
+    if (!approvals) throw unresolvedApprovalError();
     const done = approvals.reject(id);
     // A claimed record is never reported as rejected. By then the steps may have run, and
     // saying otherwise is the one wrong answer this surface can give.
@@ -191,6 +191,12 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
 }
 
 export { CAPABILITY_MATRIX };
+
+function unresolvedApprovalError() {
+  const error = new Error('persistent approvals require both account and host; inherited identity is unverified');
+  error.code = 'EUNRESOLVEDCONTEXT';
+  return error;
+}
 
 function disabledError() {
   const e = new Error(`browse is turned off on this machine. Turn it back on with: ${ENABLE_BROWSE_COMMAND}`);

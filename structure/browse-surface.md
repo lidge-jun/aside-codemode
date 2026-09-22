@@ -4,6 +4,22 @@ Everything under `src/host/browse/` exists to turn a list of urls into rows with
 the caller cannot account for. One module spawns Aside, one compiles the script, one validates the
 job, and the rest are the checks that keep a batch honest.
 
+## Routing state and local artifacts
+
+The execution's `browserContext` scopes the cache, approval store and tab journal. Both account
+and host must be specified, either by config or per-call. Any incomplete context, including the
+empty default, disables shared cache and persistent approvals/journals: inherited identity can
+change between calls, and local accounts.json cannot prove remote identity. Browser reads still
+inherit Aside defaults when selectors are omitted. `browse.context()` still reports requested
+routing, not a verified identity. `approve`, `reject` and `leakedTabs` report `EUNRESOLVEDCONTEXT`
+when persistent identity is unavailable. Configure both selectors and obtain fresh observations
+and approvals; old unscoped records are not reused.
+
+`browse.captureMany` and `report.build` require explicit host `local` before spawning. An omitted
+host can inherit a remote device even with an explicit account, so it is refused with
+`EREMOTEARTIFACT` too. There is no verified transfer path for remote session files. Textual browser
+operations remain available on remote hosts; their session paths never authorize local file reads.
+
 ## The job, validated before anything spawns
 
 `schema.js` is the option source of truth. Unknown keys are rejected with the valid list, and a key

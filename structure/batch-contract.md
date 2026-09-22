@@ -37,7 +37,10 @@ reports per-item facts; it never decides whether the run succeeded.
 Both batch and raw native calls prepend the execution's account/host selectors before `repl`.
 Returned routing metadata describes those selections, not a live identity attestation. Persistent
 approvals, tab journals and browser caches are separated by routing context so selecting another
-account or host cannot reuse the first context's approval or tab ownership.
+account or host cannot reuse the first context's approval or tab ownership. Both selectors must be
+specified, either per-call or by config. Incomplete contexts, including the empty default, disable
+shared cache and persistent approvals/journals. Session construction does not create an unscoped
+journal; the browse factory supplies one only for a complete context.
 
 `itemStatus` reads codes before `ok`, because a host-killed item and an ordinary failure both carry
 `ok: false` while an item whose action list half ran arrives with `ok: true`. Reading `ok` first

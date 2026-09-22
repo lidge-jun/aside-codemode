@@ -8,7 +8,15 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { execFileRg } from './child-opts.js';
-import { runStream, RgFailedError, RG_TIMEOUT_MS, throwIfSearchCancelled } from './rg-stream.js';
+import {
+  runStream,
+  RgFailedError,
+  RG_TIMEOUT_MS,
+  throwIfSearchCancelled,
+  RG_MAX_RECORD_BYTES,
+  RG_MAX_STDOUT_BYTES,
+  RG_MAX_RETAINED_BYTES,
+} from './rg-stream.js';
 import { decorateSearchResult } from './result-envelope.js';
 import { buildScope, FOLLOW_SYMLINKS_UNSUPPORTED, SearchOptionError } from './search-schema.js';
 import { scanSkippedSymlinks, symlinkSkipLowersCompleteness } from './symlink-scan.js';
@@ -22,7 +30,12 @@ const WELL_KNOWN_RG_PATHS = [
   '/home/linuxbrew/.linuxbrew/bin/rg',
 ];
 
-export { RgFailedError };
+export {
+  RgFailedError,
+  RG_MAX_RECORD_BYTES,
+  RG_MAX_STDOUT_BYTES,
+  RG_MAX_RETAINED_BYTES,
+};
 
 export class RgNotFoundError extends Error {
   constructor() {
@@ -186,8 +199,12 @@ const BASE_ARGS = ['--no-config', '--path-separator=/'];
 // A record the JSON parser could not read may have been a match, so it belongs in the same
 // place as a soft rg error: it lowers completeness through the existing predicate rather
 // than needing a new rule.
-function withUnparsable(partial, unparsableRecords) {
-  return unparsableRecords > 0 ? [...partial, 'unparsable-records'] : partial;
+function withUnparsable(partial, unparsableRecords, warnings = []) {
+  const out = unparsableRecords > 0 ? [...partial, 'unparsable-records'] : [...partial];
+  for (const w of warnings) {
+    if (!out.includes(w)) out.push(w);
+  }
+  return out;
 }
 
 function partialLines(stderr) {
@@ -241,7 +258,13 @@ function completeness({ truncated, partial, killedBySignal, skippedSymlinks = nu
     && !symlinkSkipLowersCompleteness(skippedSymlinks);
 }
 
-export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
+export function createRgRunner(resolveRg, {
+  excludeGlobs = [],
+  signal,
+  maxRecordBytes = RG_MAX_RECORD_BYTES,
+  maxStdoutBytes = RG_MAX_STDOUT_BYTES,
+  maxRetainedBytes = RG_MAX_RETAINED_BYTES,
+} = {}) {
   const checkedResolveRg = async () => {
     throwIfSearchCancelled(signal);
     const binary = await resolveRg();
@@ -273,12 +296,15 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       args.push(dir);
       const out = [];
       // --files emits NUL-delimited paths, not JSON, so nothing here can be unparsable.
+      // Preserving files existing behavior: unbounded record and stdout limits.
       const unparsableRecords = 0;
       const { truncated, stderr, killedBySignal } = await runStream(rg, args, {
         signal,
         max,
         timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
         delimiter: '\0',
+        maxRecordBytes: Infinity,
+        maxStdoutBytes: Infinity,
         onLine: (line) => {
           // A SUBSTRING filter, not a glob — search-schema.js refuses '*' and '?'
           // rather than letting them match nothing in silence. The comparison is
@@ -359,20 +385,21 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       // short result set that still called itself complete, so it is counted and surfaced.
       let unparsableRecords = 0;
       let openHits = [];
+      // Logical JSON bytes include repeated context, escaping and row overhead.
+      let retainedBytes = 2;
+      const jsonBytes = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
       const resetFile = () => { recent = []; openHits = []; };
-      const remember = (row) => {
-        for (const entry of openHits) {
-          if (row.line > entry.end && row.line <= entry.end + context) entry.hit.context.after.push(row);
-        }
-        openHits = openHits.filter(entry => row.line < entry.end + context);
-        recent.push(row);
-        if (recent.length > context) recent.shift();
-      };
 
-      const { truncated, stderr, killedBySignal } = await runStream(rg, args, {
+      const { truncated, stderr, killedBySignal, warnings } = await runStream(rg, args, {
         signal,
         max,
         timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+        maxRecordBytes,
+        maxStdoutBytes,
+        onDiscardRecord: () => {
+          unparsableRecords += 1;
+          resetFile();
+        },
         onLine: (line) => {
           let ev;
           try {
@@ -390,18 +417,72 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           const start = d.line_number ?? null;
           const text = lineText(d);
           if (ev.type === 'context') {
-            if (wantContext && start !== null) remember({ line: start, text });
+            if (wantContext && start !== null) {
+              const row = { line: start, text };
+              const rowBytes = jsonBytes(row) + 1;
+              for (const entry of openHits) {
+                if (row.line > entry.end && row.line <= entry.end + context) {
+                  if (retainedBytes + rowBytes > maxRetainedBytes) {
+                    return {
+                      stop: true,
+                      warning: `retained-budget-exceeded: retained output exceeded limit of ${maxRetainedBytes} bytes`,
+                    };
+                  }
+                  retainedBytes += rowBytes;
+                  entry.hit.context.after.push(row);
+                }
+              }
+              openHits = openHits.filter(entry => row.line < entry.end + context);
+              recent.push(row);
+              if (recent.length > context) recent.shift();
+            }
             return false;
           }
           const hit = { file: decodePath(d.path), line: start, text };
+          const hitBytes = jsonBytes(hit) + (wantContext ? 40 : 0) + 1;
+          let beforeBytes = 0;
+          let before = [];
+          if (wantContext) {
+            before = recent.filter(row => row.line >= start - context && row.line < start);
+            for (const b of before) {
+              beforeBytes += jsonBytes(b) + 1;
+            }
+          }
+          if (retainedBytes + hitBytes + beforeBytes > maxRetainedBytes) {
+            return {
+              stop: true,
+              warning: `retained-budget-exceeded: retained output exceeded limit of ${maxRetainedBytes} bytes`,
+            };
+          }
+          retainedBytes += hitBytes + beforeBytes;
           if (wantContext) {
             hit.context = {
-              before: recent.filter(row => row.line >= start - context && row.line < start),
+              before,
               after: [],
             };
             if (start !== null) {
               const rows = text.split(/\r?\n/);
-              rows.forEach((text, i) => remember({ line: start + i, text }));
+              for (let i = 0; i < rows.length; i++) {
+                const rText = rows[i];
+                const rLine = start + i;
+                const rRow = { line: rLine, text: rText };
+                const rBytes = jsonBytes(rRow) + 1;
+                for (const entry of openHits) {
+                  if (rLine > entry.end && rLine <= entry.end + context) {
+                    if (retainedBytes + rBytes > maxRetainedBytes) {
+                      return {
+                        stop: true,
+                        warning: `retained-budget-exceeded: retained output exceeded limit of ${maxRetainedBytes} bytes`,
+                      };
+                    }
+                    retainedBytes += rBytes;
+                    entry.hit.context.after.push(rRow);
+                  }
+                }
+                openHits = openHits.filter(entry => rLine < entry.end + context);
+                recent.push(rRow);
+                if (recent.length > context) recent.shift();
+              }
               openHits.push({ hit, end: start + rows.length - 1 });
             }
           }
@@ -413,7 +494,7 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           openHits = openHits.filter(entry => entry.hit !== dropped);
         },
       });
-      const partial = withUnparsable(partialLines(stderr), unparsableRecords);
+      const partial = withUnparsable(partialLines(stderr), unparsableRecords, warnings);
       const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult(hits, {
         truncated,
@@ -472,10 +553,15 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
       // survivable here: before, count reported zero accepted rows, so a single
       // unreadable directory (rg's soft exit 2) threw the whole call away
       // instead of returning the readable count with a partial warning.
-      const { stderr, killedBySignal } = await runStream(rg, args, {
+      const { stderr, killedBySignal, warnings, truncated } = await runStream(rg, args, {
         signal,
         max: Infinity,
         timeoutMs: timeoutMs ?? RG_TIMEOUT_MS,
+        maxRecordBytes,
+        maxStdoutBytes,
+        onDiscardRecord: () => {
+          unparsableRecords += 1;
+        },
         onLine: (line) => {
           let ev;
           try {
@@ -490,12 +576,12 @@ export function createRgRunner(resolveRg, { excludeGlobs = [], signal } = {}) {
           return true;
         },
       });
-      const partial = withUnparsable(partialLines(stderr), unparsableRecords);
+      const partial = withUnparsable(partialLines(stderr), unparsableRecords, warnings);
       const skippedSymlinks = killedBySignal ? null : await scanSkippedSymlinks(dir, { excludeGlobs: includeExcluded ? [] : excludeGlobs, hidden });
       return decorateSearchResult({ matches, files: files.size }, {
-        truncated: false,
+        truncated,
         partial,
-        complete: completeness({ truncated: false, partial, killedBySignal, skippedSymlinks }),
+        complete: completeness({ truncated, partial, killedBySignal, skippedSymlinks }),
         scope: buildScope({
           kind: 'count',
           query, ignoreCase, fixedStrings,

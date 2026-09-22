@@ -44,6 +44,13 @@ The CLI is this package's follow-on route. `bin/` holds the entry point, `bin/co
 `src/cli.js` parses the invocation behind it. Guest code arrives as `--code-file`, as `--code -`
 on stdin, or as `--code` for a short expression with no quotes of its own.
 
+CLI execution accepts `--account` and `--host`; MCP `execute_code` accepts the corresponding
+optional `account` and `host` fields. The selection is scoped to one execution's browser calls,
+not local file access. Omitted selectors inherit native Aside defaults, which are not mutated.
+`src/browser-context.js` validates selectors and builds native argv. Routing metadata describes
+the selection, not a verified account identity or resolved remote machine. Invalid selectors
+and unknown execution arguments fail before guest execution.
+
 ## What the guest may reach
 
 Guest code is an async function body evaluated in a vm context, not in Node. `src/sandbox.js` builds

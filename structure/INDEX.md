@@ -50,6 +50,7 @@ What an install writes into an account, and the budget it spends there.
 | --- | --- |
 | `bin/` | [`overview.md`](overview.md) |
 | `scripts/install-codemode.mjs` | [`install-surface.md`](install-surface.md) |
+| `src/browser-context.js` | [`overview.md`](overview.md) |
 | `src/cli.js` | [`overview.md`](overview.md) |
 | `src/execution-output.js` | [`batch-contract.md`](batch-contract.md) |
 | `src/guest-guidance.js` | [`overview.md`](overview.md) |

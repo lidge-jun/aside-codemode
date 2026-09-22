@@ -17,9 +17,13 @@ import { createWatch, createRecipes, createPrefetch } from './watch.js';
 import { createAttach } from './attach.js';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { listAccountRoots } from '../../register.js';
+import { routingReport, normalizeAccount, buildCacheIdentity } from '../../browser-context.js';
+import { APPROVAL_DIR } from './approvals.js';
+import { JOURNAL_DIR } from './tab-journal.js';
 
-export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside } = {}) {
+export function createBrowse({ config = {}, spawnAside, resolveAside, signal, env = process.env, assertInside, browserContext = null } = {}) {
   const caps = config.browseCaps || {};
   // Injectable for tests; a real install gets the portable resolver and spawner so the
   // namespace works on a machine nobody developed on.
@@ -38,19 +42,30 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   // suite was writing every refusal, claim and rejection into the shared one and leaving
   // them there, which is litter in somebody's temp directory and a test that can see
   // another run's records.
+  const hasSelection = Boolean(browserContext?.account || browserContext?.host);
+  const contextTag = hasSelection
+    ? createHash('sha256').update(JSON.stringify([normalizeAccount(browserContext?.account), browserContext?.host || null])).digest('hex').slice(0, 16)
+    : null;
+  const baseApprovalDir = typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : APPROVAL_DIR;
+  const approvalDir = contextTag ? path.join(baseApprovalDir, `ctx-${contextTag}`) : baseApprovalDir;
+
+  const baseJournalDir = typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : JOURNAL_DIR;
+  const journalDir = contextTag ? path.join(baseJournalDir, `ctx-${contextTag}`) : baseJournalDir;
+
   const approvals = createApprovals({
     ttlMs: Number.isSafeInteger(caps.approvalTtlMs) ? caps.approvalTtlMs : undefined,
-    dir: typeof caps.approvalDir === 'string' && caps.approvalDir ? caps.approvalDir : undefined,
+    dir: approvalDir,
   });
   const tabJournal = createTabJournal({
-    dir: typeof caps.tabJournalDir === 'string' && caps.tabJournalDir ? caps.tabJournalDir : undefined,
+    dir: journalDir,
   });
-  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal });
+  const session = createBrowseSession({ spawnAside: spawner, resolveAside: resolver, signal, breaker, approvals, tabJournal, browserContext });
   const captureManyImpl = createCaptureMany({ session, assertInside });
   // Not u/0. Aside runs as whichever profile accounts.json calls current, and on a machine
   // where that is id 1 a hardcoded u/0 points the cache at a profile nobody is using.
   const asideHome = path.join(env.USERPROFILE || env.HOME || os.homedir() || '', '.aside');
-  const accountRoot = resolveAccountRoot(asideHome);
+  const baseAccountRoot = resolveAccountRoot(asideHome, browserContext?.account);
+  const accountRoot = buildCacheIdentity(baseAccountRoot, browserContext);
   const cache = createCache({ ttlMs: Number.isSafeInteger(caps.cacheTtlMs) ? caps.cacheTtlMs : undefined });
 
   async function probe() {
@@ -86,7 +101,7 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   const watchImpl = createWatch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const prefetchImpl = createPrefetch({ readText: (u, o) => readTextImpl(u, o), cache, accountRoot });
   const recipesImpl = createRecipes({ registry: (config.recipes || {}), exec });
-  const attachImpl = createAttach({ config, session, tabJournal });
+  const attachImpl = createAttach({ config, session, tabJournal, browserContext });
 
   // Tabs this tool opened, whose run is gone, that are still sitting in the browser. The
   // live list is asked for first: a journal entry for a tab that is no longer open is a
@@ -112,11 +127,28 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
   async function approve(opts = {}) {
     if (caps.enabled !== true) throw disabledError();
     const id = requireApprovalId('browse.approve', opts);
+    const existing = approvals.read(id);
+    const selected = routingReport(browserContext);
+    if (existing.record?.context && (existing.record.context.account !== selected.account || existing.record.context.host !== selected.host)) {
+      return { ok: false, changed: false, approvalId: id, state: 'context-mismatch', error: 'approval was created under a different browser routing context' };
+    }
     const claimed = approvals.claim(id);
     // Nothing moved. Whatever state it is in is the answer, and the caller is told which
     // one rather than being left to infer it from a failure.
     if (!claimed.ok) return { ok: false, changed: false, approvalId: id, state: claimed.state, runId: (claimed.record && claimed.record.runId) || null, startedAt: (claimed.record && claimed.record.startedAt) || null };
     const rec = claimed.record;
+    const currentRouting = routingReport(browserContext);
+    if (rec.context && (rec.context.account !== currentRouting.account || rec.context.host !== currentRouting.host)) {
+      return {
+        ok: false,
+        changed: true,
+        approvalId: id,
+        state: 'context-mismatch',
+        error: 'claimed approval context changed before execution; no browser action was performed',
+        runId: null,
+        startedAt: null,
+      };
+    }
     const res = await session.run(rec.job, { approvedBy: id });
     approvals.started(id, res && res.runId ? res.runId : null);
     return { ...res, approvalId: id, changed: true };
@@ -149,6 +181,9 @@ export function createBrowse({ config = {}, spawnAside, resolveAside, signal, en
     searchMany: (queries, o) => searchManyImpl(queries, o),
     watch: (urls, o) => watchImpl(urls, o),
     prefetch: (urls, o) => prefetchImpl(urls, o),
+    routing: Object.freeze(routingReport(browserContext)),
+    browserContext: Object.freeze(routingReport(browserContext)),
+    context: () => routingReport(browserContext),
     // recipesImpl is exposed as its OWN root, not browse.recipes: hostMethods walks one
     // level only, so a nested object would silently never register.
     _recipes: recipesImpl,
@@ -164,11 +199,13 @@ function disabledError() {
 }
 
 // Exported for the test; a broken accounts.json must never take browsing down with it.
-export function resolveAccountRoot(asideHome) {
+export function resolveAccountRoot(asideHome, account = null) {
   try {
-    const { roots } = listAccountRoots({ asideHome });
-    const primary = roots.find((r) => r.current) || roots[0];
+    const accountId = account ? String(account).replace(/^u/, '') : undefined;
+    const { roots } = listAccountRoots({ asideHome, only: accountId ? [accountId] : undefined });
+    const primary = accountId ? roots[0] : (roots.find((r) => r.current) || roots[0]);
     if (primary && primary.root) return primary.root;
+    if (accountId) return path.join(asideHome, 'u', accountId);
   } catch { /* fall through to the historical default */ }
-  return path.join(asideHome, 'u', '0');
+  return path.join(asideHome, 'u', account ? String(account).replace(/^u/, '') : '0');
 }

@@ -320,6 +320,16 @@ Code is an async function body. `return` is the answer. The guest API does not e
 | `recipes.list / describe / run` | Site recipes as **data** (`{ url, waitSelector, extract }`), executed with no model turn. A `.js` recipe is refused: host-loaded code would bypass the guest sandbox |
 | `browse.prefetch(urls)` | Best-effort cache warm-up. Failures are reported, never thrown — a warm-up that breaks the real run is worse than a cold cache |
 
+### Selecting the browser account and host
+
+CLI executions accept `--account u1 --host local` alongside `--code`, `--code-file` or stdin. MCP `execute_code` accepts optional top-level `account` and `host` fields. These selectors apply only to native Aside browser calls, not local filesystem operations, and do not change Aside's global account or host defaults. Optional config defaults use `browseContext: { account, host }`; per-call selectors take precedence. `await browse.context()` reports the selection inside guest code.
+
+```sh
+codemode --account u1 --host local --code-file task.js
+```
+
+Unknown execution flags and malformed selectors fail before guest code runs. An omitted selector inherits the native Aside default; this is not evidence of which account or device that default currently resolves to. Returned routing metadata reports the selected context, not independently verified browser identity. Remote host names are validated by native Aside when a browser operation runs, not by a browser-free `return 1` probe.
+
 ### Browsing is on by default
 
 A fresh install can call `browse` with no extra step. A machine that would rather it could not

@@ -62,7 +62,7 @@ async function main() {
     log(`FATAL ${e.code ?? 'ECONFIG'}: ${e.message}`);
     process.exit(2);
   }
-  const globals = signal => createHostGlobals(config, assertInside, signal);
+  const globals = (signal, execContext) => createHostGlobals(config, assertInside, signal, execContext);
   const handleToolCall = createToolHandler({ config, globals });
 
   const inFlight = new Map();

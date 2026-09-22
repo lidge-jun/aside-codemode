@@ -67,11 +67,11 @@ export function createTabJournal({ dir = JOURNAL_DIR, now = Date.now, pid = proc
     // is no streaming seam to write from: the spawner hands back the whole transcript at
     // once, so the earliest this can be written is here. That bounds what it can cover —
     // see the note on record() in the surface doc.
-    record({ runId, stdout, urls = [] }) {
+    record({ runId, stdout, urls = [], context = null }) {
       const open = stillOpen(parseTabEvents(stdout));
       if (!open.length) { this.forget(runId); return null; }
       mkdirSync(dir, { recursive: true });
-      const rec = { runId, pid, writtenAt: now(), tabs: open, urls };
+      const rec = { runId, pid, writtenAt: now(), tabs: open, urls, context };
       writeFileSync(file(runId), JSON.stringify(rec), { encoding: 'utf8', mode: 0o600 });
       return rec;
     },

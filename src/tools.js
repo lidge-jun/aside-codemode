@@ -1,6 +1,7 @@
 // execute_code tool definition + handler (A-D2/A-D5).
 import { runCode } from './sandbox.js';
-import { requireInteger } from './execution-output.js';
+import { requireInteger, fitEnvelope } from './execution-output.js';
+import { resolveBrowserContext, validateAccount, validateHost, routingReport } from './browser-context.js';
 
 export const TOOL_NAME = 'execute_code';
 
@@ -29,6 +30,8 @@ export const TOOL_DEF = {
     properties: {
       code: { type: 'string', description: 'JavaScript async function body. Use return for the final answer.' },
       timeoutMs: { type: 'number', description: 'Execution timeout in ms (default 30000).' },
+      account: { type: 'string', description: 'Aside account id (e.g. "u0", "u1").' },
+      host: { type: 'string', description: 'Aside session host: "local", remote host ID, or device name.' },
     },
     required: ['code'],
     additionalProperties: false,
@@ -42,13 +45,61 @@ export function createToolHandler({ config, globals }) {
       err.invalidParams = true;
       throw err;
     }
+    const allowed = ['code', 'timeoutMs', 'account', 'host'];
+    for (const key of Object.keys(args)) {
+      if (!allowed.includes(key)) {
+        const err = new Error(`unknown parameter: ${key}`);
+        err.invalidParams = true;
+        throw err;
+      }
+    }
+    if ('account' in args) {
+      if (args.account === null || typeof args.account !== 'string') {
+        const err = new Error('account must be a string');
+        err.invalidParams = true;
+        throw err;
+      }
+      try {
+        validateAccount(args.account);
+      } catch (e) {
+        e.invalidParams = true;
+        throw e;
+      }
+    }
+    if ('host' in args) {
+      if (args.host === null || typeof args.host !== 'string') {
+        const err = new Error('host must be a string');
+        err.invalidParams = true;
+        throw err;
+      }
+      try {
+        validateHost(args.host);
+      } catch (e) {
+        e.invalidParams = true;
+        throw e;
+      }
+    }
     let timeoutMs;
     try { timeoutMs = Math.min(args.timeoutMs === undefined ? 30000 : requireInteger('timeoutMs', args.timeoutMs), config.maxTimeoutMs); }
     catch (e) { e.invalidParams = true; throw e; }
-    const out = await runCode(args.code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes, signal });
+
+    let browserContext;
+    try {
+      browserContext = resolveBrowserContext({ mcpArgs: args, config });
+    } catch (e) {
+      e.invalidParams = true;
+      throw e;
+    }
+
+    const execGlobals = (sig) => (typeof globals === 'function' ? globals(sig, { browserContext }) : globals);
+    const out = await runCode(args.code, { timeoutMs, globals: execGlobals, maxResultBytes: config.maxResultBytes, signal });
+    if (browserContext) {
+      out.browserContext = routingReport(browserContext);
+    }
+    const finalOut = fitEnvelope(out, config.maxResultBytes);
     return {
-      content: [{ type: 'text', text: JSON.stringify(out) }],
-      ...(out.ok ? {} : { isError: true }),
+      content: [{ type: 'text', text: JSON.stringify(finalOut) }],
+      ...(finalOut.ok ? {} : { isError: true }),
     };
   };
 }

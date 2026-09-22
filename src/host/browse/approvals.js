@@ -130,7 +130,7 @@ export function createApprovals({ dir = APPROVAL_DIR, ttlMs = DEFAULT_TTL_MS, no
 
     // Called by the gate. The job stored here is the validated, normalized one, so approving
     // cannot smuggle in options the refusal never saw.
-    open({ job, wants, urls }) {
+    open({ job, wants, urls, context = null }) {
       ensure();
       // Swept here rather than on a timer, because there is no process that outlives a tool
       // call to hold one. Opening an approval is the only moment this directory is certainly
@@ -138,7 +138,7 @@ export function createApprovals({ dir = APPROVAL_DIR, ttlMs = DEFAULT_TTL_MS, no
       try { sweep(); } catch { /* a sweep that fails must never stop an approval being offered */ }
       const approvalId = 'approval-' + randomUUID();
       const rec = {
-        approvalId, wants, urls, job,
+        approvalId, wants, urls, job, context,
         createdAt: now(), expiresAt: now() + ttlMs,
         runId: null, startedAt: null,
       };

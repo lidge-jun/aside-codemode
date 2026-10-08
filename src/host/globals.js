@@ -7,6 +7,31 @@ import { createActions } from './actions.js';
 import { createBrowse } from './browse/browse.js';
 import { createReport, createApiNamespace } from './namespaces.js';
 import { resolveBrowserContext } from '../browser-context.js';
+import { createDesktop } from './desktop/desktop.js';
+
+// One broker session per server process, not per execution: get_app_state element indexes
+// are only valid inside the signed session that produced them, and a guest that reads the tree
+// in one execute_code and clicks in the next must hit the same session. The broker idle-closes
+// it after desktop.idleMs.
+let desktopSingleton = null;
+let desktopKey = null;
+function sharedDesktop(config) {
+  const key = JSON.stringify(config.desktop || {});
+  if (!desktopSingleton || desktopKey !== key) {
+    if (desktopSingleton) void desktopSingleton._close();
+    desktopSingleton = createDesktop({ config });
+    desktopKey = key;
+  }
+  return desktopSingleton;
+}
+
+// The CLI is one-shot: close the broker so the process exits now, not after idleMs.
+export async function closeSharedDesktop() {
+  const d = desktopSingleton;
+  desktopSingleton = null;
+  desktopKey = null;
+  if (d) await d._close();
+}
 
 export function createHostGlobals(config, assertInside, signal, { browserContext } = {}) {
   const rgRunner = createRgRunner(createRgResolver(config, process.env, { signal }), { excludeGlobs: config.excludeGlobs, signal });
@@ -26,6 +51,7 @@ export function createHostGlobals(config, assertInside, signal, { browserContext
     browse,
     report: createReport({ config, signal, assertInside, browserContext: resolvedContext }),
     api: createApiNamespace(),
+    desktop: sharedDesktop(config),
     recipes: browse._recipes,
   };
 }

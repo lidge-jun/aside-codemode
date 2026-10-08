@@ -16,6 +16,7 @@ const NAMESPACE_CALLS = {
   search: ['search.content({ path, query })', 'search.content'],
   browse: ['browse.exec({ urls })', 'browse.exec'],
   api: ['api.batch(requests)', 'api.batch'],
+  desktop: ['desktop.get_app_state({ app })', 'desktop.get_app_state'],
   report: ['report.build(options)', 'report.build'],
   recipes: ['recipes.run(name, input)', 'recipes.run'],
   read_file: ['read_file({ path })', 'read_file'],

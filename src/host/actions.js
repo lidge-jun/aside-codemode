@@ -17,6 +17,7 @@ import {
   checkBrowseArgs,
 } from './browse/actions-schema.js';
 import { validateRecipeRun } from './browse/watch.js';
+import { DESKTOP_ACTIONS } from './desktop/desktop-actions.js';
 import { parseApplyPatch } from './patch.js';
 
 // The guest manifest exposes these same functions twice: once as globals and once through
@@ -54,6 +55,7 @@ const REGISTRY = [
   ...REPORT_ACTIONS,
   ...API_ACTIONS,
   ...RECIPE_ACTIONS,
+  ...DESKTOP_ACTIONS,
   {
     path: 'read_file',
     description: 'Read a file using the Aside read_file shape. offset/limit are 1-indexed lines.',

@@ -37,6 +37,8 @@ const DEFAULTS = {
   // ~30s internal screenshot timeout; the host deadline is derived as inner + slack.
   browseCaps: { enabled: true, timeoutMs: 25000, maxTabs: 8, concurrency: 4 },
   browseContext: null,
+  // Off by default: driving native macOS apps is a bigger blast radius than reading files.
+  desktop: { enabled: false, packageDir: null, disclaimLauncher: null, idleMs: 120000 },
   excludeGlobs: DEFAULT_EXCLUDES,
 };
 
@@ -130,6 +132,13 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env) {
       if ('timeoutMs' in obj.browseCaps) cfg.browseCaps.timeoutMs = requireInteger('browseCaps.timeoutMs', obj.browseCaps.timeoutMs);
       if ('maxTabs' in obj.browseCaps) cfg.browseCaps.maxTabs = requireInteger('browseCaps.maxTabs', obj.browseCaps.maxTabs);
       if ('concurrency' in obj.browseCaps) cfg.browseCaps.concurrency = requireInteger('browseCaps.concurrency', obj.browseCaps.concurrency);
+    }
+    if (obj.desktop && typeof obj.desktop === 'object') {
+      cfg.desktop = { ...(cfg.desktop || {}) };
+      if ('enabled' in obj.desktop) cfg.desktop.enabled = obj.desktop.enabled === true;
+      if ('packageDir' in obj.desktop) cfg.desktop.packageDir = obj.desktop.packageDir === null ? null : String(obj.desktop.packageDir);
+      if ('disclaimLauncher' in obj.desktop) cfg.desktop.disclaimLauncher = obj.desktop.disclaimLauncher === null ? null : String(obj.desktop.disclaimLauncher);
+      if ('idleMs' in obj.desktop) cfg.desktop.idleMs = requireInteger('desktop.idleMs', obj.desktop.idleMs);
     }
     if (obj.browseContext && typeof obj.browseContext === 'object') {
       if (!cfg.browseContext) cfg.browseContext = {};

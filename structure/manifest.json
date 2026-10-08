@@ -112,6 +112,15 @@
         "src/register.js",
         "src/paths.js"
       ]
+    },
+    {
+      "path": "desktop-surface.md",
+      "tier": 3,
+      "title": "Desktop surface",
+      "scope": "The macOS Computer Use namespace: why it lives in code mode, its signed-broker transport, the responsibility disclaim, and its result shape.",
+      "documents": [
+        "src/host/desktop/"
+      ]
     }
   ]
 }

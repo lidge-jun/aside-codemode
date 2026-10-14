@@ -96,7 +96,7 @@ in bash is using an undocumented implementation detail, not a provided tool.
 
 So an agent's real options were POSIX `grep` and `find` through bash, which is why the numbers
 above are measured against those and not against ripgrep. Ripgrep is the ceiling, not the
-baseline. This package puts that engine on the surface as 34 guest actions behind one tool.
+baseline. This package puts that engine on the surface as 46 guest actions behind one tool.
 
 Against ripgrep called directly the two are level, because `search.*` shells out to that same
 binary. This is not a faster search engine. It is the engine Aside already shipped, reachable,

@@ -51,7 +51,7 @@ export function createHostGlobals(config, assertInside, signal, { browserContext
     browse,
     report: createReport({ config, signal, assertInside, browserContext: resolvedContext }),
     api: createApiNamespace(),
-    desktop: sharedDesktop(config),
+    desktop: sharedDesktop(config)._view(signal),
     recipes: browse._recipes,
   };
 }

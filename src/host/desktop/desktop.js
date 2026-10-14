@@ -49,9 +49,19 @@ async function loadBroker(packageDir) {
   return { DirectSessionExecutor, getDirectStatus };
 }
 
-export function createDesktop({ config = {}, signal, env = process.env, loader = loadBroker } = {}) {
+function abortError(name) {
+  const e = new Error(`desktop.${name} was not sent: the execution was cancelled or timed out.`);
+  e.code = 'EABORTED';
+  return e;
+}
+
+// The executor (and with it the broker session) is shared by every execution that uses this
+// namespace, so element indexes survive from one execute_code to the next. The abort signal is
+// not shared: each execution gets a view bound to its own signal through _view(signal), so a
+// timed-out execution stops issuing clicks without tearing down the session other executions use.
+export function createDesktop({ config = {}, signal, env = process.env, loader = loadBroker, platform = process.platform } = {}) {
   const caps = config.desktop || {};
-  let executor = null;
+  let executorPromise = null;
   let broker = null;
 
   function requireEnabled(name) {
@@ -60,7 +70,7 @@ export function createDesktop({ config = {}, signal, env = process.env, loader =
       e.code = 'EDISABLED';
       throw e;
     }
-    if (process.platform !== 'darwin') {
+    if (platform !== 'darwin') {
       const e = new Error('desktop.* drives macOS apps through Codex Computer Use and is macOS-only.');
       e.code = 'ENOTSUP';
       throw e;
@@ -72,68 +82,93 @@ export function createDesktop({ config = {}, signal, env = process.env, loader =
     }
   }
 
-  async function getExecutor() {
-    if (executor) return executor;
-    const launcher = caps.disclaimLauncher || env.CU_DISCLAIM_LAUNCHER;
-    if (launcher) process.env.CU_DISCLAIM_LAUNCHER = launcher;
-    broker = await loader(caps.packageDir);
-    executor = new broker.DirectSessionExecutor({ idleTimeoutMs: caps.idleMs ?? 120000 });
-    signal?.addEventListener?.('abort', () => { void executor?.close().catch(() => {}); executor = null; }, { once: true });
-    return executor;
+  // Concurrent first calls (Promise.all in the guest) share one in-flight start, so only one
+  // broker session is ever opened. A failed start is forgotten so the next call can retry.
+  function getExecutor() {
+    if (!executorPromise) {
+      executorPromise = (async () => {
+        const launcher = caps.disclaimLauncher || env.CU_DISCLAIM_LAUNCHER;
+        if (launcher) process.env.CU_DISCLAIM_LAUNCHER = launcher;
+        broker = await loader(caps.packageDir);
+        return new broker.DirectSessionExecutor({ idleTimeoutMs: caps.idleMs ?? 120000 });
+      })();
+      executorPromise.catch(() => { executorPromise = null; });
+    }
+    return executorPromise;
   }
 
-  function method(name) {
-    return async (args = {}, opts = {}) => {
-      requireEnabled(name);
-      if (args === null || typeof args !== 'object' || Array.isArray(args)) {
-        const e = new Error(`desktop.${name}(args) takes one object, e.g. desktop.${name}({ app: "KakaoTalk" }).`);
-        e.code = 'EBADVAL';
-        throw e;
-      }
-      const ex = await getExecutor();
-      const raw = await ex.execute(name, args, { signal });
-      return shapeResult(name, raw, { withImage: opts && opts.image === true });
-    };
+  async function invoke(name, args, opts, sig) {
+    requireEnabled(name);
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+      const e = new Error(`desktop.${name}(args) takes one object, e.g. desktop.${name}({ app: "KakaoTalk" }).`);
+      e.code = 'EBADVAL';
+      throw e;
+    }
+    if (sig?.aborted) throw abortError(name);
+    const ex = await getExecutor();
+    if (sig?.aborted) throw abortError(name);
+    const raw = await ex.execute(name, args, { signal: sig });
+    return shapeResult(name, raw, { withImage: Boolean(opts && opts.image === true) });
   }
-
-  const api = {};
-  for (const m of DESKTOP_METHODS) api[m] = method(m);
 
   // Many steps, one host round-trip, stop at the first failure. Each step is
   // { method, args, expect? } where expect is a substring the step's text must contain.
-  api.run = async (steps = [], opts = {}) => {
+  // The guest cannot interrupt a host-side loop, so cancellation is checked before every step.
+  async function runSteps(steps, opts, sig) {
     requireEnabled('run');
     if (!Array.isArray(steps) || !steps.length) {
       const e = new Error('desktop.run(steps) takes a non-empty array of { method, args, expect? }.');
       e.code = 'EBADVAL';
       throw e;
     }
+    const o = opts && typeof opts === 'object' ? opts : {};
     const results = [];
     for (const [i, step] of steps.entries()) {
+      if (sig?.aborted) {
+        results.push({ step: i, ok: false, error: abortError('run').message });
+        return { ok: false, complete: false, failedAt: i, results };
+      }
       if (!step || !DESKTOP_METHODS.includes(step.method)) {
         results.push({ step: i, ok: false, error: `unknown method ${step && step.method}` });
         return { ok: false, complete: false, failedAt: i, results };
       }
       let r;
-      try { r = await api[step.method](step.args || {}, { image: false }); }
+      try { r = await invoke(step.method, step.args || {}, { image: false }, sig); }
       catch (e) { r = { method: step.method, ok: false, error: e.message }; }
       if (r.ok && step.expect && !String(r.text).includes(step.expect)) {
         r = { ...r, ok: false, error: `expected text not found: ${step.expect}` };
       }
       results.push({ step: i, method: r.method, ok: r.ok, ...(r.error ? { error: r.error } : {}),
-        text: opts.keepText ? r.text : String(r.text || '').slice(0, opts.textChars ?? 300) });
+        text: o.keepText ? r.text : String(r.text || '').slice(0, o.textChars ?? 300) });
       if (!r.ok) return { ok: false, complete: false, failedAt: i, results };
     }
     return { ok: true, complete: true, results };
-  };
+  }
 
-  api.status = async () => {
+  async function status() {
     if (caps.enabled !== true) return { enabled: false, hint: ENABLE_DESKTOP_HINT };
     requireEnabled('status');
     const b = broker || await loader(caps.packageDir);
     return { enabled: true, launcher: Boolean(caps.disclaimLauncher || env.CU_DISCLAIM_LAUNCHER), ...b.getDirectStatus() };
-  };
+  }
 
-  api._close = async () => { await executor?.close().catch(() => {}); executor = null; };
-  return Object.freeze(api);
+  async function close() {
+    const p = executorPromise;
+    executorPromise = null;
+    if (!p) return;
+    const ex = await p.catch(() => null);
+    await ex?.close().catch(() => {});
+  }
+
+  function view(sig) {
+    const api = {};
+    for (const m of DESKTOP_METHODS) api[m] = (args = {}, opts = {}) => invoke(m, args, opts, sig);
+    api.run = (steps = [], opts = {}) => runSteps(steps, opts, sig);
+    api.status = status;
+    api._close = close;
+    api._view = view;
+    return Object.freeze(api);
+  }
+
+  return view(signal);
 }

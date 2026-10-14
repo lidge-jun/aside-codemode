@@ -27,6 +27,11 @@ One executor lives per server process, not per execution. Element indexes return
 one `execute_code` and clicks in the next must reach the same session. The broker closes it
 after `desktop.idleMs` of inactivity. The CLI closes it when its single execution ends.
 
+The abort signal is per execution even though the session is shared: each execution gets a
+view of the namespace bound to its own signal. When an execution times out or is cancelled, its
+calls stop being sent and `desktop.run` stops before its next step, while the session stays open
+for other executions. Concurrent first calls share one start, so only one session is opened.
+
 ## macOS responsibility
 
 When Aside launches the chain, macOS treats Aside as the responsible process for every child.

@@ -35,6 +35,7 @@ The batch surface that drives Aside, and how it refuses work that cannot succeed
 | --- | --- |
 | [`browse-surface.md`](browse-surface.md) | The job schema, block detection and the breaker, capture verification, and ref-addressed actions. |
 | [`local-surface.md`](local-surface.md) | The guest file tools, ripgrep-backed search, scope reporting, and write coordination. |
+| [`desktop-surface.md`](desktop-surface.md) | The macOS Computer Use namespace: why it lives in code mode, its signed-broker transport, the responsibility disclaim, and its result shape. |
 
 ### Tier 4 — Delivery
 
@@ -59,6 +60,7 @@ What an install writes into an account, and the budget it spends there.
 | `src/host/browse/policy.js` | [`session-contract.md`](session-contract.md) |
 | `src/host/browse/result-contract.js` | [`batch-contract.md`](batch-contract.md) |
 | `src/host/browse/session.js` | [`batch-contract.md`](batch-contract.md) |
+| `src/host/desktop/` | [`desktop-surface.md`](desktop-surface.md) |
 | `src/host/file-lock.js` | [`local-surface.md`](local-surface.md) |
 | `src/host/fs.js` | [`local-surface.md`](local-surface.md) |
 | `src/host/globals.js` | [`overview.md`](overview.md) |

@@ -19,7 +19,7 @@ import { loadConfig } from './config.js';
 import { makeRootGuard } from './paths.js';
 import { resolveCwd } from './host/cwd.js';
 import { createDetailedRgResolver, getAsideBundledRgPath } from './rg.js';
-import { createHostGlobals } from './host/globals.js';
+import { createHostGlobals, closeSharedDesktop } from './host/globals.js';
 import { runCode } from './sandbox.js';
 import { requireInteger, fitEnvelope } from './execution-output.js';
 import { resolveBrowserContext, parseCliArgv, parseExecutionArgv, validateAccount, validateHost, routingReport } from './browser-context.js';
@@ -471,6 +471,7 @@ try {
   timeoutMs = Math.min(requested, config.maxTimeoutMs);
 } catch (e) { fail(e.message); }
 const out = await runCode(code, { timeoutMs, globals, maxResultBytes: config.maxResultBytes });
+await closeSharedDesktop().catch(() => {});
 if (browserContext) {
   out.browserContext = routingReport(browserContext);
 }

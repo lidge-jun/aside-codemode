@@ -8,7 +8,7 @@ import {
 import { isDecoratedResult } from './result-envelope.js';
 
 const HOST_DRAIN_MS = 1000;
-const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
+const ROOTS = ['search', 'fs', 'actions', 'browse', 'report', 'api', 'desktop', 'recipes', 'read_file', 'write_file', 'edit_file', 'apply_patch'];
 
 function hostMethods(globals) {
   const methods = new Map();
@@ -17,7 +17,7 @@ function hostMethods(globals) {
     if (typeof value === 'function') methods.set(root, value.bind(globals));
     else if (value && typeof value === 'object') {
       for (const [name, fn] of Object.entries(value)) {
-        if (typeof fn === 'function') methods.set(`${root}.${name}`, fn.bind(value));
+        if (typeof fn === 'function' && !name.startsWith('_')) methods.set(`${root}.${name}`, fn.bind(value));
       }
     }
   }

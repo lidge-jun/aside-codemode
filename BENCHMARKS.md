@@ -101,6 +101,10 @@ Re-measured at 0.9.0, after the completeness work widened eleven signatures and 
 description named the 64 KiB return-path cap. The four numbers moved together and the note
 records the run: [aside-mcp-attach-260918.md](evidence/aside-mcp-attach-260918.md).
 
+These are 0.9.0 figures and have not been re-measured since. The `desktop` namespace later added
+twelve catalog rows (46 in all) and named itself in the resident description, which the suite
+checks against the README; the definition total, schema and description sum above predate it.
+
 ## Where codemode loses
 
 - **Single small grep.** Roughly a tie on time and **larger** on bytes: 43,948 against
